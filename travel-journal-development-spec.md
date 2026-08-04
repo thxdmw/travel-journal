@@ -81,7 +81,7 @@
 | 语言 | Java 21 |
 | 框架 | Spring Boot 3.x、Spring MVC |
 | 安全 | Spring Security、Session Cookie、BCrypt |
-| 数据访问 | Spring Data JPA |
+| ORM 与数据访问 | MyBatis-Plus（Spring Boot 3 Starter） |
 | 数据库 | PostgreSQL |
 | 数据库迁移 | Flyway |
 | 对象存储 | MinIO Java SDK |
@@ -94,9 +94,10 @@
 
 约束：
 
-- 数据库表只由 Flyway 创建和修改，JPA 使用 ddl-auto=validate。
+- 数据库表只由 Flyway 创建和修改，MyBatis-Plus 不执行自动建表。
+- 常规单表 CRUD 使用 MyBatis-Plus；公开查询、统计汇总和多表查询使用显式 Mapper SQL，避免把复杂条件隐藏在 Service 中。
 - Entity 不直接作为接口响应。
-- 不照搬 CMS 的 MySQL、MyBatis-Plus、Shiro、Redis 或文件系统模块。
+- MyBatis-Plus 仅作为本项目 ORM 技术选型，不复制 CMS 的 Mapper、实体或业务代码；同时不引入 CMS 的 MySQL、Shiro、Redis 和文件系统模块。
 - 按单实例部署设计，Session 保存在应用内存中；容器重启后重新登录是可接受行为。
 
 ### 2.2 前端
@@ -249,6 +250,28 @@ travel-journal/
 
 发布时必须校验标题、Slug、旅行、发生日期和正文。撤回后公开接口立即不可见。公开端只渲染经过清理的 Markdown HTML。
 
+#### Markdown 图片处理
+
+Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本，编辑和备份简单，也便于长期保存。图片不能把 MinIO 对象键或临时预签名 URL 直接写进正文，否则会泄漏存储细节或在签名过期后失效。
+
+采用以下方式：
+
+1. 新日记先保存为草稿，取得日记 ID 后才能上传图片。
+2. 编辑器支持选择、拖拽或粘贴图片；前端上传成功后，在光标位置自动插入 Markdown：
+
+   ~~~markdown
+   ![图片说明](/api/media/123/display)
+   ~~~
+
+3. 正文只保存上述稳定的应用内媒体地址，不保存 MinIO 地址、对象键或预签名 URL。
+4. 浏览器请求 GET /api/media/{mediaId}/display 时，后端检查媒体可见性，再 302 跳转到新生成的短期 MinIO 预签名地址。
+5. 媒体关联已发布日记时允许访客访问 display 和 thumbnail；草稿媒体仅管理员可访问；original 默认仅管理员下载。
+6. 上传接口同时建立 journal_media 关联，因此同一张图片既可插入正文，也可出现在日记图片库中。
+7. 删除媒体前检查正文是否仍引用该媒体；仍被引用时拒绝删除并提示先移除正文中的图片。
+8. 图片说明写入 Markdown 的 alt 文本；图片库中的 caption 继续单独保存，可由编辑器同步填写。
+
+这样可以保留 Markdown 的简洁性，同时让图片上传、预览、发布和 MinIO 私有访问保持稳定。MVP 不允许用户手工填写任意外部图片地址，避免外链失效和隐私跟踪。
+
 ### 4.6 照片
 
 - 每篇日记最多 50 张，单张最大 20 MB。
@@ -257,7 +280,7 @@ travel-journal/
 - 自动纠正 EXIF 方向，并移除公开图片的 EXIF GPS 信息。
 - 支持排序、说明、封面设置和删除。
 - MinIO Bucket 必须私有，数据库只保存对象键和元数据。
-- 页面通过后端返回的短期预签名 URL 访问图片。
+- 图片列表接口返回稳定媒体地址；后端媒体读取接口校验权限后跳转到短期预签名 URL。
 
 本项目直接实现轻量的 MediaStorageService 和 MinioMediaStorageService，不使用 CMS 的文件应用、文件策略、命名空间或相关数据库表。
 
@@ -330,13 +353,13 @@ journal_media：
 
 ## 6. 后端代码组织
 
-业务包按功能组织，每个业务包内部使用 controller、service、repository、entity、dto 和 mapper 子包。
+业务包按功能组织，每个业务包内部使用 controller、service、mapper、entity 和 dto 子包。复杂 SQL 可放在 resources/mapper 下的 XML 文件中。
 
 规则：
 
 - Controller 只负责 HTTP、身份校验入口、参数校验和 DTO。
 - Service 负责业务规则和事务。
-- Repository 只负责数据访问。
+- Mapper 负责数据访问，简单 CRUD 使用 MyBatis-Plus BaseMapper，复杂查询使用明确的方法名和 SQL。
 - Entity 不直接返回给浏览器。
 - 公开 DTO 与管理 DTO 分开，避免敏感字段误返回。
 - 统一异常处理，但不过度封装简单 CRUD。
@@ -408,6 +431,9 @@ journal_media：
 | PUT | /api/admin/journals/{id}/media/reorder | 图片排序 |
 | PATCH | /api/admin/journals/{id}/cover/{mediaId} | 设置封面 |
 | PUT、DELETE | /api/admin/journal-media/{id} | 修改说明或删除图片 |
+| GET | /api/media/{mediaId}/thumbnail | 获取缩略图，按日记状态鉴权后跳转 |
+| GET | /api/media/{mediaId}/display | 获取正文展示图，按日记状态鉴权后跳转 |
+| GET | /api/media/{mediaId}/original | 下载原图，仅管理员 |
 
 ### 7.5 公开接口
 
