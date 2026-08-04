@@ -4,9 +4,9 @@ spring:
   profiles:
     default: dev
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:travel_journal}?sslmode=${DB_SSL_MODE:prefer}
-    username: ${DB_USERNAME:travel_journal}
-    password: ${DB_PASSWORD:travel_journal}
+    url: jdbc:postgresql://${DB_HOST:192.168.31.136}:${DB_PORT:5432}/${DB_NAME:travel_journal_dev}?sslmode=${DB_SSL_MODE:prefer}
+    username: ${DB_USERNAME:travel_journal_dev}
+    password: ${DB_PASSWORD:travel_journal_dev}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -52,16 +52,16 @@ app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
   admin:
     username: ${APP_ADMIN_USERNAME:admin}
-    password: ${APP_ADMIN_PASSWORD:}
+    password: ${APP_ADMIN_PASSWORD:123456}
     display-name: ${APP_ADMIN_DISPLAY_NAME:旅行者}
   upload:
     max-file-size-mb: ${APP_UPLOAD_MAX_FILE_SIZE_MB:20}
     max-images-per-journal: ${APP_UPLOAD_MAX_IMAGES_PER_JOURNAL:50}
     max-pixels: ${APP_UPLOAD_MAX_PIXELS:50000000}
   minio:
-    endpoint: ${MINIO_ENDPOINT:https://localhost:9000}
-    access-key: ${MINIO_ACCESS_KEY:MINIO_ACCESS_KEY}
-    secret-key: ${MINIO_SECRET_KEY:MINIO_SECRET_KEY}
-    bucket: ${MINIO_BUCKET:travel-journal}
+    endpoint: ${MINIO_ENDPOINT:https://file.thxdxw.cn}
+    access-key: ${MINIO_ACCESS_KEY:9ZiVHv3Gq5lv70vljbFp}
+    secret-key: ${MINIO_SECRET_KEY:MGMGT2zCFuf1Kqs8rHGpAZrV0l8yzUGH82iSFXn0}
+    bucket: ${MINIO_BUCKET:travel-journal-dev}
     presigned-url-ttl-minutes: ${MINIO_PRESIGNED_URL_TTL_MINUTES:60}
     verify-on-startup: ${MINIO_VERIFY_ON_STARTUP:true}
