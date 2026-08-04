@@ -1,0 +1,84 @@
+(function () {
+  const http = axios.create({
+    baseURL: '/api',
+    withCredentials: true,
+    xsrfCookieName: 'XSRF-TOKEN',
+    xsrfHeaderName: 'X-XSRF-TOKEN',
+    timeout: 30000
+  });
+
+  http.interceptors.response.use(
+    response => response.data && Object.prototype.hasOwnProperty.call(response.data, 'data')
+      ? response.data.data : response.data,
+    error => {
+      const response = error.response;
+      const message = response && response.data && response.data.message
+        ? response.data.message : '网络请求失败';
+      if (response && response.status === 401 && location.pathname.startsWith('/admin')
+          && !location.hash.includes('/login')) {
+        location.hash = '#/login';
+      }
+      return Promise.reject(new Error(message));
+    }
+  );
+
+  async function ensureCsrf() {
+    return http.get('/public/csrf');
+  }
+
+  window.TravelApi = {
+    http,
+    ensureCsrf,
+    public: {
+      home: () => http.get('/public/home'),
+      trips: () => http.get('/public/trips'),
+      trip: slug => http.get('/public/trips/' + encodeURIComponent(slug)),
+      journals: (page = 1, pageSize = 12) => http.get('/public/journals', { params: { page, pageSize } }),
+      journal: slug => http.get('/public/journals/' + encodeURIComponent(slug)),
+      cities: () => http.get('/public/map/cities')
+    },
+    auth: {
+      login: body => http.post('/admin/auth/login', body),
+      logout: () => http.post('/admin/auth/logout'),
+      me: () => http.get('/admin/auth/me'),
+      changePassword: body => http.post('/admin/auth/change-password', body)
+    },
+    admin: {
+      trips: params => http.get('/admin/trips', { params }),
+      trip: id => http.get('/admin/trips/' + id),
+      createTrip: body => http.post('/admin/trips', body),
+      updateTrip: (id, body) => http.put('/admin/trips/' + id, body),
+      dashboard: id => http.get('/admin/trips/' + id + '/dashboard'),
+      stops: id => http.get('/admin/trips/' + id + '/stops'),
+      createStop: (id, body) => http.post('/admin/trips/' + id + '/stops', body),
+      updateStop: (id, body) => http.put('/admin/stops/' + id, body),
+      deleteStop: id => http.delete('/admin/stops/' + id),
+      itinerary: id => http.get('/admin/trips/' + id + '/itinerary'),
+      createItinerary: (id, body) => http.post('/admin/trips/' + id + '/itinerary', body),
+      updateItinerary: (id, body) => http.put('/admin/itinerary/' + id, body),
+      deleteItinerary: id => http.delete('/admin/itinerary/' + id),
+      completeItinerary: (id, completed) => http.patch('/admin/itinerary/' + id + '/completed', { completed }),
+      budget: id => http.get('/admin/trips/' + id + '/budget'),
+      createCategory: (id, body) => http.post('/admin/trips/' + id + '/budget-categories', body),
+      updateCategory: (id, body) => http.put('/admin/budget-categories/' + id, body),
+      deleteCategory: id => http.delete('/admin/budget-categories/' + id),
+      expenses: id => http.get('/admin/trips/' + id + '/expenses'),
+      createExpense: (id, body) => http.post('/admin/trips/' + id + '/expenses', body),
+      updateExpense: (id, body) => http.put('/admin/expenses/' + id, body),
+      deleteExpense: id => http.delete('/admin/expenses/' + id),
+      journals: params => http.get('/admin/journals', { params }),
+      journal: id => http.get('/admin/journals/' + id),
+      createJournal: body => http.post('/admin/journals', body),
+      updateJournal: (id, body) => http.put('/admin/journals/' + id, body),
+      deleteJournal: id => http.delete('/admin/journals/' + id),
+      publishJournal: id => http.post('/admin/journals/' + id + '/publish'),
+      unpublishJournal: id => http.post('/admin/journals/' + id + '/unpublish'),
+      media: id => http.get('/admin/journals/' + id + '/media'),
+      uploadMedia: (id, form) => http.post('/admin/journals/' + id + '/media', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }),
+      setCover: (journalId, mediaId) => http.patch('/admin/journals/' + journalId + '/cover/' + mediaId),
+      deleteMedia: relationId => http.delete('/admin/journal-media/' + relationId)
+    }
+  };
+})();

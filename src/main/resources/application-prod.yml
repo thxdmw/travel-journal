@@ -1,0 +1,9 @@
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true
+logging:
+  level:
+    root: INFO
+    com.thx.traveljournal: INFO

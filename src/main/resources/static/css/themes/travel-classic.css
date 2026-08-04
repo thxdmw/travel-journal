@@ -1,0 +1,33 @@
+:root,
+[data-theme="travel-classic"] {
+  --tj-bg: #F7F2E8;
+  --tj-surface: #FFFCF6;
+  --tj-surface-soft: #F1E7D7;
+  --tj-primary: #264A3D;
+  --tj-primary-soft: #42685A;
+  --tj-accent: #C76D4B;
+  --tj-accent-hover: #B65B3B;
+  --tj-sand: #DFC9A8;
+  --tj-text: #2A2D2B;
+  --tj-muted: #77736B;
+  --tj-border: #E6DAC8;
+  --tj-danger: #B7483E;
+  --tj-shadow: 0 14px 40px rgba(57, 47, 36, .08);
+  --tj-shadow-soft: 0 5px 20px rgba(57, 47, 36, .06);
+  --tj-radius: 12px;
+  --tj-radius-small: 8px;
+  --tj-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  --tj-sans: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --el-color-primary: #C76D4B;
+  --el-color-primary-light-3: #D9967D;
+  --el-color-primary-light-5: #E7B6A4;
+  --el-color-primary-light-7: #F1D4C9;
+  --el-color-primary-light-9: #FAF0EC;
+  --el-color-primary-dark-2: #A85436;
+  --el-border-color: #E6DAC8;
+  --el-border-radius-base: 8px;
+  --el-bg-color: #FFFCF6;
+  --el-fill-color-blank: #FFFCF6;
+  --el-text-color-primary: #2A2D2B;
+}
