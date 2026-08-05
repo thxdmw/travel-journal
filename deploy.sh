@@ -51,7 +51,7 @@ info "开始部署 travel-journal 应用..."
 APP_NAME="travel-journal"
 IMAGE_NAME="${APP_NAME}:latest"
 CONTAINER_NAME="${APP_NAME}-container"
-PORT=8080
+PORT=20007
 
 # 【关键】强制启用 BuildKit，否则 Dockerfile 中的 --mount=type=cache 不生效
 export DOCKER_BUILDKIT=1

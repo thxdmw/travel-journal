@@ -11,6 +11,6 @@ RUN --mount=type=cache,target=/root/.m2/repository ./mvnw clean package -DskipTe
 FROM eclipse-temurin:21-jre
 WORKDIR /app/travel-journal
 COPY --from=builder /build/target/travel-journal.jar app.jar
-EXPOSE 8080
+EXPOSE 20007
 ENV SPRING_PROFILES_ACTIVE=prod
 ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-jar", "/app/travel-journal/app.jar"]
