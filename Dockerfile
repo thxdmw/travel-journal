@@ -31,12 +31,12 @@ COPY src ./src
 
 # 构建项目
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn clean package -DskipTests -B -s /root/.m2/settings.xml \
+    mvn clean package -DskipTests -B -s /root/.m2/settings.xml
 
 # ============================
 # 第二阶段：运行阶段
 # ============================
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre AS runtime
 WORKDIR /app/travel-journal
 COPY --from=builder /build/target/travel-journal.jar app.jar
 EXPOSE 20007
