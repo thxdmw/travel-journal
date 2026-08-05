@@ -1,13 +1,41 @@
 # syntax=docker/dockerfile:1
 FROM maven:3.9.11-eclipse-temurin-21 AS builder
-WORKDIR /build
-COPY pom.xml mvnw mvnw.cmd ./
-COPY .mvn .mvn
-RUN sed -i 's/\r$//' mvnw && chmod +x mvnw
-RUN --mount=type=cache,target=/root/.m2/repository ./mvnw dependency:go-offline -B
-COPY src src
-RUN --mount=type=cache,target=/root/.m2/repository ./mvnw clean package -DskipTests -B
 
+# 配置阿里云 Maven 镜像加速
+RUN mkdir -p /root/.m2 && cat > /root/.m2/settings.xml << 'EOF'
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+  <mirrors>
+    <mirror>
+      <id>aliyun-public</id>
+      <mirrorOf>*</mirrorOf>
+      <name>Aliyun Public Mirror</name>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
+EOF
+
+WORKDIR /build
+
+# 复制 pom.xml 文件
+COPY pom.xml .
+
+# 预下载依赖，利用 BuildKit 缓存
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn dependency:go-offline -B -s /root/.m2/settings.xml
+
+# 复制源代码
+COPY src ./src
+
+# 构建项目
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn clean package -DskipTests -B -s /root/.m2/settings.xml \
+
+# ============================
+# 第二阶段：运行阶段
+# ============================
 FROM eclipse-temurin:21-jre
 WORKDIR /app/travel-journal
 COPY --from=builder /build/target/travel-journal.jar app.jar
