@@ -50,7 +50,7 @@
       return { data, mapEl };
     },
     template: `
-      <main v-if="data">
+      <main v-if="data" class="home-page-shell">
         <section class="hero">
           <div class="hero-copy">
             <span class="hero-kicker">PERSONAL TRAVEL JOURNAL</span>
@@ -58,10 +58,9 @@
             <p>记录城市、光影和旅途中那些不愿忘记的时刻。这里没有攻略排名，只有属于自己的远方。</p>
             <router-link class="primary-btn" to="/trips">浏览旅行日记</router-link>
           </div>
-          <div class="hero-photo" v-if="data.recentJournals[0]?.coverUrl" :style="{backgroundImage:'url(' + data.recentJournals[0].coverUrl + ')'}"></div>
-          <div v-else class="hero-placeholder">山川 · 城市 · 故事</div>
+          <div class="hero-photo home-hero-photo" role="img" aria-label="京都春日老街与五重塔"></div>
         </section>
-        <div class="page">
+        <div class="page home-page">
           <section class="section">
             <div class="section-head"><h2 class="section-title">最近的旅行日记</h2><router-link class="text-link" to="/journals">查看全部 ›</router-link></div>
             <div v-if="data.recentJournals.length" class="card-grid"><journal-card v-for="item in data.recentJournals.slice(0,3)" :key="item.id" :item="item"/></div>

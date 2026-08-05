@@ -13,5 +13,4 @@ WORKDIR /app/travel-journal
 COPY --from=builder /build/target/travel-journal.jar app.jar
 EXPOSE 8080
 ENV SPRING_PROFILES_ACTIVE=prod
-USER 10001
 ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-jar", "/app/travel-journal/app.jar"]

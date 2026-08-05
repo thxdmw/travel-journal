@@ -1,0 +1,58 @@
+kind: pipeline
+name: drone
+
+platform:
+  os: linux
+  arch: amd64
+
+clone:
+  disable: true  # 禁用自动克隆
+
+#服务器操作
+steps:
+  - name: ssh
+    image: appleboy/drone-ssh
+    settings:
+      host: 43.130.247.22       # 远程服务器 IP
+      port: 2222                # SSH 端口
+      username: tanghaixin      # SSH 用户
+      password:
+        from_secret: ssh_password
+      command_timeout: 2m
+      script:
+        - echo "done 流水线启动"
+
+        # 1. 确保基础目录存在（兼容首次部署）
+        - sudo mkdir -p /app/travel-journal
+
+        # 2. 判断代码仓库是否存在，不存在则 clone，存在则更新
+        - |
+          if [ ! -d "/app/travel-journal/travel-journal/.git" ]; then
+            echo "📦 检测到首次部署，开始克隆代码..."
+            # ⚠️ 请替换为实际的代码仓库地址
+            sudo git clone https://gitee.com/tang-haixin/travel-journal.git /app/travel-journal/travel-journal
+          else
+            echo "🔄 检测到已有代码，清理本地修改并拉取最新..."
+            cd /app/travel-journal/travel-journal
+            sudo git restore .
+            sudo git pull
+          fi
+
+        # 3. 确保部署脚本存在且有执行权限
+        - |
+          if [ ! -f "/app/travel-journal/travel-journal/deploy.sh" ]; then
+            echo "❌ 错误：deploy.sh 不存在，请检查代码仓库中是否包含该文件"
+            exit 1
+          fi
+          sudo chmod +x /app/travel-journal/travel-journal/deploy.sh
+
+        # 4. 执行部署脚本
+        - cd /app/travel-journal/travel-journal && sudo ./deploy.sh
+
+        - echo "done 流水线结束"
+
+trigger:
+  event:
+    - push
+  branch:
+    - master
