@@ -118,6 +118,19 @@ body { margin:0; color:var(--tj-text); background:var(--tj-bg); font-family:var(
   .mobile-toggle { display:inline-flex; }
   .admin-topbar,.admin-content { padding-left:16px; padding-right:16px; }
   .dashboard-grid,.trip-list,.budget-summary,.theme-grid,.profile-grid { grid-template-columns:1fr; }
+  .workspace-tabs .el-tabs__header { padding:0; overflow:hidden; }
+  .workspace-tabs .el-tabs__nav-wrap { padding:0!important; overflow-x:auto; overscroll-behavior-inline:contain; scroll-snap-type:x proximity; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x; }
+  .workspace-tabs .el-tabs__nav-wrap::-webkit-scrollbar { display:none; }
+  .workspace-tabs .el-tabs__nav-wrap::after { display:none; }
+  .workspace-tabs .el-tabs__nav-scroll { overflow:visible; }
+  .workspace-tabs .el-tabs__nav { float:none; width:max-content; transform:none!important; }
+  .workspace-tabs .el-tabs__item { flex:0 0 auto; padding:0 18px; scroll-snap-align:center; }
+  .workspace-tabs .el-tabs__nav-prev,.workspace-tabs .el-tabs__nav-next { display:none; }
+  .workspace-tabs .el-tabs__content { padding:16px 12px; }
+  .budget-amount-input { width:100%; min-width:140px; }
+  .budget-amount-input .el-input-number__decrease,.budget-amount-input .el-input-number__increase { display:none; }
+  .budget-amount-input .el-input__wrapper { padding-left:10px!important; padding-right:10px!important; }
+  .budget-amount-input .el-input__inner { text-align:right; font-variant-numeric:tabular-nums; }
   .editor-page { padding:14px; }
   .editor-top { flex-wrap:wrap; }
   .editor-actions { width:100%; margin-left:0; }

@@ -1,0 +1,184 @@
+(() => {
+  'use strict';
+
+  const STORAGE_KEY = 'travel-journal.custom-cursor';
+  const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const root = document.documentElement;
+  const adminMode = Boolean(document.getElementById('admin-app'));
+  let enabled = readPreference();
+  let active = false;
+  let cursor;
+  let toggle;
+  let label;
+  let pointerX = 0;
+  let pointerY = 0;
+  let lastX = 0;
+  let lastY = 0;
+  let hasPosition = false;
+  let animationFrame = 0;
+  let settleTimer = 0;
+  let lastTrailAt = 0;
+  let pendingTarget = null;
+
+  function readPreference() {
+    try {
+      return localStorage.getItem(STORAGE_KEY) !== 'off';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function savePreference() {
+    try {
+      localStorage.setItem(STORAGE_KEY, enabled ? 'on' : 'off');
+    } catch (_) { }
+  }
+
+  function buildUi() {
+    cursor = document.createElement('div');
+    cursor.className = 'travel-cursor';
+    cursor.dataset.state = 'compass';
+    cursor.setAttribute('aria-hidden', 'true');
+    cursor.innerHTML = `
+      <span class="travel-cursor__shape">
+        <i class="travel-cursor__icon travel-cursor__compass"></i>
+        <i class="travel-cursor__icon travel-cursor__pin"></i>
+        <i class="travel-cursor__icon travel-cursor__camera"></i>
+        <i class="travel-cursor__icon travel-cursor__pen"></i>
+        <i class="travel-cursor__icon travel-cursor__grab"></i>
+      </span>`;
+
+    toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'travel-cursor-toggle';
+    toggle.innerHTML = '<span class="travel-cursor-toggle__icon" aria-hidden="true">✥</span><span class="travel-cursor-toggle__label"></span>';
+    label = toggle.querySelector('.travel-cursor-toggle__label');
+    toggle.addEventListener('click', () => {
+      enabled = !enabled;
+      savePreference();
+      syncState();
+    });
+
+    document.body.append(cursor, toggle);
+  }
+
+  function syncState() {
+    active = finePointer.matches && enabled;
+    root.classList.toggle('travel-cursor-enabled', active);
+    toggle.setAttribute('aria-pressed', String(active));
+    toggle.setAttribute('aria-label', active ? '关闭旅行主题鼠标' : '启用旅行主题鼠标');
+    toggle.title = active ? '关闭旅行主题鼠标' : '启用旅行主题鼠标';
+    label.textContent = active ? '关闭旅行光标' : '启用旅行光标';
+    if (!active) {
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+      clearTimeout(settleTimer);
+      cursor.classList.remove('is-visible', 'is-clicking');
+      removeEffects();
+    }
+  }
+
+  function stateFor(target) {
+    if (!(target instanceof Element)) return 'compass';
+    if (target.closest('.leaflet-container, .map-box')) return 'map';
+    if (target.closest('input, textarea, [contenteditable="true"]')) return 'native';
+    if (target.closest('img, picture, .card-photo, .hero-photo, .trip-banner-photo, .gallery')) return 'photo';
+    if (target.closest('a, button, select, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"]), .el-select, .el-switch, .el-checkbox, .el-radio, .admin-trip-card, .workspace-head .back, .upload-box')) return 'link';
+    if (target.closest('.markdown-body, .preview, .article, .markdown-input, article')) return 'writing';
+    return 'compass';
+  }
+
+  function applyTargetState() {
+    const state = stateFor(pendingTarget);
+    cursor.dataset.state = state === 'native' ? 'compass' : state;
+    cursor.classList.toggle('is-suppressed', state === 'native');
+  }
+
+  function onPointerMove(event) {
+    if (!active || event.pointerType === 'touch') return;
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    pendingTarget = event.target;
+    if (!animationFrame) animationFrame = requestAnimationFrame(renderPointer);
+  }
+
+  function renderPointer(timestamp) {
+    animationFrame = 0;
+    const dx = hasPosition ? pointerX - lastX : 0;
+    const dy = hasPosition ? pointerY - lastY : 0;
+    const distance = Math.hypot(dx, dy);
+    const tilt = Math.max(-14, Math.min(14, dx * .72));
+    cursor.style.transform = `translate3d(${pointerX - 15}px, ${pointerY}px, 0)`;
+    cursor.style.setProperty('--travel-cursor-tilt', `${tilt}deg`);
+    cursor.classList.add('is-visible');
+    applyTargetState();
+
+    clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(() => cursor.style.setProperty('--travel-cursor-tilt', '0deg'), 90);
+    if (hasPosition && !adminMode && !reducedMotion.matches && distance > 12 && timestamp - lastTrailAt > 58 && !cursor.classList.contains('is-suppressed')) {
+      addTrail(pointerX - dx * .45, pointerY - dy * .45);
+      lastTrailAt = timestamp;
+    }
+    lastX = pointerX;
+    lastY = pointerY;
+    hasPosition = true;
+  }
+
+  function addTrail(x, y) {
+    const dot = document.createElement('i');
+    dot.className = 'travel-cursor-trail';
+    dot.style.left = `${x}px`;
+    dot.style.top = `${y}px`;
+    document.body.append(dot);
+    window.setTimeout(() => dot.remove(), 460);
+  }
+
+  function addRipple(event) {
+    if (reducedMotion.matches || cursor.classList.contains('is-suppressed') || cursor.dataset.state === 'map') return;
+    const ripple = document.createElement('i');
+    ripple.className = 'travel-cursor-ripple';
+    ripple.style.left = `${event.clientX}px`;
+    ripple.style.top = `${event.clientY}px`;
+    document.body.append(ripple);
+    window.setTimeout(() => ripple.remove(), 620);
+  }
+
+  function removeEffects() {
+    document.querySelectorAll('.travel-cursor-trail, .travel-cursor-ripple').forEach(element => element.remove());
+  }
+
+  function onPointerDown(event) {
+    if (!active || event.pointerType === 'touch') return;
+    pendingTarget = event.target;
+    applyTargetState();
+    cursor.classList.add('is-clicking');
+    addRipple(event);
+  }
+
+  function onPointerUp() {
+    cursor.classList.remove('is-clicking');
+  }
+
+  function onPointerLeave(event) {
+    if (!event.relatedTarget) cursor.classList.remove('is-visible');
+  }
+
+  function mount() {
+    buildUi();
+    syncState();
+    document.addEventListener('pointermove', onPointerMove, { passive: true });
+    document.addEventListener('pointerdown', onPointerDown, { passive: true });
+    document.addEventListener('pointerup', onPointerUp, { passive: true });
+    document.addEventListener('pointercancel', onPointerUp, { passive: true });
+    document.addEventListener('pointerout', onPointerLeave, { passive: true });
+    window.addEventListener('blur', () => cursor.classList.remove('is-visible'));
+    finePointer.addEventListener('change', syncState);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount, { once: true });
+  } else {
+    mount();
+  }
+})();
