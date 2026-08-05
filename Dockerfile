@@ -24,14 +24,14 @@ COPY pom.xml .
 
 # 预下载依赖，利用 BuildKit 缓存
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn dependency:go-offline -B -s /root/.m2/settings.xml
+    mvn dependency:go-offline -B -ntp -s /root/.m2/settings.xml
 
 # 复制源代码
 COPY src ./src
 
 # 构建项目
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn clean package -DskipTests -B -s /root/.m2/settings.xml
+    mvn package -DskipTests -B -ntp -s /root/.m2/settings.xml
 
 # ============================
 # 第二阶段：运行阶段

@@ -18,7 +18,8 @@ steps:
       username: tanghaixin      # SSH 用户
       password:
         from_secret: ssh_password
-      command_timeout: 2m
+      # 首次构建需要拉取 Maven 依赖和基础镜像，2 分钟会在编译阶段被强制终止。
+      command_timeout: 20m
       script:
         - echo "done 流水线启动"
 
