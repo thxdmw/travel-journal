@@ -1,6 +1,13 @@
 (function () {
   const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
   const api = window.TravelApi.public;
+  const supportedThemes = ['travel-classic', 'sanya-breeze'];
+  function applyTheme(themeKey) {
+    const selected = supportedThemes.includes(themeKey) ? themeKey : 'travel-classic';
+    document.documentElement.dataset.theme = selected;
+    localStorage.setItem('travel-theme', selected);
+  }
+  applyTheme(localStorage.getItem('travel-theme'));
 
   const JournalCard = {
     props: ['item'],
@@ -17,22 +24,122 @@
   };
 
   function createMap(element, markers, fit) {
-    if (!element || !window.L) return null;
-    const map = L.map(element, { scrollWheelZoom: false }).setView([30, 110], 3);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
+    if (!element) return null;
+    if (!window.L) {
+      element.innerHTML = '<div class="map-load-message">地图组件加载失败，请刷新页面重试</div>';
+      element.classList.add('map-load-failed');
+      return null;
+    }
+
+    const map = L.map(element, {
+      scrollWheelZoom: false,
+      tap: true,
+      zoomControl: true
+    }).setView([30, 110], 3);
+    const zoomHint = document.createElement('div');
+    zoomHint.className = 'map-zoom-hint';
+    zoomHint.textContent = '按住 Ctrl + 滚轮缩放地图';
+    element.appendChild(zoomHint);
+    element.addEventListener('wheel', event => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const nextZoom = map.getZoom() + (event.deltaY < 0 ? 1 : -1);
+      map.setZoomAround(map.mouseEventToContainerPoint(event), nextZoom);
+    }, { passive:false });
+    const providers = [
+      {
+        url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
+        subdomains: '1234'
+      },
+      {
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        subdomains: ''
+      }
+    ];
+    const ResilientTileLayer = L.TileLayer.extend({
+      initialize(tileProviders, options) {
+        this._tileProviders = tileProviders;
+        L.TileLayer.prototype.initialize.call(this, tileProviders[0].url, options);
+      },
+      createTile(coords, done) {
+        const tile = L.DomUtil.create('img', 'leaflet-tile');
+        tile.alt = '';
+        tile.setAttribute('role', 'presentation');
+        let providerIndex = 0;
+        let timer = null;
+        let finished = false;
+
+        const tryNextProvider = () => {
+          clearTimeout(timer);
+          if (providerIndex >= this._tileProviders.length) {
+            finished = true;
+            done(new Error('所有地图瓦片源均加载失败'), tile);
+            return;
+          }
+          const provider = this._tileProviders[providerIndex++];
+          const subdomains = provider.subdomains || '';
+          const subdomain = subdomains ? subdomains[Math.abs(coords.x + coords.y) % subdomains.length] : '';
+          tile.src = L.Util.template(provider.url, {
+            s: subdomain,
+            x: coords.x,
+            y: coords.y,
+            z: coords.z
+          });
+          timer = setTimeout(() => {
+            if (!finished) tryNextProvider();
+          }, 5000);
+        };
+
+        tile.onload = () => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          done(null, tile);
+        };
+        tile.onerror = () => {
+          if (!finished) tryNextProvider();
+        };
+        tryNextProvider();
+        return tile;
+      }
+    });
+
+    let loadedTiles = 0;
+    let failedTiles = 0;
+    const tileLayer = new ResilientTileLayer(providers, {
+      attribution: '© 高德地图 · © OpenStreetMap contributors',
       maxZoom: 18
-    }).addTo(map);
+    });
+    tileLayer.on('tileload', () => {
+      loadedTiles += 1;
+      element.classList.remove('map-load-failed');
+    });
+    tileLayer.on('tileerror', () => {
+      failedTiles += 1;
+      if (!loadedTiles && failedTiles >= 2) element.classList.add('map-load-failed');
+    });
+    tileLayer.addTo(map);
+    setTimeout(() => {
+      if (!loadedTiles) element.classList.add('map-load-failed');
+    }, 11000);
+
     const points = [];
     markers.forEach(marker => {
       const point = [Number(marker.latitude), Number(marker.longitude)];
       points.push(point);
-      const icon = L.divIcon({ className: '', html: '<span style="display:block;width:18px;height:18px;border:4px solid #fff;border-radius:50%;background:#C76D4B;box-shadow:0 2px 8px #69402e66"></span>', iconSize: [18,18] });
+      const icon = L.divIcon({ className: '', html: '<span style="display:block;width:18px;height:18px;border:4px solid #fff;border-radius:50%;background:var(--tj-accent);box-shadow:0 2px 8px #69402e66"></span>', iconSize: [18,18] });
       const links = (marker.journals || []).slice(0, 4)
         .map(j => '<a href="#/journals/' + j.slug + '" style="color:#C76D4B;display:block;margin-top:5px">' + j.title + '</a>').join('');
       L.marker(point, { icon }).addTo(map).bindPopup('<b>' + marker.cityName + ' · ' + marker.countryName + '</b><br>' + marker.tripCount + ' 次旅行 · ' + marker.publishedJournalCount + ' 篇日记' + links);
     });
     if (fit && points.length) map.fitBounds(points, { padding: [30, 30], maxZoom: 6 });
+    requestAnimationFrame(() => map.invalidateSize(false));
+    if (window.ResizeObserver) {
+      const observer = new ResizeObserver(() => map.invalidateSize(false));
+      observer.observe(element);
+      map.on('unload', () => observer.disconnect());
+    }
     return map;
   }
 
@@ -196,15 +303,22 @@
   const App = {
     setup() {
       const menu = ref(false);
+      const profile = ref({ displayName:'旅行者', avatarUrl:null, themeKey:'travel-classic' });
       watch(() => router.currentRoute.value.fullPath, () => menu.value = false);
-      return { menu };
+      onMounted(async () => {
+        try {
+          profile.value = await api.profile();
+          applyTheme(profile.value.themeKey);
+        } catch (_) { }
+      });
+      return { menu, profile };
     },
     template: `
       <div class="public-shell">
         <header class="public-header"><div class="header-inner"><router-link class="brand" to="/">远行手记</router-link>
-          <button class="mobile-menu" @click="menu=!menu">☰</button>
+          <button class="mobile-menu" type="button" :aria-expanded="menu" aria-label="打开前台导航" @click="menu=!menu">☰</button>
           <nav class="public-nav" :class="{open:menu}"><router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link></nav>
-          <a class="admin-link" href="/admin/" title="管理后台">旅</a>
+          <a class="admin-link" href="/admin/" :title="profile.displayName + ' · 管理后台'" aria-label="进入管理后台"><img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="管理员头像"><span v-else>旅</span></a>
         </div></header>
         <router-view></router-view>
         <footer class="public-footer">远行手记 · 把走过的路写成自己的故事</footer>

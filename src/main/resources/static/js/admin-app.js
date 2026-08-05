@@ -2,6 +2,13 @@
   const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
   const api = window.TravelApi;
   const A = api.admin;
+  const supportedThemes = ['travel-classic', 'sanya-breeze'];
+  function applyTheme(themeKey) {
+    const selected = supportedThemes.includes(themeKey) ? themeKey : 'travel-classic';
+    document.documentElement.dataset.theme = selected;
+    localStorage.setItem('travel-theme', selected);
+  }
+  applyTheme(localStorage.getItem('travel-theme'));
   const message = text => ElementPlus.ElMessage.success(text);
   const fail = error => ElementPlus.ElMessage.error(error.message || '操作失败');
   const confirm = text => ElementPlus.ElMessageBox.confirm(text, '请确认', { type: 'warning' });
@@ -27,7 +34,7 @@
   const session = reactive({ user: null, checked: false });
   async function loadSession() {
     if (session.checked) return session.user;
-    try { session.user = await api.auth.me(); await api.ensureCsrf(); }
+    try { session.user = await api.auth.session(); if (session.user) { applyTheme(session.user.themeKey); await api.ensureCsrf(); } }
     catch (_) { session.user = null; }
     session.checked = true;
     return session.user;
@@ -43,6 +50,7 @@
         try {
           session.user = await api.auth.login(form);
           session.checked = true;
+          applyTheme(session.user.themeKey);
           await api.ensureCsrf();
           router.replace('/');
         } catch (error) { fail(error); }
@@ -182,8 +190,98 @@
     </div>`
   };
 
+  const Profile = {
+    setup() {
+      const avatarInput = ref(null);
+      const uploading = ref(false);
+      const changingPassword = ref(false);
+      const password = reactive({ currentPassword:'', newPassword:'', confirmPassword:'' });
+      const avatarUrl = computed(() => session.user?.avatarUrl);
+
+      function chooseAvatar() { avatarInput.value?.click(); }
+      async function picked(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        uploading.value = true;
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          const updated = await api.auth.uploadAvatar(form);
+          session.user = { ...session.user, ...updated };
+          message('头像已更新');
+        } catch (error) { fail(error); }
+        finally {
+          uploading.value = false;
+          event.target.value = '';
+        }
+      }
+      async function changePassword() {
+        if (password.newPassword.length < 8) return fail(new Error('新密码至少需要 8 位'));
+        if (password.newPassword !== password.confirmPassword) return fail(new Error('两次输入的新密码不一致'));
+        changingPassword.value = true;
+        try {
+          await api.auth.changePassword({
+            currentPassword: password.currentPassword,
+            newPassword: password.newPassword
+          });
+          password.currentPassword = '';
+          password.newPassword = '';
+          password.confirmPassword = '';
+          message('密码修改成功');
+        } catch (error) { fail(error); }
+        finally { changingPassword.value = false; }
+      }
+      return { session, avatarInput, avatarUrl, uploading, password, changingPassword, chooseAvatar, picked, changePassword };
+    },
+    template: `
+      <div><div class="page-head"><div><h2>个人资料</h2><p>管理登录密码和网站展示头像。</p></div></div>
+        <div class="profile-grid">
+          <section class="panel panel-pad profile-card"><h3>头像</h3>
+            <div class="profile-avatar"><img v-if="avatarUrl" :src="avatarUrl" alt="管理员头像"><span v-else>{{session.user?.displayName?.slice(0,1) || '旅'}}</span></div>
+            <div><strong>{{session.user?.displayName}}</strong><p>{{session.user?.username}}</p></div>
+            <el-button type="primary" :loading="uploading" @click="chooseAvatar">上传新头像</el-button>
+            <input ref="avatarInput" hidden type="file" accept="image/jpeg,image/png,image/webp" @change="picked">
+            <small>支持 JPEG、PNG、WebP，最大 5MB；上传后前台头像会同步更新。</small>
+          </section>
+          <section class="panel panel-pad password-card"><h3>修改密码</h3>
+            <el-form label-position="top" @submit.prevent="changePassword">
+              <el-form-item label="当前密码"><el-input v-model="password.currentPassword" type="password" show-password autocomplete="current-password"/></el-form-item>
+              <el-form-item label="新密码"><el-input v-model="password.newPassword" type="password" show-password autocomplete="new-password" placeholder="至少 8 位"/></el-form-item>
+              <el-form-item label="确认新密码"><el-input v-model="password.confirmPassword" type="password" show-password autocomplete="new-password"/></el-form-item>
+              <el-button type="primary" :loading="changingPassword" @click="changePassword">确认修改</el-button>
+            </el-form>
+          </section>
+        </div>
+      </div>`
+  };
+
   const Theme = {
-    template: `<div><div class="page-head"><div><h2>主题外观</h2><p>首版使用已经确认的旅行杂志视觉方向。</p></div></div><div class="panel theme-preview"><img src="/img/theme-travel-classic-preview.png" @error="$event.target.style.display='none'"><div class="theme-info"><div><h3>远行手记</h3><p>暖白纸张感、森林绿与陶土色的旅行杂志主题</p></div><span class="theme-badge">当前主题</span></div></div><el-alert style="margin-top:18px" title="更多主题后续开放" description="当前版本已预留 CSS 变量和主题入口，暂不提供切换与自定义编辑。" type="info" :closable="false"/></div>`
+    setup() {
+      const changing = ref('');
+      const themes = [
+        { key:'travel-classic', name:'远行手记', description:'暖白纸张感、森林绿与陶土色的旅行杂志主题', image:'/img/theme-travel-classic-preview.png' },
+        { key:'sanya-breeze', name:'三亚海风', description:'海水青、珊瑚橙与日光沙色的热带海岸主题', image:'/img/home-hero-sanya.png' }
+      ];
+      async function selectTheme(item) {
+        if (session.user?.themeKey === item.key) return;
+        changing.value = item.key;
+        try {
+          const updated = await api.auth.changeTheme(item.key);
+          session.user = { ...session.user, ...updated };
+          applyTheme(item.key);
+          message('主题已切换为“' + item.name + '”');
+        } catch (error) { fail(error); }
+        finally { changing.value = ''; }
+      }
+      return { session, themes, changing, selectTheme };
+    },
+    template: `<div><div class="page-head"><div><h2>主题外观</h2><p>选择后会同步应用到管理后台和公开网站。</p></div></div>
+      <div class="theme-grid"><article v-for="item in themes" :key="item.key" class="panel theme-preview" :class="{selected:session.user?.themeKey===item.key}">
+        <img :src="item.image" :alt="item.name"><div class="theme-info"><div><h3>{{item.name}}</h3><p>{{item.description}}</p></div>
+          <span v-if="session.user?.themeKey===item.key" class="theme-badge">当前主题</span>
+          <el-button v-else type="primary" :loading="changing===item.key" @click="selectTheme(item)">使用主题</el-button>
+        </div></article></div>
+    </div>`
   };
 
   const routes=[
@@ -192,7 +290,8 @@
     {path:'/trips',component:Trips,meta:{title:'旅行管理'}},
     {path:'/trips/:id',component:TripWorkspace,meta:{title:'旅行工作台'}},
     {path:'/journals/:id',component:JournalEditor,meta:{title:'编辑旅行日记',full:true}},
-    {path:'/themes',component:Theme,meta:{title:'主题外观'}}
+    {path:'/themes',component:Theme,meta:{title:'主题外观'}},
+    {path:'/profile',component:Profile,meta:{title:'个人资料'}}
   ];
   const router=VueRouter.createRouter({history:VueRouter.createWebHashHistory(),routes});
   router.beforeEach(async to=>{if(to.meta.public)return true;const user=await loadSession();return user?true:'/login';});
@@ -201,11 +300,13 @@
     setup() {
       const drawer=ref(false); const route=VueRouter.useRoute();
       const full=computed(()=>route.meta.full);
+      watch(()=>route.fullPath,()=>drawer.value=false);
       async function logout(){try{await api.auth.logout();session.user=null;session.checked=true;router.replace('/login');}catch(e){fail(e);}}
       return{session,drawer,route,full,logout};
     },
     template: `<router-view v-if="route.meta.public"></router-view><div v-else class="admin-shell">
-      <aside class="admin-sidebar" :class="{open:drawer}"><div class="sidebar-brand">远行手记<small>TRAVEL JOURNAL</small></div><nav class="side-nav"><router-link to="/">⌂ 管理首页</router-link><router-link to="/trips">▣ 旅行管理</router-link><router-link to="/themes">◈ 主题外观</router-link><a href="/" target="_blank">↗ 查看网站</a></nav><div class="sidebar-user"><div>{{session.user?.displayName}}</div><small>{{session.user?.username}}</small></div></aside>
+      <div class="sidebar-backdrop" :class="{open:drawer}" @click="drawer=false"></div>
+      <aside class="admin-sidebar" :class="{open:drawer}"><button class="sidebar-close" type="button" aria-label="收起侧边栏" @click="drawer=false">×</button><div class="sidebar-brand">远行手记<small>TRAVEL JOURNAL</small></div><nav class="side-nav"><router-link to="/" @click="drawer=false">⌂ 管理首页</router-link><router-link to="/trips" @click="drawer=false">▣ 旅行管理</router-link><router-link to="/themes" @click="drawer=false">◈ 主题外观</router-link><router-link to="/profile" @click="drawer=false">◎ 个人资料</router-link><a href="/" target="_blank" @click="drawer=false">↗ 查看网站</a></nav><div class="sidebar-user"><div class="sidebar-avatar"><img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="头像"><span v-else>{{session.user?.displayName?.slice(0,1) || '旅'}}</span></div><div><div>{{session.user?.displayName}}</div><small>{{session.user?.username}}</small></div></div></aside>
       <main class="admin-main"><template v-if="!full"><header class="admin-topbar"><el-button class="mobile-toggle" @click="drawer=!drawer">☰</el-button><h1>{{route.meta.title}}</h1><div class="top-actions"><el-button link @click="logout">退出登录</el-button></div></header><div class="admin-content"><router-view></router-view></div></template><router-view v-else></router-view></main>
     </div>`
   };

@@ -14,6 +14,8 @@ public class AdminUser extends BaseEntity {
     private String username;
     private String passwordHash;
     private String displayName;
+    private String avatarObjectKey;
+    private String themeKey;
     private Boolean enabled;
     private OffsetDateTime lastLoginAt;
 }

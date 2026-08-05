@@ -35,13 +35,17 @@
       trip: slug => http.get('/public/trips/' + encodeURIComponent(slug)),
       journals: (page = 1, pageSize = 12) => http.get('/public/journals', { params: { page, pageSize } }),
       journal: slug => http.get('/public/journals/' + encodeURIComponent(slug)),
-      cities: () => http.get('/public/map/cities')
+      cities: () => http.get('/public/map/cities'),
+      profile: () => http.get('/public/profile')
     },
     auth: {
       login: body => http.post('/admin/auth/login', body),
       logout: () => http.post('/admin/auth/logout'),
+      session: () => http.get('/admin/auth/session'),
       me: () => http.get('/admin/auth/me'),
-      changePassword: body => http.post('/admin/auth/change-password', body)
+      changePassword: body => http.post('/admin/auth/change-password', body),
+      uploadAvatar: form => http.post('/admin/profile/avatar', form),
+      changeTheme: themeKey => http.put('/admin/profile/theme', { themeKey })
     },
     admin: {
       trips: params => http.get('/admin/trips', { params }),

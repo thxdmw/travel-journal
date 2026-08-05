@@ -8,17 +8,18 @@ button, input, textarea { font: inherit; }
 [v-cloak] { display: none; }
 
 .public-shell { min-height: 100vh; background:
-  radial-gradient(circle at 4% 4%, rgba(223,201,168,.38), transparent 25rem),
+  radial-gradient(circle at 4% 4%, var(--tj-bg-glow), transparent 25rem),
   var(--tj-bg); }
-.public-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid rgba(230,218,200,.85);
-  background: rgba(247,242,232,.92); backdrop-filter: blur(14px); }
+.public-header { position: sticky; top: 0; z-index: 1200; border-bottom: 1px solid rgba(230,218,200,.85);
+  background: color-mix(in srgb,var(--tj-bg) 92%,transparent); backdrop-filter: blur(14px); }
 .header-inner { position:relative; width: min(1200px, calc(100% - 40px)); height: 76px; margin: auto; display: flex; align-items: center; gap: 44px; }
 .brand { font: 700 24px/1 var(--tj-serif); color: var(--tj-primary); letter-spacing: .08em; }
 .public-nav { position:absolute; left:50%; top:0; height:100%; display:flex; align-items:center; gap:32px; transform:translateX(-50%); }
 .public-nav a { position: relative; padding: 27px 0 24px; color: #4e504d; font-size: 15px; }
 .public-nav a.router-link-active { color: var(--tj-primary); }
 .public-nav a.router-link-active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 17px; height: 2px; background: var(--tj-accent); }
-.admin-link { width:38px; height:38px; margin-left:auto; display:grid; place-items:center; border-radius:50%; background:var(--tj-primary); color:white; }
+.admin-link { width:38px; height:38px; margin-left:auto; display:grid; place-items:center; overflow:hidden; border-radius:50%; background:var(--tj-primary); color:white; }
+.admin-link img { width:100%; height:100%; object-fit:cover; }
 .mobile-menu { display: none; margin-left: auto; border: 0; background: transparent; color: var(--tj-primary); font-size: 24px; }
 
 .page { width: min(1200px, calc(100% - 40px)); margin: 0 auto; padding: 48px 0 80px; }
@@ -34,7 +35,6 @@ button, input, textarea { font: inherit; }
 .primary-btn:hover { background:var(--tj-accent-hover); transform:translateY(-1px); }
 .hero-photo { min-height: 420px; background-color: var(--tj-primary); background-position:center; background-size:cover; position:relative; }
 .hero-photo::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,rgba(255,252,246,.28),transparent 30%); }
-.home-hero-photo { background-image:url('/img/home-hero-kyoto.png'); }
 .hero-placeholder { height:100%; min-height:420px; display:grid; place-items:center; color:rgba(255,255,255,.8);
   background: linear-gradient(145deg,#385f50,#1c392f); font:700 32px var(--tj-serif); letter-spacing:.14em; }
 
@@ -55,7 +55,11 @@ button, input, textarea { font: inherit; }
 .card-meta { display:flex; gap:14px; margin-top:16px; color:#8e8a82; font-size:12px; }
 .map-stats { display:grid; grid-template-columns:1.15fr 1fr; gap:22px; }
 .map-panel,.stats-panel { border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); padding:20px; }
-.map-box { height:310px; border-radius:8px; overflow:hidden; background:#e8e1d6; }
+.map-box { position:relative; isolation:isolate; z-index:0; height:310px; border-radius:8px; overflow:hidden; background:#e8e1d6; }
+.map-box.leaflet-container { z-index:0; }
+.map-zoom-hint { position:absolute; left:10px; bottom:10px; z-index:850; padding:6px 9px; border-radius:6px; color:#fff; background:rgba(25,45,39,.72); font-size:12px; pointer-events:none; opacity:.82; }
+.map-load-message { position:absolute; inset:0; z-index:900; display:none; place-items:center; padding:24px; color:var(--tj-muted); text-align:center; background:rgba(247,242,232,.94); }
+.map-load-failed .map-load-message { display:grid; }
 .stats-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
 .stat { padding:22px 14px; text-align:center; border:1px solid var(--tj-border); border-radius:9px; background:#fffaf2; }
 .stat strong { display:block; color:var(--tj-primary); font:700 30px var(--tj-serif); }
@@ -109,9 +113,10 @@ button, input, textarea { font: inherit; }
   .header-inner { width:calc(100% - 28px); height:64px; }
   .public-nav { display:none; position:absolute; top:64px; left:-14px; right:-14px; height:auto; padding:16px 24px; transform:none; background:var(--tj-surface); box-shadow:var(--tj-shadow-soft); }
   .public-nav.open { display:flex; flex-direction:column; gap:0; }
-  .public-nav a { padding:13px 0; }
-  .admin-link { display:none; }
-  .mobile-menu { display:block; }
+  .public-nav a { padding:13px 0; text-decoration:none!important; }
+  .public-nav a::after { display:none!important; }
+  .admin-link { display:grid; flex:0 0 36px; width:36px; height:36px; margin-left:0; text-decoration:none!important; }
+  .mobile-menu { display:block; margin-left:auto; }
   .page,.home-page { width:calc(100% - 28px); padding-top:28px; }
   .hero { min-height:0; }
   .hero h1 { font-size:36px; }

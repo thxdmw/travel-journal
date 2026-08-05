@@ -53,7 +53,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/", "/index.html", "/admin", "/admin/", "/admin/index.html",
                             "/css/**", "/js/**", "/favicon.ico", "/api/public/**", "/api/media/**",
-                            "/api/admin/auth/login", "/actuator/health", "/actuator/info",
+                            "/api/admin/auth/login", "/api/admin/auth/session", "/actuator/health", "/actuator/info",
                             "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                     .requestMatchers("/api/admin/**").hasRole("ADMIN")
                     .anyRequest().permitAll())

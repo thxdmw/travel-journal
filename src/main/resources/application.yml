@@ -4,7 +4,7 @@ spring:
   profiles:
     default: dev
   datasource:
-    url: jdbc:postgresql://${DB_HOST:192.168.31.136}:${DB_PORT:5432}/${DB_NAME:travel_journal_dev}?sslmode=${DB_SSL_MODE:prefer}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:travel_journal_dev}?sslmode=${DB_SSL_MODE:prefer}
     username: ${DB_USERNAME:travel_journal_dev}
     password: ${DB_PASSWORD:travel_journal_dev}
     hikari:

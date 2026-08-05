@@ -1,0 +1,149 @@
+package com.thx.traveljournal.auth.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.thx.traveljournal.auth.entity.AdminUser;
+import com.thx.traveljournal.auth.mapper.AdminUserMapper;
+import com.thx.traveljournal.common.exception.BusinessException;
+import com.thx.traveljournal.config.AppProperties;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.Http;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import lombok.RequiredArgsConstructor;
+import net.coobird.thumbnailator.Thumbnails;
+import org.apache.tika.Tika;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+@Service
+@RequiredArgsConstructor
+public class AdminProfileService {
+    public static final String DEFAULT_THEME = "travel-classic";
+    public static final List<String> THEMES = List.of(DEFAULT_THEME, "sanya-breeze");
+    private static final List<String> ALLOWED_IMAGE_TYPES = List.of("image/jpeg", "image/png", "image/webp");
+
+    private final AdminUserMapper mapper;
+    private final MinioClient minioClient;
+    private final AppProperties properties;
+    private final Tika tika = new Tika();
+
+    public AdminUser requireByUsername(String username) {
+        AdminUser user = mapper.selectOne(new LambdaQueryWrapper<AdminUser>()
+                .eq(AdminUser::getUsername, username));
+        if (user == null) throw BusinessException.notFound("管理员不存在");
+        return user;
+    }
+
+    public AdminUser publicUser() {
+        AdminUser user = mapper.selectOne(new LambdaQueryWrapper<AdminUser>()
+                .eq(AdminUser::getEnabled, true).orderByAsc(AdminUser::getId).last("limit 1"));
+        if (user == null) throw BusinessException.notFound("管理员不存在");
+        return user;
+    }
+
+    @Transactional
+    public AdminUser updateTheme(String username, String themeKey) {
+        if (!THEMES.contains(themeKey)) throw BusinessException.badRequest("主题不存在");
+        AdminUser user = requireByUsername(username);
+        user.setThemeKey(themeKey);
+        mapper.updateById(user);
+        return user;
+    }
+
+    @Transactional
+    public AdminUser uploadAvatar(String username, MultipartFile file) {
+        AdminUser user = requireByUsername(username);
+        byte[] uploaded;
+        try {
+            uploaded = file.getBytes();
+        } catch (IOException ex) {
+            throw new BusinessException("FILE_READ_ERROR", "读取头像文件失败", HttpStatus.BAD_REQUEST);
+        }
+        long limit = Math.min(properties.upload().maxFileSizeMb(), 5) * 1024 * 1024;
+        if (uploaded.length == 0 || uploaded.length > limit) {
+            throw BusinessException.badRequest("头像为空或超过 5MB 限制");
+        }
+
+        try {
+            String mime = tika.detect(uploaded, file.getOriginalFilename());
+            if (!ALLOWED_IMAGE_TYPES.contains(mime)) {
+                throw BusinessException.badRequest("头像只支持 JPEG、PNG 和 WebP 图片");
+            }
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(uploaded));
+            if (image == null) throw BusinessException.badRequest("头像内容无法解码");
+            if ((long) image.getWidth() * image.getHeight() > properties.upload().maxPixels()) {
+                throw BusinessException.badRequest("头像像素超过限制");
+            }
+        } catch (IOException ex) {
+            throw BusinessException.badRequest("头像内容无法识别");
+        }
+
+        byte[] avatar = normalizeAvatar(uploaded);
+        String bucket = properties.minio().bucket();
+        String newKey = "profile/" + user.getId() + "/avatar-" + UUID.randomUUID() + ".webp";
+        String oldKey = user.getAvatarObjectKey();
+        try {
+            minioClient.putObject(PutObjectArgs.builder().bucket(bucket).object(newKey)
+                    .stream(new ByteArrayInputStream(avatar), (long) avatar.length, -1L)
+                    .contentType("image/webp").build());
+            user.setAvatarObjectKey(newKey);
+            mapper.updateById(user);
+        } catch (Exception ex) {
+            removeQuietly(bucket, newKey);
+            throw new BusinessException("STORAGE_ERROR", "保存头像失败", HttpStatus.BAD_GATEWAY);
+        }
+        if (oldKey != null && !oldKey.isBlank()) removeQuietly(bucket, oldKey);
+        return user;
+    }
+
+    public URI avatarAccess(AdminUser user) {
+        if (user.getAvatarObjectKey() == null || user.getAvatarObjectKey().isBlank()) {
+            throw BusinessException.notFound("尚未上传头像");
+        }
+        try {
+            String url = minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                    .method(Http.Method.GET).bucket(properties.minio().bucket())
+                    .object(user.getAvatarObjectKey())
+                    .expiry(properties.minio().presignedUrlTtlMinutes(), TimeUnit.MINUTES).build());
+            return URI.create(url);
+        } catch (Exception ex) {
+            throw new BusinessException("STORAGE_ERROR", "生成头像访问地址失败", HttpStatus.BAD_GATEWAY);
+        }
+    }
+
+    public String avatarUrl(AdminUser user) {
+        return user.getAvatarObjectKey() == null ? null
+                : "/api/public/profile/avatar?v=" + Integer.toUnsignedString(user.getAvatarObjectKey().hashCode());
+    }
+
+    private byte[] normalizeAvatar(byte[] uploaded) {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            Thumbnails.of(new ByteArrayInputStream(uploaded)).useExifOrientation(true)
+                    .size(512, 512).outputFormat("webp").outputQuality(0.88).toOutputStream(output);
+            return output.toByteArray();
+        } catch (IOException ex) {
+            throw new BusinessException("IMAGE_PROCESS_ERROR", "处理头像失败", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private void removeQuietly(String bucket, String key) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
+        } catch (Exception ignored) {
+        }
+    }
+}

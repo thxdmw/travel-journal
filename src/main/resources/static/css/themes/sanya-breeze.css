@@ -1,0 +1,37 @@
+[data-theme="sanya-breeze"] {
+  --tj-bg: #F2F7F3;
+  --tj-surface: #FFFDF7;
+  --tj-surface-soft: #E4F2EE;
+  --tj-primary: #155D5A;
+  --tj-primary-soft: #327B76;
+  --tj-accent: #E97855;
+  --tj-accent-hover: #D86443;
+  --tj-sand: #E7CAA2;
+  --tj-text: #263536;
+  --tj-muted: #6B7D79;
+  --tj-border: #D8E5DE;
+  --tj-danger: #C54F45;
+  --tj-bg-glow: rgba(94, 194, 188, .22);
+  --tj-shadow: 0 14px 40px rgba(26, 82, 78, .10);
+  --tj-shadow-soft: 0 5px 20px rgba(26, 82, 78, .07);
+  --tj-radius: 12px;
+  --tj-radius-small: 8px;
+  --tj-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  --tj-sans: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --el-color-primary: #E97855;
+  --el-color-primary-light-3: #EE9A7E;
+  --el-color-primary-light-5: #F3BBA7;
+  --el-color-primary-light-7: #F8D9CE;
+  --el-color-primary-light-9: #FDF1ED;
+  --el-color-primary-dark-2: #CE5D3F;
+  --el-border-color: #D8E5DE;
+  --el-border-radius-base: 8px;
+  --el-bg-color: #FFFDF7;
+  --el-fill-color-blank: #FFFDF7;
+  --el-text-color-primary: #263536;
+}
+
+[data-theme="sanya-breeze"] .home-hero-photo {
+  background-image: url('/img/home-hero-sanya.png');
+}

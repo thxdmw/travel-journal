@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -41,7 +42,7 @@ public class AuthController {
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
     public record ChangePasswordRequest(@NotBlank String currentPassword,
                                         @NotBlank @Size(min = 8, max = 128) String newPassword) {}
-    public record AdminInfo(Long id, String username, String displayName) {}
+    public record AdminInfo(Long id, String username, String displayName, String avatarUrl, String themeKey) {}
 
     @PostMapping("/login")
     @Transactional
@@ -79,6 +80,15 @@ public class AuthController {
         return ApiResponse.ok(toInfo(find(authentication.getName())));
     }
 
+    @GetMapping("/session")
+    public ApiResponse<AdminInfo> session(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
+            return ApiResponse.ok(null);
+        }
+        return ApiResponse.ok(toInfo(find(authentication.getName())));
+    }
+
     @PostMapping("/change-password")
     @Transactional
     public ApiResponse<Void> changePassword(@Valid @RequestBody ChangePasswordRequest body,
@@ -99,7 +109,10 @@ public class AuthController {
     }
 
     private AdminInfo toInfo(AdminUser user) {
-        return new AdminInfo(user.getId(), user.getUsername(), user.getDisplayName());
+        String avatarUrl = user.getAvatarObjectKey() == null ? null
+                : "/api/public/profile/avatar?v=" + Integer.toUnsignedString(user.getAvatarObjectKey().hashCode());
+        String themeKey = user.getThemeKey() == null ? "travel-classic" : user.getThemeKey();
+        return new AdminInfo(user.getId(), user.getUsername(), user.getDisplayName(), avatarUrl, themeKey);
     }
 
     private String clientIp(HttpServletRequest request) {
