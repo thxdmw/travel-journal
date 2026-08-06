@@ -11,6 +11,7 @@ import com.thx.traveljournal.journaltemplate.entity.JournalTemplate;
 import com.thx.traveljournal.journaltemplate.mapper.JournalTemplateMapper;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.mapper.JournalMediaMapper;
+import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
@@ -25,10 +26,18 @@ import java.time.ZoneOffset;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 日记服务，负责日记的增删改查、发布撤回，以及正文和模板数据的校验。
+ *
+ * <p>正文里的图片必须是站内已上传的媒体地址（{@code /api/media/{id}/display}），
+ * 外链图片一律拒绝，防止前台展示时把请求打到第三方站点。</p>
+ */
 @Service
 public class JournalService {
+    /** 匹配 Markdown 图片语法 {@code ![说明](地址)}，捕获组 1 是图片地址。 */
     private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
             "!\\[[^\\]]*]\\(([^\\s)]+)(?:\\s+\"[^\"]*\")?\\)");
+    /** 匹配正文里的 {@code <img>} 标签，捕获组 1 是 src 地址。 */
     private static final Pattern HTML_IMAGE = Pattern.compile(
             "<img\\s+[^>]*src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>", Pattern.CASE_INSENSITIVE);
     private final JournalMapper mapper;
@@ -36,22 +45,34 @@ public class JournalService {
     private final TripStopMapper stopMapper;
     private final JournalMediaMapper journalMediaMapper;
     private final JournalTemplateMapper templateMapper;
+    /** 删除日记时用来级联清理图片；单元测试用简化构造器时为 null，此时跳过图片清理。 */
+    private final MediaService mediaService;
 
     @Autowired
     public JournalService(JournalMapper mapper, TripMapper tripMapper, TripStopMapper stopMapper,
-                          JournalMediaMapper journalMediaMapper, JournalTemplateMapper templateMapper) {
+                          JournalMediaMapper journalMediaMapper, JournalTemplateMapper templateMapper,
+                          MediaService mediaService) {
         this.mapper = mapper;
         this.tripMapper = tripMapper;
         this.stopMapper = stopMapper;
         this.journalMediaMapper = journalMediaMapper;
         this.templateMapper = templateMapper;
+        this.mediaService = mediaService;
     }
 
+    /** 单元测试用的简化构造器，不涉及模板和图片存储。 */
     public JournalService(JournalMapper mapper, TripMapper tripMapper, TripStopMapper stopMapper,
                           JournalMediaMapper journalMediaMapper) {
-        this(mapper, tripMapper, stopMapper, journalMediaMapper, null);
+        this(mapper, tripMapper, stopMapper, journalMediaMapper, null, null);
     }
 
+    /**
+     * 后台日记分页列表。
+     *
+     * @param tripId  按所属旅行过滤，为空表示不限
+     * @param status  按 DRAFT / PUBLISHED 过滤，为空表示不限
+     * @param keyword 在标题和摘要里模糊匹配
+     */
     public PageResponse<JournalEntry> list(long page, long pageSize, Long tripId, String status, String keyword) {
         LambdaQueryWrapper<JournalEntry> query = new LambdaQueryWrapper<JournalEntry>()
                 .eq(tripId != null, JournalEntry::getTripId, tripId)
@@ -63,12 +84,14 @@ public class JournalService {
         return PageResponse.of(result.getRecords(), page, pageSize, result.getTotal());
     }
 
+    /** 按 id 查询日记，不存在时抛 404。 */
     public JournalEntry get(Long id) {
         JournalEntry entry = mapper.selectById(id);
         if (entry == null) throw BusinessException.notFound("日记不存在");
         return entry;
     }
 
+    /** 新建日记。无论前端传什么状态，新建的一律是草稿，发布必须走 {@link #publish}。 */
     public JournalEntry create(JournalEntry entry) {
         entry.setStatus("DRAFT");
         entry.setPublishedAt(null);
@@ -78,6 +101,10 @@ public class JournalService {
         return entry;
     }
 
+    /**
+     * 更新日记内容。状态和发布时间保持库里的原值，不受请求体影响；
+     * 如果当前是已发布状态，会按发布标准做更严格的校验（例如正文不能为空）。
+     */
     public JournalEntry update(Long id, JournalEntry input) {
         JournalEntry entry = get(id);
         String currentStatus = entry.getStatus();
@@ -90,6 +117,7 @@ public class JournalService {
         return get(id);
     }
 
+    /** 发布日记，记录发布时间。发布后图片才允许被访客访问。 */
     public JournalEntry publish(Long id) {
         JournalEntry entry = get(id);
         validate(entry, true);
@@ -99,6 +127,7 @@ public class JournalService {
         return entry;
     }
 
+    /** 撤回已发布日记，回到草稿状态，前台立即不可见。 */
     public JournalEntry unpublish(Long id) {
         JournalEntry entry = get(id);
         entry.setStatus("DRAFT");
@@ -107,16 +136,35 @@ public class JournalService {
         return entry;
     }
 
+    /**
+     * 删除日记，并级联清理它的全部关联数据。
+     *
+     * <p>已发布的日记也可以直接删除，不必先撤回；日记下的图片（包含被设为封面的那张）
+     * 会连同对象存储文件一起删掉，是否二次确认由前端负责提示。</p>
+     *
+     * @return 一并删除的图片张数，用于前端提示
+     */
     @Transactional
-    public void delete(Long id) {
-        JournalEntry entry = get(id);
-        if ("PUBLISHED".equals(entry.getStatus())) throw BusinessException.conflict("请先撤回已发布日记");
-        long mediaCount = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, id));
-        if (mediaCount > 0) throw BusinessException.conflict("请先删除日记中的图片");
+    public int delete(Long id) {
+        get(id);
+        // 先清图片：journal_media 关系、media_asset 记录和 MinIO 文件都在这一步处理，
+        // 顺带把指向这些图片的日记封面、旅行封面引用置空。
+        int removedMedia = mediaService == null ? 0 : mediaService.purgeJournalMedia(id);
         mapper.deleteById(id);
+        return removedMedia;
     }
 
+    /** 统计日记下的图片张数，供前端在删除确认弹窗里提示「将同时删除 N 张图片」。 */
+    public long mediaCount(Long id) {
+        return journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, id));
+    }
+
+    /**
+     * 校验日记数据。
+     *
+     * @param publishing 是否按发布标准校验；发布时正文不能为空，草稿允许空正文
+     */
     private void validate(JournalEntry entry, boolean publishing) {
         Trip trip = tripMapper.selectById(entry.getTripId());
         if (trip == null) throw BusinessException.badRequest("所属旅行不存在");
@@ -138,6 +186,7 @@ public class JournalService {
         }
     }
 
+    /** 校验正文里的图片全部来自站内已上传媒体，Markdown 语法和 img 标签两种写法都要查。 */
     private void validateMarkdownImages(String markdown) {
         if (!StringUtils.hasText(markdown)) return;
         validateImageMatches(MARKDOWN_IMAGE.matcher(markdown));
@@ -153,6 +202,10 @@ public class JournalService {
         }
     }
 
+    /**
+     * 校验模板相关字段。没有选模板时把模板版本、填写数据和快照一起清空，避免残留脏数据；
+     * 选了模板则补齐版本号和定义快照，保证模板日后被改动也不影响已写好的日记。
+     */
     private void validateTemplate(JournalEntry entry) {
         if (entry.getTemplateId() == null) {
             entry.setTemplateVersion(null);

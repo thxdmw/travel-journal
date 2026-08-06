@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/** 行程服务：按天安排的行程条目的增删改查、完成勾选和排序。 */
 @Service
 @RequiredArgsConstructor
 public class ItineraryService {
@@ -37,6 +38,12 @@ public class ItineraryService {
         return item;
     }
 
+    /**
+     * 新增行程。
+     *
+     * @param allowOutsideDates 是否允许日期超出旅行的起止范围；
+     *                          前端弹窗里有对应的勾选项，默认不允许
+     */
     public ItineraryItem create(Long tripId, ItineraryItem item, boolean allowOutsideDates) {
         item.setTripId(tripId);
         validate(item, allowOutsideDates);
@@ -58,6 +65,7 @@ public class ItineraryService {
         return get(id);
     }
 
+    /** 单独勾选完成状态，不走完整校验，避免历史数据因为规则变化而改不动。 */
     public ItineraryItem setCompleted(Long id, boolean completed) {
         ItineraryItem item = get(id);
         item.setCompleted(completed);
@@ -83,6 +91,7 @@ public class ItineraryService {
         }
     }
 
+    /** 校验行程：类型合法、日期在旅行范围内、结束时间不早于开始时间、城市属于本次旅行。 */
     private void validate(ItineraryItem item, boolean allowOutsideDates) {
         Trip trip = requireTrip(item.getTripId());
         if (!TYPES.contains(item.getType())) throw BusinessException.badRequest("无效的行程类型");

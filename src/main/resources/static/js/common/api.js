@@ -53,6 +53,10 @@
       createTrip: body => http.post('/admin/trips', body),
       updateTrip: (id, body) => http.put('/admin/trips/' + id, body),
       dashboard: id => http.get('/admin/trips/' + id + '/dashboard'),
+      uploadTripCover: (id, form) => http.post('/admin/trips/' + id + '/cover', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }),
+      clearTripCover: id => http.delete('/admin/trips/' + id + '/cover'),
       stops: id => http.get('/admin/trips/' + id + '/stops'),
       createStop: (id, body) => http.post('/admin/trips/' + id + '/stops', body),
       updateStop: (id, body) => http.put('/admin/stops/' + id, body),
@@ -78,6 +82,7 @@
       createJournal: body => http.post('/admin/journals', body),
       updateJournal: (id, body) => http.put('/admin/journals/' + id, body),
       deleteJournal: id => http.delete('/admin/journals/' + id),
+      journalMediaCount: id => http.get('/admin/journals/' + id + '/media-count'),
       publishJournal: id => http.post('/admin/journals/' + id + '/publish'),
       unpublishJournal: id => http.post('/admin/journals/' + id + '/unpublish'),
       media: id => http.get('/admin/journals/' + id + '/media'),

@@ -29,6 +29,12 @@ import org.springframework.web.bind.annotation.*;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
+/**
+ * 后台登录相关接口：登录、登出、会话查询和改密。
+ *
+ * <p>用会话（Session）而不是 Token，配合 CSRF 双提交 Cookie。
+ * {@code /session} 允许匿名访问，用来让前端判断是否需要跳登录页。</p>
+ */
 @RestController
 @RequestMapping("/api/admin/auth")
 @RequiredArgsConstructor
@@ -46,6 +52,7 @@ public class AuthController {
 
     @PostMapping("/login")
     @Transactional
+    /** 登录。失败会计入 IP 失败次数；用户名不存在和密码错误返回同样的提示，不暴露账号是否存在。 */
     public ApiResponse<AdminInfo> login(@Valid @RequestBody LoginRequest body,
                                         HttpServletRequest request, HttpServletResponse response) {
         String ip = clientIp(request);
@@ -81,6 +88,7 @@ public class AuthController {
     }
 
     @GetMapping("/session")
+    /** 查询当前会话。未登录时返回 data 为 null 而不是 401，避免前端首屏出现无意义的报错。 */
     public ApiResponse<AdminInfo> session(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()
                 || authentication instanceof AnonymousAuthenticationToken) {
@@ -108,6 +116,7 @@ public class AuthController {
         return user;
     }
 
+    /** 转成给前端的账号信息。头像地址带上对象键的哈希做版本号，换头像后能立刻刷掉浏览器缓存。 */
     private AdminInfo toInfo(AdminUser user) {
         String avatarUrl = user.getAvatarObjectKey() == null ? null
                 : "/api/public/profile/avatar?v=" + Integer.toUnsignedString(user.getAvatarObjectKey().hashCode());
@@ -115,6 +124,7 @@ public class AuthController {
         return new AdminInfo(user.getId(), user.getUsername(), user.getDisplayName(), avatarUrl, themeKey);
     }
 
+    /** 取客户端 IP。部署在反向代理后面时以 X-Forwarded-For 的第一段为准。 */
     private String clientIp(HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");
         return forwarded == null ? request.getRemoteAddr() : forwarded.split(",")[0].trim();

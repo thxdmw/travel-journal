@@ -49,6 +49,29 @@ body { margin:0; color:var(--tj-text); background:var(--tj-bg); font:var(--tj-bo
 .admin-trip-card h3 { margin:12px 0 8px; color:var(--tj-primary); font:700 21px var(--tj-serif); }
 .admin-trip-card p { min-height:42px; color:var(--tj-muted); font-size:13px; line-height:1.6; }
 .admin-trip-card footer { display:flex; justify-content:space-between; color:#8c887f; font-size:12px; }
+.trip-card-cover { display:block; width:100%; height:132px; margin-bottom:12px; border-radius:calc(var(--tj-radius) - 4px); object-fit:cover; }
+
+/* 概览和预算的加载容器：数据还没回来时也要有实体高度，否则转圈没地方显示 */
+.tab-loading-host { min-height:200px; }
+/* 遮罩跟随主题内容背景（见各主题的 --el-mask-color），转圈和提示语用主色，别再是默认的白底蓝圈 */
+.el-loading-mask { border-radius:calc(var(--tj-radius) - 4px); }
+.el-loading-spinner .path { stroke:var(--tj-accent); }
+.el-loading-spinner .el-loading-text { color:var(--tj-muted); }
+
+/* 旅行封面选择器：左侧预览方块，右侧操作按钮 */
+.cover-picker { display:flex; gap:14px; align-items:flex-start; width:100%; }
+.cover-preview { flex:0 0 168px; display:flex; align-items:center; justify-content:center; width:168px; height:104px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface-soft); cursor:pointer; overflow:hidden; }
+.cover-preview.empty { border-style:dashed; color:var(--tj-muted); font-size:13px; }
+.cover-preview img { width:100%; height:100%; object-fit:cover; }
+.cover-actions { display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
+.cover-actions .el-button+.el-button { margin-left:0; }
+.cover-actions small { color:var(--tj-muted); font-size:12px; line-height:1.5; }
+.settings-cover { width:180px; border-radius:8px; }
+
+/* 地点坐标必填，但值由地图选点写入，所以显示成只读文本，仅借用表单项的校验提示 */
+.coordinate-status .coordinate-value { color:var(--tj-primary); font-variant-numeric:tabular-nums; }
+.coordinate-status .coordinate-empty { color:var(--tj-muted); }
+.coordinate-status .el-form-item__label small { color:var(--tj-muted); font-weight:400; }
 .status { display:inline-flex; padding:4px 9px; border-radius:99px; background:#e9f0ec; color:var(--tj-primary); font-size:12px; }
 .workspace-head { display:flex; align-items:flex-start; gap:18px; margin-bottom:20px; }
 .workspace-head .back { color:var(--tj-accent); cursor:pointer; }
@@ -95,6 +118,10 @@ body { margin:0; color:var(--tj-text); background:var(--tj-bg); font:var(--tj-bo
 .editor-actions { margin-left:auto; display:flex; gap:10px; }
 .editor-meta { flex:0 0 auto; display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:12px; margin-bottom:14px; }
 .editor-meta-secondary { grid-template-columns:1fr 1.7fr 1fr; }
+/* 顶部信息区包在 el-form 里做必填校验，表单项自身的外边距交给 .editor-meta 的 gap 处理 */
+.editor-meta-form .el-form-item { margin-bottom:0; }
+.editor-meta-form .el-form-item__content { width:100%; }
+.editor-meta-form .el-select,.editor-meta-form .el-date-editor { width:100%; }
 .editor-meta-toggle { display:none; }
 .editor-grid { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr 280px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); overflow:hidden; background:var(--tj-surface); }
 .editor-column { min-width:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--tj-border); }

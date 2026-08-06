@@ -36,6 +36,8 @@
   --el-border-radius-base: 8px;
   --el-bg-color: #FFFCF6;
   --el-fill-color-blank: #FFFCF6;
+  --el-mask-color: #FFFCF6;
+  --el-mask-color: color-mix(in srgb, #FFFCF6 82%, transparent);
   --el-text-color-primary: #2A2D2B;
 }
 

@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+/** 后台预算与支出接口：预算分类的增删改，以及支出流水的增删改。 */
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor

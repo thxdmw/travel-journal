@@ -29,6 +29,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 管理员个人资料服务：头像上传和全站主题切换。
+ *
+ * <p>头像统一转成 512 像素的 webp 再存，既压缩体积也顺带剥掉 EXIF 里的拍摄信息。</p>
+ */
 @Service
 public class AdminProfileService {
     public static final String DEFAULT_THEME = "travel-classic";
@@ -61,6 +66,7 @@ public class AdminProfileService {
         return user;
     }
 
+    /** 取用于前台展示的管理员，即 id 最小的那个启用账号。 */
     public AdminUser publicUser() {
         AdminUser user = mapper.selectOne(new LambdaQueryWrapper<AdminUser>()
                 .eq(AdminUser::getEnabled, true).orderByAsc(AdminUser::getId).last("limit 1"));
@@ -82,6 +88,7 @@ public class AdminProfileService {
     }
 
     @Transactional
+    /** 上传头像。新图写入成功后才更新数据库并删除旧图，中途失败不会弄丢原来的头像。 */
     public AdminUser uploadAvatar(String username, MultipartFile file) {
         AdminUser user = requireByUsername(username);
         byte[] uploaded;
@@ -142,6 +149,7 @@ public class AdminProfileService {
         }
     }
 
+    /** 头像的站内地址，查询串里的 v 是对象键哈希，用来做缓存击穿。 */
     public String avatarUrl(AdminUser user) {
         return user.getAvatarObjectKey() == null ? null
                 : "/api/public/profile/avatar?v=" + Integer.toUnsignedString(user.getAvatarObjectKey().hashCode());

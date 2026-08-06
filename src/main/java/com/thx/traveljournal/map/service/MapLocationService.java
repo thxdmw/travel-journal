@@ -14,6 +14,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 地点搜索与逆地理编码，接的是高德 Web 服务 API。
+ *
+ * <p>返回的都是 GCJ-02 坐标，和前台地图使用的瓦片一致，不需要额外转换。
+ * 没有配置 AMAP_WEB_SERVICE_KEY 时相关接口会明确报错，后台仍可手动在地图上选点。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class MapLocationService {
@@ -28,6 +34,7 @@ public class MapLocationService {
                                BigDecimal latitude, BigDecimal longitude,
                                String coordinateSystem, String locationSource) {}
 
+    /** 供前端判断要不要显示搜索框：没配 key 时只留地图选点。 */
     public Map<String, Object> status() {
         AppProperties.MapSettings settings = properties.map();
         boolean configured = settings != null && settings.searchEnabled()
@@ -39,6 +46,7 @@ public class MapLocationService {
         );
     }
 
+    /** 关键词搜索地点。第三方服务不可用时降级为提示手动选点，不让整个弹窗报错。 */
     public List<LocationView> search(String keyword, String region) {
         requireConfigured();
         if (!StringUtils.hasText(keyword)) throw BusinessException.badRequest("请输入城市、景点或地址");
@@ -73,6 +81,7 @@ public class MapLocationService {
         }
     }
 
+    /** 逆地理编码：把地图上点到的坐标反查成省市区和详细地址。 */
     public LocationView reverse(BigDecimal latitude, BigDecimal longitude) {
         requireConfigured();
         validateCoordinates(latitude, longitude);

@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.util.List;
 
+/** 后台日记模板接口：模板的增删改、复制，以及按模板生成日记正文。 */
 @RestController
 @RequestMapping("/api/admin/journal-templates")
 @RequiredArgsConstructor

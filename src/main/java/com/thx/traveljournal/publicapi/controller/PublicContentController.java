@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/** 前台只读接口：首页、旅行、日记和地图城市点，全部无需登录。 */
 @RestController
 @RequestMapping("/api/public")
 @RequiredArgsConstructor

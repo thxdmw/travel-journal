@@ -16,6 +16,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 全局异常处理，把各类异常收敛成统一的响应格式。
+ *
+ * <p>只有兜底的 {@code handleUnknown} 会打错误日志并返回笼统提示，
+ * 其余都是可预期的情况，直接把具体原因回给前端。</p>
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);

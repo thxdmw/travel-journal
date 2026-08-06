@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+/** 后台地图接口：配置状态、地点搜索和逆地理编码，供城市弹窗里的选点使用。 */
 @Validated
 @RestController
 @RequestMapping("/api/admin/map")

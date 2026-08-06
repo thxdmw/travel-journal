@@ -17,6 +17,12 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 预算与支出服务。
+ *
+ * <p>预算按分类记计划金额，支出是实际流水；两者相减得到每个分类的结余，
+ * 汇总结果由 {@link #summary} 现算，不落库，省得维护一份会算错的冗余数据。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class BudgetService {
@@ -36,6 +42,7 @@ public class BudgetService {
                 .eq(BudgetCategory::getTripId, tripId).orderByAsc(BudgetCategory::getSortOrder));
     }
 
+    /** 汇总某次旅行的预算执行情况：各分类的计划、实际、结余，以及总计。 */
     public BudgetSummary summary(Long tripId) {
         Trip trip = requireTrip(tripId);
         List<BudgetCategory> categories = categories(tripId);
@@ -78,6 +85,7 @@ public class BudgetService {
         return category;
     }
 
+    /** 删除预算分类。已经记过支出的分类不允许删，否则那些流水会失去归属。 */
     public void deleteCategory(Long id) {
         requireCategory(id);
         long references = expenseMapper.selectCount(new LambdaQueryWrapper<Expense>().eq(Expense::getBudgetCategoryId, id));
@@ -118,6 +126,7 @@ public class BudgetService {
         category.setCode(category.getCode().trim().toUpperCase());
     }
 
+    /** 校验支出：金额必须为正，预算分类和城市都必须属于同一次旅行。 */
     private void validateExpense(Expense expense) {
         requireTrip(expense.getTripId());
         if (expense.getAmount() == null || expense.getAmount().signum() <= 0)

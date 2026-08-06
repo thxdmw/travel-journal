@@ -115,7 +115,6 @@ button, input, textarea { font: inherit; }
 .article-meta { color:var(--tj-muted); font-size:14px; }
 .reading-progress { position:fixed; top:76px; left:0; right:0; z-index:1201; height:2px; pointer-events:none; background:transparent; }
 .reading-progress span { display:block; height:100%; background:var(--tj-accent); transition:width .12s linear; }
-.article-cover { width:100%; max-height:560px; object-fit:cover; border-radius:var(--tj-image-radius,var(--tj-radius)); margin-bottom:36px; }
 .markdown-body { font:17px/1.9 var(--tj-serif); color:#343633; }
 .markdown-body { counter-reset:article-section; }
 .markdown-body h2,.markdown-body h3 { color:var(--tj-primary); margin-top:2em; }
@@ -158,10 +157,10 @@ button, input, textarea { font: inherit; }
 [data-image-ratio="natural"] .card-photo { aspect-ratio:auto; min-height:180px; }
 [data-image-ratio="4:3"] .card-photo { aspect-ratio:4/3; }
 [data-image-ratio="1:1"] .card-photo { aspect-ratio:1/1; }
-[data-image-style="paper"] .card-photo,[data-image-style="paper"] .article-cover,[data-image-style="paper"] .journal-figure img { padding:7px; border:1px solid var(--tj-border); background:var(--tj-surface); }
-[data-image-style="rounded"] .card-photo,[data-image-style="rounded"] .article-cover,[data-image-style="rounded"] .journal-figure img { border-radius:calc(var(--tj-image-radius,8px) + 5px); }
-[data-image-shadow="none"] .card-photo,[data-image-shadow="none"] .article-cover,[data-image-shadow="none"] .markdown-body img { box-shadow:none; }
-[data-image-shadow="floating"] .card-photo,[data-image-shadow="floating"] .article-cover,[data-image-shadow="floating"] .markdown-body img { box-shadow:var(--tj-shadow); }
+[data-image-style="paper"] .card-photo,[data-image-style="paper"] .journal-figure img { padding:7px; border:1px solid var(--tj-border); background:var(--tj-surface); }
+[data-image-style="rounded"] .card-photo,[data-image-style="rounded"] .journal-figure img { border-radius:calc(var(--tj-image-radius,8px) + 5px); }
+[data-image-shadow="none"] .card-photo,[data-image-shadow="none"] .markdown-body img { box-shadow:none; }
+[data-image-shadow="floating"] .card-photo,[data-image-shadow="floating"] .markdown-body img { box-shadow:var(--tj-shadow); }
 [data-motion="none"] *,[data-motion="none"] *::before,[data-motion="none"] *::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }

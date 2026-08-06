@@ -3,6 +3,11 @@ package com.thx.traveljournal.common.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+/**
+ * 业务异常，携带业务码和 HTTP 状态码，由 {@link GlobalExceptionHandler} 统一转成响应体。
+ *
+ * <p>message 会原样展示给用户，所以要写成中文的、能指导用户下一步怎么做的话。</p>
+ */
 @Getter
 public class BusinessException extends RuntimeException {
     private final String code;

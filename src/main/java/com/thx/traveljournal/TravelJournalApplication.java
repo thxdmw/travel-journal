@@ -6,6 +6,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
+/** 应用入口。个人旅行日记系统，前台公开展示，后台单管理员维护。 */
 @SpringBootApplication
 @MapperScan("com.thx.traveljournal")
 @EnableConfigurationProperties(AppProperties.class)

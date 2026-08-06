@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 前台展示用的站长资料和当前生效的主题。 */
 @RestController
 @RequestMapping("/api/public/profile")
 @RequiredArgsConstructor

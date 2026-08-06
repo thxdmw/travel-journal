@@ -13,6 +13,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+/**
+ * 首次启动时创建初始管理员账号。
+ *
+ * <p>只在管理员表为空时执行；没有配置 APP_ADMIN_PASSWORD 时只告警不创建，
+ * 避免出现一个谁都能猜到密码的账号。</p>
+ */
 @Component
 @RequiredArgsConstructor
 public class AdminBootstrap implements ApplicationRunner {

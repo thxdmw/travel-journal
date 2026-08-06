@@ -11,6 +11,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.UUID;
 
+/**
+ * 给每个请求分配一个追踪 id。
+ *
+ * <p>id 同时写进日志 MDC、响应头 {@code X-Request-Id} 和统一响应体，
+ * 这样用户截图报错就能直接定位到对应的那条日志。</p>
+ */
 @Component
 public class RequestIdFilter extends OncePerRequestFilter {
     @Override

@@ -319,7 +319,6 @@
       <main v-if="data" class="page article">
         <div class="reading-progress" aria-hidden="true"><span :style="{width:progress+'%'}"></span></div>
         <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div></header>
-        <img v-if="data.journal.coverUrl" class="article-cover" :src="data.journal.coverUrl" :alt="data.journal.title">
         <article class="markdown-body" v-html="html" @click="openArticleImage"></article>
         <div v-if="data.media.length" class="gallery"><button v-for="item in data.media" :key="item.id" type="button" @click="openLightbox(item.displayUrl,item.caption || item.filename)"><img :src="item.thumbnailUrl" :alt="item.caption || item.filename"></button></div>
         <nav class="article-nav"><router-link v-if="data.previousSlug" :to="'/journals/'+data.previousSlug">← 上一篇</router-link><span v-else></span><router-link v-if="data.nextSlug" :to="'/journals/'+data.nextSlug">下一篇 →</router-link></nav>

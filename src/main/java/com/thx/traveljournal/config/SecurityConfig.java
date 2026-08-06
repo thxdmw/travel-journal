@@ -19,6 +19,12 @@ import org.springframework.security.web.context.SecurityContextRepository;
 
 import java.nio.charset.StandardCharsets;
 
+/**
+ * 安全配置：会话登录 + CSRF 双提交 Cookie。
+ *
+ * <p>前台页面、静态资源、公开接口和图片地址全部放行，{@code /api/admin/**} 需要 ADMIN 角色。
+ * 未登录和无权限都返回统一格式的 JSON，而不是跳转登录页，方便前端 SPA 统一处理。</p>
+ */
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -40,6 +46,12 @@ public class SecurityConfig {
         return new HttpSessionSecurityContextRepository();
     }
 
+    /**
+     * 主过滤器链。
+     *
+     * <p>登录接口本身要排除 CSRF 校验，否则首次登录时前端还拿不到令牌。
+     * requestCache 关掉是因为没有登录跳转，留着反而会在会话里存无用的请求。</p>
+     */
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();

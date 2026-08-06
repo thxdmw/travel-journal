@@ -23,6 +23,12 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * 前台内容服务，把后台数据整理成访客能看到的形式。
+ *
+ * <p>这里是公开与非公开的分界线：所有查询都从「已发布的日记」出发往外扩，
+ * 草稿以及只有草稿的旅行不会出现在任何前台接口里。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class PublicContentService {
@@ -59,6 +65,7 @@ public class PublicContentService {
                        List<CityMarker> cityMarkers, long tripCount, long cityCount,
                        long journalCount, long photoCount) {}
 
+    /** 首页数据：最近日记、最近旅行、地图城市点和四个统计数字。没有已发布日记时返回全空。 */
     public Home home() {
         List<JournalEntry> published = publishedJournals();
         if (published.isEmpty()) return new Home(List.of(), List.of(), List.of(), 0, 0, 0, 0);
@@ -84,6 +91,7 @@ public class PublicContentService {
                 allTrips.size(), cities.size(), published.size(), photos);
     }
 
+    /** 前台旅行列表。只展示至少有一篇已发布日记的旅行，草稿阶段的旅行不对外可见。 */
     public List<TripCard> publicTrips() {
         List<JournalEntry> published = publishedJournals();
         Map<Long, Long> counts = published.stream().collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
@@ -93,6 +101,7 @@ public class PublicContentService {
                 .map(trip -> tripCard(trip, counts.getOrDefault(trip.getId(), 0L))).toList();
     }
 
+    /** 旅行详情。一篇已发布日记都没有时按「尚未公开」处理，不泄露旅行的存在。 */
     public TripDetail trip(String slug) {
         Trip trip = tripMapper.selectOne(new LambdaQueryWrapper<Trip>().eq(Trip::getSlug, slug));
         if (trip == null) throw BusinessException.notFound("旅行不存在");
@@ -175,6 +184,7 @@ public class PublicContentService {
         return result;
     }
 
+    /** 所有已发布日记，按发生日期倒序。前台的一切内容都从这个集合派生。 */
     private List<JournalEntry> publishedJournals() {
         return journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
                 .eq(JournalEntry::getStatus, "PUBLISHED").orderByDesc(JournalEntry::getPublishedAt));
@@ -211,6 +221,7 @@ public class PublicContentService {
                 stop.getSortOrder() == null ? 0 : stop.getSortOrder());
     }
 
+    /** 拼图片的站内地址，实际访问时再由 MediaService 换成对象存储的预签名地址。 */
     private String mediaUrl(Long mediaId, String variant) {
         return mediaId == null ? null : "/api/media/" + mediaId + "/" + variant;
     }

@@ -12,7 +12,7 @@
     '--tj-serif', '--tj-sans', '--tj-body-size', '--tj-body-line-height',
     '--tj-content-width', '--tj-article-width', '--el-color-primary',
     '--el-color-primary-dark-2', '--el-border-color', '--el-border-radius-base',
-    '--el-bg-color', '--el-fill-color-blank', '--el-text-color-primary'
+    '--el-bg-color', '--el-fill-color-blank', '--el-text-color-primary', '--el-mask-color'
   ];
   const serif = '"Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif';
   const sans = '"PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
@@ -69,6 +69,8 @@
     if (colors.surface) {
       root.style.setProperty('--el-bg-color', colors.surface);
       root.style.setProperty('--el-fill-color-blank', colors.surface);
+      // loading 遮罩默认是白色，压在暖色背景上会发突兀，这里跟着主题的内容背景走
+      root.style.setProperty('--el-mask-color', rgba(colors.surface, .82));
     }
     if (colors.text) root.style.setProperty('--el-text-color-primary', colors.text);
 

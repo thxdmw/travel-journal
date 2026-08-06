@@ -16,6 +16,12 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.URI;
 import java.util.List;
 
+/**
+ * 图片接口：后台的上传、排序、说明、封面和删除，以及所有人都会用到的图片访问地址。
+ *
+ * <p>{@code /api/media/**} 对访客开放，但服务层会校验这张图是否已经通过发布的日记
+ * 或公开旅行的封面对外可见，未公开的图片一律 403。</p>
+ */
 @RestController
 @RequiredArgsConstructor
 public class MediaController {
@@ -50,6 +56,7 @@ public class MediaController {
     public ApiResponse<Void> delete(@PathVariable Long id) { service.deleteRelation(id); return ApiResponse.ok(); }
 
     @GetMapping("/api/media/{mediaId}/{variant}")
+    /** 302 跳转到对象存储的预签名地址，图片流量不经过应用本身。 */
     public ResponseEntity<Void> access(@PathVariable Long mediaId, @PathVariable String variant,
                                        Authentication authentication) {
         boolean admin = authentication != null && authentication.isAuthenticated()

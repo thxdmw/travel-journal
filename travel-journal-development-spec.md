@@ -223,6 +223,8 @@ travel-journal/
 
 结束日期不得早于开始日期。后台不提供旅行物理删除入口，使用 ARCHIVED 归档。
 
+封面可在新建或编辑旅行时直接上传，不依赖日记图片。新建时前端先保存旅行拿到 id，再上传封面，用户侧仍是一次保存操作。作为旅行封面且该旅行至少有一篇已发布日记时，图片视为公开可见。
+
 ### 4.2 城市停靠点
 
 每个停靠点包含城市、地区、国家、经纬度、地点 ID、格式化地址、行政区代码、坐标系、数据来源、到达日期、离开日期、排序和备注。
@@ -278,7 +280,7 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 4. 浏览器请求 GET /api/media/{mediaId}/display 时，后端检查媒体可见性，再 302 跳转到新生成的短期 MinIO 预签名地址。
 5. 媒体关联已发布日记时允许访客访问 display 和 thumbnail；草稿媒体仅管理员可访问；original 默认仅管理员下载。
 6. 上传接口同时建立 journal_media 关联，因此同一张图片既可插入正文，也可出现在日记图片库中。
-7. 删除媒体前检查正文是否仍引用该媒体；仍被引用时拒绝删除并提示先移除正文中的图片。
+7. 删除媒体前检查正文是否仍引用该媒体；仍被引用时拒绝删除并提示先移除正文中的图片。作为日记封面或旅行封面不构成拒绝理由，删除时自动清空对应封面引用。
 8. 后端只允许站内媒体地址、figure/img/figcaption 和固定布局 class，拒绝外部图片、事件属性、脚本和任意内联样式。
 9. 公开端限制竖图最大高度，手机端统一使用可读宽度；点击正文图片进入灯箱查看大图。
 
@@ -373,10 +375,11 @@ journal_media：
 ### 5.3 删除策略
 
 - 旅行默认只归档，不物理删除。
-- 草稿日记可删除；已发布日记需先撤回或明确执行“撤回并删除”。
-- 删除图片前检查旅行封面、日记封面和日记图片关联，仍被引用时拒绝删除。
+- 日记可直接删除，草稿和已发布都不需要先撤回；删除时级联清理它的全部图片关联、media_asset 记录和 MinIO 对象。前端在确认弹窗中说明会连带删除多少张图片，已发布日记额外提示前台将立即不可访问。
+- 删除单张图片时，仍被正文引用则拒绝删除，提示先从正文移除；如果它是日记封面或旅行封面，不再拒绝，改为自动清空对应的 cover_media_id 后删除。
+- 仍被其它日记引用或仍是某个旅行封面的图片不会被物理删除，只解除本次的关联。
 - 数据库写入失败时清理本次已上传的 MinIO 对象。
-- MinIO 删除失败时记录错误并保留可重试信息，避免静默丢失。
+- MinIO 删除失败时记录告警日志并继续完成数据库删除，避免后台出现删不掉的记录；遗留的孤儿对象按日志清理。
 
 ---
 
@@ -434,6 +437,7 @@ journal_media：
 | GET | /api/admin/trips/{id}/dashboard | 旅行汇总 |
 | GET、POST | /api/admin/trips/{tripId}/stops | 查询或新增城市 |
 | PUT、DELETE | /api/admin/stops/{id} | 更新或删除城市 |
+| POST、DELETE | /api/admin/trips/{id}/cover | 上传或移除旅行封面 |
 | PUT | /api/admin/trips/{tripId}/stops/reorder | 城市排序 |
 | GET、POST | /api/admin/trips/{tripId}/itinerary | 查询或新增行程 |
 | PUT、DELETE | /api/admin/itinerary/{id} | 更新或删除行程 |
@@ -453,7 +457,8 @@ journal_media：
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET、POST | /api/admin/journals | 查询或新建日记 |
-| GET、PUT、DELETE | /api/admin/journals/{id} | 查询、更新或删除日记 |
+| GET、PUT、DELETE | /api/admin/journals/{id} | 查询、更新或删除日记；删除为级联，返回一并删除的图片张数 |
+| GET | /api/admin/journals/{id}/media-count | 日记下的图片张数，供删除确认弹窗提示 |
 | POST | /api/admin/journals/{id}/publish | 发布 |
 | POST | /api/admin/journals/{id}/unpublish | 撤回 |
 | POST | /api/admin/journals/{id}/media | 上传图片 |

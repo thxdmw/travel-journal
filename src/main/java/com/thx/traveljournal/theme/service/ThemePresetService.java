@@ -25,7 +25,15 @@ import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * 主题服务：主题预设的增删改查，以及「当前该用哪个主题」的计算。
+ *
+ * <p>主题分三层，优先级从高到低是日记专属、旅行专属、全站默认，见 {@link #effective}。
+ * 保存前所有配置都会过一遍 {@link #normalizeDefinition} 白名单过滤，
+ * 因为这些值最终会变成页面上的 CSS 变量。</p>
+ */
 public class ThemePresetService {
+    /** 兜底主题，任何环节找不到有效主题时都回落到它 */
     public static final String DEFAULT_THEME = "travel-classic";
     private static final Set<String> BASE_THEMES = Set.of(DEFAULT_THEME, "sanya-breeze");
     private static final Set<String> COLOR_KEYS = Set.of("background", "surface", "surfaceSoft", "primary",
@@ -55,6 +63,7 @@ public class ThemePresetService {
         return preset;
     }
 
+    /** 按标识取主题，取不到或已停用时回落到全站主题。 */
     public ThemeView resolve(String themeKey) {
         ThemePreset preset = findEnabled(themeKey);
         if (preset == null) preset = findEnabled(DEFAULT_THEME);
@@ -68,12 +77,14 @@ public class ThemePresetService {
         return resolve(user == null ? DEFAULT_THEME : user.getThemeKey());
     }
 
+    /** 计算最终生效的主题，优先级：日记专属 &gt; 旅行专属 &gt; 全站主题。 */
     public ThemeView effective(String journalThemeKey, String tripThemeKey) {
         if (StringUtils.hasText(journalThemeKey)) return resolve(journalThemeKey);
         if (StringUtils.hasText(tripThemeKey)) return resolve(tripThemeKey);
         return activeSiteTheme();
     }
 
+    /** 校验前端选的主题是否存在且启用；传空表示继承上层主题，直接返回 null。 */
     public String validateSelection(String themeKey) {
         if (!StringUtils.hasText(themeKey)) return null;
         if (findEnabled(themeKey.trim()) == null) throw BusinessException.badRequest("所选主题不存在或已停用");
@@ -111,6 +122,7 @@ public class ThemePresetService {
     }
 
     @Transactional
+    /** 删除个人主题。系统预设不能删；仍被全站、旅行或日记引用的主题也不能删。 */
     public void delete(Long id) {
         ThemePreset preset = get(id);
         if (Boolean.TRUE.equals(preset.getBuiltin())) throw BusinessException.badRequest("系统主题不能删除");
@@ -143,6 +155,13 @@ public class ThemePresetService {
         preset.setEnabled(enabled == null || enabled);
     }
 
+    /**
+     * 归一化主题配置：只保留白名单内的键，值超出范围就换成默认值。
+     *
+     * <p>主题配置最终会变成页面上的 CSS 变量，所以必须逐项过滤——
+     * 颜色只认 #RRGGBB，枚举只认预设值，数值限定在合理区间，
+     * 免得有人塞进任意字符串把样式表撑坏。</p>
+     */
     private JsonNode normalizeDefinition(JsonNode source) {
         if (source == null || !source.isObject()) throw BusinessException.badRequest("主题配置必须是 JSON 对象");
         if (source.toString().length() > 20_000) throw BusinessException.badRequest("主题配置过大");

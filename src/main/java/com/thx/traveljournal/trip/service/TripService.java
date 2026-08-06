@@ -26,10 +26,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * 旅行服务：旅行本体和城市停靠点的增删改查。
+ *
+ * <p>按规范旅行不提供物理删除，不需要的旅行改成 ARCHIVED 归档。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class TripService {
     private static final Set<String> STATUSES = Set.of("PLANNING", "ONGOING", "COMPLETED", "ARCHIVED");
+    /** 新建旅行时自动生成的默认预算分类，省得每次从零开始建 */
     private static final List<String[]> DEFAULT_BUDGETS = List.of(
             new String[]{"TRANSPORT", "交通"}, new String[]{"HOTEL", "住宿"},
             new String[]{"FOOD", "餐饮"}, new String[]{"TICKET", "门票"},
@@ -56,6 +62,7 @@ public class TripService {
     }
 
     @Transactional
+    /** 新建旅行，同时铺一套默认预算分类。 */
     public Trip create(Trip trip) {
         prepare(trip);
         tripMapper.insert(trip);
@@ -72,6 +79,7 @@ public class TripService {
         return trip;
     }
 
+    /** 更新旅行。逐字段拷贝而不是整体替换，避免把请求体里没有的字段冲成 null。 */
     public Trip update(Long id, Trip input) {
         Trip trip = get(id);
         trip.setTitle(input.getTitle());
@@ -97,6 +105,7 @@ public class TripService {
         return trip;
     }
 
+    /** 工作台概览用的统计数据：城市数、行程数、日记数和预算执行情况。 */
     public Map<String, Object> dashboard(Long tripId) {
         Trip trip = get(tripId);
         long stops = stopMapper.selectCount(new LambdaQueryWrapper<TripStop>().eq(TripStop::getTripId, tripId));
@@ -169,6 +178,7 @@ public class TripService {
     }
 
     @Transactional
+    /** 重排城市顺序，传入的 id 必须与该旅行现有城市完全一致，防止误传别的旅行的 id。 */
     public void reorderStops(Long tripId, List<Long> ids) {
         List<TripStop> current = stops(tripId);
         if (current.size() != ids.size() || !current.stream().map(TripStop::getId).collect(java.util.stream.Collectors.toSet()).equals(Set.copyOf(ids))) {
@@ -181,6 +191,7 @@ public class TripService {
         }
     }
 
+    /** 落库前的归一化和校验：日期先后、slug 规范化、状态合法性、币种大写。 */
     private void prepare(Trip trip) {
         if (trip.getEndDate().isBefore(trip.getStartDate())) throw BusinessException.badRequest("结束日期不能早于开始日期");
         trip.setSlug(SlugUtils.normalize(trip.getSlug()));
@@ -192,6 +203,11 @@ public class TripService {
         if (!STATUSES.contains(status)) throw BusinessException.badRequest("无效的旅行状态");
     }
 
+    /**
+     * 校验城市停靠点。
+     *
+     * <p>经纬度同时为 0 会落在几内亚湾的「空岛」上，通常是前端没选点就提交了，所以单独拦一下。</p>
+     */
     private void validateStop(TripStop stop) {
         if (stop.getLatitude() == null || stop.getLongitude() == null)
             throw BusinessException.badRequest("请选择地点坐标");

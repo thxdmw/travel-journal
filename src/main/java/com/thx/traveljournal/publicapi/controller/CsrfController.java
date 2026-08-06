@@ -7,6 +7,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+/**
+ * 下发 CSRF 令牌。
+ *
+ * <p>前端登录后调一次，让 Spring Security 把令牌种进 Cookie，
+ * 之后 axios 会自动带上对应的请求头。</p>
+ */
 @RestController
 public class CsrfController {
     @GetMapping("/api/public/csrf")

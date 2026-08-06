@@ -36,9 +36,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 日记模板服务：模板的增删改查，以及按模板生成日记正文。
+ *
+ * <p>模板由一组区块组成，区块类型限定在 {@link #BLOCK_TYPES} 白名单内。
+ * 生成正文时，路线、行程、花费这类区块会自动读取当天的旅行数据，
+ * 用户填的文字则统一做 HTML 转义后再拼进 Markdown。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class JournalTemplateService {
+    /** 允许的区块类型白名单。模板由用户自己搭，只认这些类型，杜绝脚本和任意 HTML */
     private static final Set<String> BLOCK_TYPES = Set.of(
             "trip-info", "text", "textarea", "quote", "rating", "checklist",
             "route", "itinerary", "expense-summary", "image", "gallery", "divider");
@@ -83,6 +91,7 @@ public class JournalTemplateService {
         return template;
     }
 
+    /** 更新个人模板。系统内置模板不允许直接改，要先复制成个人模板。 */
     public JournalTemplate update(Long id, TemplateInput input) {
         JournalTemplate template = get(id);
         if (Boolean.TRUE.equals(template.getBuiltin()))
@@ -115,6 +124,14 @@ public class JournalTemplateService {
     }
 
     @Transactional(readOnly = true)
+    /**
+     * 按模板生成日记正文。
+     *
+     * <p>旅行、路线、行程和支出这些区块会自动从库里读当天的数据填好，
+     * 用户只需要填天气、心情、感受这类只有本人知道的内容。</p>
+     *
+     * @return 生成的 Markdown、回填的数据、模板定义快照和版本号
+     */
     public GenerateResult generate(Long templateId, GenerateInput input) {
         JournalTemplate template = get(templateId);
         if (!Boolean.TRUE.equals(template.getEnabled())) throw BusinessException.badRequest("该模板已停用");
@@ -181,6 +198,7 @@ public class JournalTemplateService {
         target.setEnabled(input.enabled() == null || input.enabled());
     }
 
+    /** 校验模板定义：必须是对象、至少一个区块、区块类型在白名单内、图片尺寸和对齐取值合法。 */
     private JsonNode validateDefinition(JsonNode definition) {
         if (definition == null || !definition.isObject() || !definition.path("blocks").isArray())
             throw BusinessException.badRequest("模板定义必须包含区块列表");
@@ -324,6 +342,7 @@ public class JournalTemplateService {
         return blockData.isObject() && blockData.has("value") ? blockData.path("value") : blockData;
     }
 
+    /** 校验标记为必填的区块确实填了内容。 */
     private void validateRequiredBlock(JsonNode block, ObjectNode data) {
         if (!block.path("required").asBoolean(false)) return;
         String type = block.path("type").asText();
@@ -348,6 +367,7 @@ public class JournalTemplateService {
         if (node.isTextual() && StringUtils.hasText(node.asText())) values.add(node.asText().trim());
     }
 
+    /** 转义 HTML 特殊字符。模板生成的 figure 标签会直接进正文，用户填的内容必须先转义。 */
     private String escapeHtml(String value) {
         return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");

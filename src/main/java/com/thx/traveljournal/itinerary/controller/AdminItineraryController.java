@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
+/** 后台行程接口：按天安排的行程条目的增删改、完成勾选和排序。 */
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor

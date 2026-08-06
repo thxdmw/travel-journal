@@ -1,6 +1,7 @@
 package com.thx.traveljournal.media.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.exif.ExifIFD0Directory;
 import com.thx.traveljournal.common.exception.BusinessException;
@@ -17,6 +18,7 @@ import com.thx.traveljournal.trip.mapper.TripMapper;
 import io.minio.*;
 import io.minio.Http;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.tika.Tika;
 import org.springframework.http.HttpStatus;
@@ -31,15 +33,28 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.URI;
 import java.security.MessageDigest;
+import java.util.Collection;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 媒体服务，负责图片的上传、转码、存储、访问授权和删除。
+ *
+ * <p>图片在系统中分成两层：{@code media_asset} 记录对象存储中的文件本身，
+ * {@code journal_media} 记录「某篇日记引用了某张图片」这层关系。旅行封面和日记封面
+ * 都只是保存了 {@code media_asset.id} 的引用字段，不额外建关系表。</p>
+ *
+ * <p>删除策略：图片被正文引用时拒绝删除（避免正文里留下坏图）；被设为日记封面或
+ * 旅行封面时不再拒绝，改为自动清空对应的封面引用后再删。对象存储删除失败只记录
+ * 告警日志，不阻断数据库删除，避免出现「后台怎么都删不掉」的死结。</p>
+ */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MediaService {
+    /** 允许上传的图片类型，由 Tika 嗅探真实内容后比对，不信任客户端传来的 Content-Type。 */
     private static final List<String> ALLOWED = List.of("image/jpeg", "image/png", "image/webp");
     private final MediaAssetMapper assetMapper;
     private final JournalMediaMapper journalMediaMapper;
@@ -50,10 +65,17 @@ public class MediaService {
     private final AppProperties properties;
     private final Tika tika = new Tika();
 
+    /**
+     * 返回给前端的图片视图。
+     *
+     * @param relationId journal_media 关系 id，删除单张日记图片时使用；旅行封面没有关系行，为 null
+     * @param id         media_asset id，设置封面时使用
+     */
     public record MediaView(Long relationId, Long id, String filename, String contentType,
                             Integer width, Integer height, String caption, Integer sortOrder,
                             String thumbnailUrl, String displayUrl) {}
 
+    /** 按排序号列出某篇日记的全部图片。 */
     public List<MediaView> list(Long journalId) {
         requireJournal(journalId);
         return journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
@@ -62,12 +84,166 @@ public class MediaService {
                 .stream().map(this::toView).toList();
     }
 
+    /**
+     * 上传一张日记图片：校验内容、生成展示图和缩略图、写入对象存储，最后建立与日记的关联。
+     *
+     * @param caption 图片说明，可为空
+     */
     @Transactional
     public MediaView upload(Long journalId, MultipartFile file, String caption) {
         JournalEntry journal = requireJournal(journalId);
         long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId));
         if (count >= properties.upload().maxImagesPerJournal()) throw BusinessException.badRequest("单篇日记图片数量已达上限");
+
+        MediaAsset asset = storeImage(file, "trips/" + journal.getTripId() + "/journals/" + journalId + "/");
+        JournalMedia relation = new JournalMedia();
+        relation.setJournalEntryId(journalId);
+        relation.setMediaAssetId(asset.getId());
+        relation.setCaption(caption);
+        relation.setSortOrder((int) count);
+        journalMediaMapper.insert(relation);
+        return toView(relation);
+    }
+
+    /** 修改图片说明。 */
+    public JournalMedia updateCaption(Long relationId, String caption) {
+        JournalMedia relation = requireRelation(relationId);
+        relation.setCaption(caption);
+        journalMediaMapper.updateById(relation);
+        return relation;
+    }
+
+    /** 重排某篇日记的图片顺序，传入的 id 列表必须与该日记现有图片完全一致。 */
+    @Transactional
+    public void reorder(Long journalId, List<Long> relationIds) {
+        List<JournalMedia> current = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId));
+        if (current.size() != relationIds.size() ||
+                !current.stream().map(JournalMedia::getId).collect(java.util.stream.Collectors.toSet()).equals(java.util.Set.copyOf(relationIds))) {
+            throw BusinessException.badRequest("排序列表必须包含该日记的全部图片");
+        }
+        for (int i = 0; i < relationIds.size(); i++) {
+            JournalMedia relation = requireRelation(relationIds.get(i));
+            relation.setSortOrder(i);
+            journalMediaMapper.updateById(relation);
+        }
+    }
+
+    /** 把日记中的某张图片设为该日记封面。 */
+    public void setCover(Long journalId, Long mediaId) {
+        JournalEntry journal = requireJournal(journalId);
+        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId).eq(JournalMedia::getMediaAssetId, mediaId));
+        if (count == 0) throw BusinessException.badRequest("图片不属于当前日记");
+        journal.setCoverMediaId(mediaId);
+        journalMapper.updateById(journal);
+    }
+
+    /**
+     * 删除日记中的单张图片。
+     *
+     * <p>正文仍引用该图片时拒绝删除；如果它是日记封面或旅行封面，会先自动清空封面引用再删除。</p>
+     */
+    @Transactional
+    public void deleteRelation(Long relationId) {
+        JournalMedia relation = requireRelation(relationId);
+        MediaAsset asset = requireAsset(relation.getMediaAssetId());
+        JournalEntry journal = requireJournal(relation.getJournalEntryId());
+        String marker = "/api/media/" + asset.getId() + "/";
+        if (journal.getContentMarkdown() != null && journal.getContentMarkdown().contains(marker)) {
+            throw BusinessException.conflict("正文仍引用该图片，请先从正文移除");
+        }
+        journalMediaMapper.deleteById(relationId);
+        detachCoverReferences(List.of(asset.getId()));
+        deleteOrphanAssets(List.of(asset.getId()));
+    }
+
+    /**
+     * 清空某篇日记的全部图片，供日记级联删除使用。
+     *
+     * <p>与 {@link #deleteRelation} 不同，这里不检查正文引用——整篇日记都要没了，
+     * 正文里的图片地址自然不需要保护。</p>
+     *
+     * @return 实际删除的图片张数，用于给前端提示
+     */
+    @Transactional
+    public int purgeJournalMedia(Long journalId) {
+        List<JournalMedia> relations = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId));
+        if (relations.isEmpty()) return 0;
+        List<Long> assetIds = relations.stream().map(JournalMedia::getMediaAssetId).distinct().toList();
+        journalMediaMapper.delete(new LambdaQueryWrapper<JournalMedia>().eq(JournalMedia::getJournalEntryId, journalId));
+        detachCoverReferences(assetIds);
+        deleteOrphanAssets(assetIds);
+        return relations.size();
+    }
+
+    /**
+     * 上传并设置旅行封面。
+     *
+     * <p>旅行封面不挂在任何日记下，因此不产生 {@code journal_media} 关系行；
+     * 旧封面如果没有别处引用会一并清理，避免对象存储里堆积无用文件。</p>
+     */
+    @Transactional
+    public MediaView uploadTripCover(Long tripId, MultipartFile file) {
+        Trip trip = requireTrip(tripId);
+        Long previousCover = trip.getCoverMediaId();
+        MediaAsset asset = storeImage(file, "trips/" + tripId + "/cover/");
+        trip.setCoverMediaId(asset.getId());
+        tripMapper.updateById(trip);
+        if (previousCover != null && !previousCover.equals(asset.getId())) deleteOrphanAssets(List.of(previousCover));
+        return toView(null, asset, null, null);
+    }
+
+    /** 清空旅行封面，旧封面没有别处引用时一并删除。 */
+    @Transactional
+    public void clearTripCover(Long tripId) {
+        Trip trip = requireTrip(tripId);
+        Long previousCover = trip.getCoverMediaId();
+        if (previousCover == null) return;
+        // 用条件更新显式置空：实体的 updateById 默认会跳过 null 字段，清不掉封面
+        tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
+                .set(Trip::getCoverMediaId, null).eq(Trip::getId, tripId));
+        deleteOrphanAssets(List.of(previousCover));
+    }
+
+    /**
+     * 生成图片的对象存储预签名访问地址。
+     *
+     * @param admin 是否为已登录管理员；访客只能访问已公开引用的图片，且拿不到原图
+     */
+    public URI access(Long mediaId, String variant, boolean admin) {
+        MediaAsset asset = requireAsset(mediaId);
+        if (!admin && visibilityMapper.countPublishedReferences(mediaId) == 0) {
+            throw new BusinessException("FORBIDDEN", "图片不可公开访问", HttpStatus.FORBIDDEN);
+        }
+        String key = switch (variant) {
+            case "thumbnail" -> asset.getThumbnailObjectKey();
+            case "display" -> asset.getDisplayObjectKey();
+            case "original" -> {
+                if (!admin) throw new BusinessException("FORBIDDEN", "原图仅管理员可访问", HttpStatus.FORBIDDEN);
+                yield asset.getOriginalObjectKey();
+            }
+            default -> throw BusinessException.notFound("图片规格不存在");
+        };
+        try {
+            String url = minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                    .method(Http.Method.GET).bucket(asset.getBucketName()).object(key)
+                    .expiry(properties.minio().presignedUrlTtlMinutes(), TimeUnit.MINUTES).build());
+            return URI.create(url);
+        } catch (Exception ex) {
+            throw new BusinessException("STORAGE_ERROR", "生成图片访问地址失败", HttpStatus.BAD_GATEWAY);
+        }
+    }
+
+    /**
+     * 校验并存储一张图片：嗅探真实类型、按 EXIF 摆正方向、生成 1280 展示图和 480 缩略图，
+     * 三个规格都写入对象存储后再落库。中途失败会清理已写入的对象，不留垃圾文件。
+     *
+     * @param keyPrefix 对象键前缀，方法内部会再拼接一个 uuid 目录，保证不冲突
+     */
+    private MediaAsset storeImage(MultipartFile file, String keyPrefix) {
         byte[] uploaded;
         try { uploaded = file.getBytes(); }
         catch (IOException ex) { throw new BusinessException("FILE_READ_ERROR", "读取上传文件失败", HttpStatus.BAD_REQUEST); }
@@ -99,8 +275,7 @@ public class MediaService {
         byte[] display = resize(normalized, 1280);
         byte[] thumbnail = resize(normalized, 480);
 
-        String uuid = UUID.randomUUID().toString();
-        String prefix = "trips/" + journal.getTripId() + "/journals/" + journalId + "/" + uuid + "/";
+        String prefix = keyPrefix + UUID.randomUUID() + "/";
         String originalKey = prefix + "original." + originalFormat;
         String displayKey = prefix + "display.webp";
         String thumbnailKey = prefix + "thumbnail.webp";
@@ -127,104 +302,69 @@ public class MediaService {
             asset.setHeight(normalized.getHeight());
             asset.setChecksumSha256(sha256(original));
             assetMapper.insert(asset);
-
-            JournalMedia relation = new JournalMedia();
-            relation.setJournalEntryId(journalId);
-            relation.setMediaAssetId(asset.getId());
-            relation.setCaption(caption);
-            relation.setSortOrder((int) count);
-            journalMediaMapper.insert(relation);
-            return toView(relation);
+            return asset;
         } catch (RuntimeException ex) {
             cleanup(bucket, originalKey, displayKey, thumbnailKey);
             throw ex;
         }
     }
 
-    public JournalMedia updateCaption(Long relationId, String caption) {
-        JournalMedia relation = requireRelation(relationId);
-        relation.setCaption(caption);
-        journalMediaMapper.updateById(relation);
-        return relation;
+    /**
+     * 把指向这些图片的封面引用统统清空。
+     *
+     * <p>数据库外键本身是 {@code on delete set null}，理论上删除图片时会自动置空；
+     * 这里显式再清一次，一是不依赖外键行为，二是让同一事务内后续读到的数据是对的。</p>
+     */
+    private void detachCoverReferences(Collection<Long> assetIds) {
+        if (assetIds.isEmpty()) return;
+        journalMapper.update(null, new LambdaUpdateWrapper<JournalEntry>()
+                .set(JournalEntry::getCoverMediaId, null).in(JournalEntry::getCoverMediaId, assetIds));
+        tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
+                .set(Trip::getCoverMediaId, null).in(Trip::getCoverMediaId, assetIds));
     }
 
-    @Transactional
-    public void reorder(Long journalId, List<Long> relationIds) {
-        List<JournalMedia> current = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, journalId));
-        if (current.size() != relationIds.size() ||
-                !current.stream().map(JournalMedia::getId).collect(java.util.stream.Collectors.toSet()).equals(java.util.Set.copyOf(relationIds))) {
-            throw BusinessException.badRequest("排序列表必须包含该日记的全部图片");
-        }
-        for (int i = 0; i < relationIds.size(); i++) {
-            JournalMedia relation = requireRelation(relationIds.get(i));
-            relation.setSortOrder(i);
-            journalMediaMapper.updateById(relation);
+    /**
+     * 删除这些图片中已经没有任何引用的那些（对象存储文件 + 数据库记录）。
+     *
+     * <p>仍被别的日记引用或仍是某个旅行封面的图片会被跳过。对象存储删除失败只记录告警，
+     * 不抛异常打断整个删除流程，遗留的孤儿文件由运维侧按日志清理。</p>
+     */
+    private void deleteOrphanAssets(Collection<Long> assetIds) {
+        for (Long assetId : assetIds) {
+            if (assetId == null) continue;
+            long journalRefs = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                    .eq(JournalMedia::getMediaAssetId, assetId));
+            long tripRefs = tripMapper.selectCount(new LambdaQueryWrapper<Trip>().eq(Trip::getCoverMediaId, assetId));
+            if (journalRefs > 0 || tripRefs > 0) continue;
+            MediaAsset asset = assetMapper.selectById(assetId);
+            if (asset == null) continue;
+            removeObjectQuietly(asset.getBucketName(), asset.getOriginalObjectKey());
+            removeObjectQuietly(asset.getBucketName(), asset.getDisplayObjectKey());
+            removeObjectQuietly(asset.getBucketName(), asset.getThumbnailObjectKey());
+            assetMapper.deleteById(assetId);
         }
     }
 
-    public void setCover(Long journalId, Long mediaId) {
-        JournalEntry journal = requireJournal(journalId);
-        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, journalId).eq(JournalMedia::getMediaAssetId, mediaId));
-        if (count == 0) throw BusinessException.badRequest("图片不属于当前日记");
-        journal.setCoverMediaId(mediaId);
-        journalMapper.updateById(journal);
-    }
-
-    @Transactional
-    public void deleteRelation(Long relationId) {
-        JournalMedia relation = requireRelation(relationId);
-        MediaAsset asset = requireAsset(relation.getMediaAssetId());
-        JournalEntry journal = requireJournal(relation.getJournalEntryId());
-        String marker = "/api/media/" + asset.getId() + "/";
-        if (journal.getContentMarkdown() != null && journal.getContentMarkdown().contains(marker)) {
-            throw BusinessException.conflict("正文仍引用该图片，请先从正文移除");
-        }
-        if (asset.getId().equals(journal.getCoverMediaId())) throw BusinessException.conflict("该图片仍是日记封面");
-        long tripCovers = tripMapper.selectCount(new LambdaQueryWrapper<Trip>().eq(Trip::getCoverMediaId, asset.getId()));
-        if (tripCovers > 0) throw BusinessException.conflict("该图片仍是旅行封面");
+    /** 删除单个对象存储文件，失败只记录告警日志。 */
+    private void removeObjectQuietly(String bucket, String key) {
         try {
-            minioClient.removeObject(RemoveObjectArgs.builder().bucket(asset.getBucketName()).object(asset.getOriginalObjectKey()).build());
-            minioClient.removeObject(RemoveObjectArgs.builder().bucket(asset.getBucketName()).object(asset.getDisplayObjectKey()).build());
-            minioClient.removeObject(RemoveObjectArgs.builder().bucket(asset.getBucketName()).object(asset.getThumbnailObjectKey()).build());
+            minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
         } catch (Exception ex) {
-            throw new BusinessException("STORAGE_ERROR", "删除对象存储图片失败", HttpStatus.BAD_GATEWAY);
-        }
-        journalMediaMapper.deleteById(relationId);
-        assetMapper.deleteById(asset.getId());
-    }
-
-    public URI access(Long mediaId, String variant, boolean admin) {
-        MediaAsset asset = requireAsset(mediaId);
-        if (!admin && visibilityMapper.countPublishedReferences(mediaId) == 0) {
-            throw new BusinessException("FORBIDDEN", "图片不可公开访问", HttpStatus.FORBIDDEN);
-        }
-        String key = switch (variant) {
-            case "thumbnail" -> asset.getThumbnailObjectKey();
-            case "display" -> asset.getDisplayObjectKey();
-            case "original" -> {
-                if (!admin) throw new BusinessException("FORBIDDEN", "原图仅管理员可访问", HttpStatus.FORBIDDEN);
-                yield asset.getOriginalObjectKey();
-            }
-            default -> throw BusinessException.notFound("图片规格不存在");
-        };
-        try {
-            String url = minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
-                    .method(Http.Method.GET).bucket(asset.getBucketName()).object(key)
-                    .expiry(properties.minio().presignedUrlTtlMinutes(), TimeUnit.MINUTES).build());
-            return URI.create(url);
-        } catch (Exception ex) {
-            throw new BusinessException("STORAGE_ERROR", "生成图片访问地址失败", HttpStatus.BAD_GATEWAY);
+            log.warn("删除对象存储图片失败，已跳过，请手动清理：bucket={} key={}", bucket, key, ex);
         }
     }
 
     private MediaView toView(JournalMedia relation) {
         MediaAsset asset = requireAsset(relation.getMediaAssetId());
-        return new MediaView(relation.getId(), asset.getId(), asset.getOriginalFilename(), asset.getContentType(),
-                asset.getWidth(), asset.getHeight(), relation.getCaption(), relation.getSortOrder(),
+        return toView(relation.getId(), asset, relation.getCaption(), relation.getSortOrder());
+    }
+
+    private MediaView toView(Long relationId, MediaAsset asset, String caption, Integer sortOrder) {
+        return new MediaView(relationId, asset.getId(), asset.getOriginalFilename(), asset.getContentType(),
+                asset.getWidth(), asset.getHeight(), caption, sortOrder,
                 "/api/media/" + asset.getId() + "/thumbnail", "/api/media/" + asset.getId() + "/display");
     }
+
     private JournalEntry requireJournal(Long id) {
         JournalEntry journal = journalMapper.selectById(id);
         if (journal == null) throw BusinessException.notFound("日记不存在");
@@ -240,6 +380,11 @@ public class MediaService {
         if (asset == null) throw BusinessException.notFound("图片不存在");
         return asset;
     }
+    private Trip requireTrip(Long id) {
+        Trip trip = tripMapper.selectById(id);
+        if (trip == null) throw BusinessException.notFound("旅行不存在");
+        return trip;
+    }
     private void put(String bucket, String key, byte[] bytes, String contentType) throws Exception {
         minioClient.putObject(PutObjectArgs.builder().bucket(bucket).object(key)
                 .stream(new ByteArrayInputStream(bytes), (long) bytes.length, -1L).contentType(contentType).build());
@@ -250,6 +395,7 @@ public class MediaService {
             catch (Exception ignored) { }
         }
     }
+    /** 等比缩放到指定最长边并转成 webp。 */
     private byte[] resize(BufferedImage source, int maxSize) {
         try {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -259,6 +405,7 @@ public class MediaService {
             throw new BusinessException("IMAGE_PROCESS_ERROR", "生成图片尺寸失败", HttpStatus.BAD_REQUEST);
         }
     }
+    /** 重新编码原图，顺带剥掉 EXIF 等元数据，避免泄露拍摄位置。 */
     private byte[] encode(BufferedImage image, String format) {
         try {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -268,6 +415,7 @@ public class MediaService {
             throw new BusinessException("IMAGE_PROCESS_ERROR", "图片重新编码失败", HttpStatus.BAD_REQUEST);
         }
     }
+    /** 读取 EXIF 方向标记，读不到时按 1（正向）处理。 */
     private int readOrientation(byte[] bytes) {
         try {
             var metadata = ImageMetadataReader.readMetadata(new ByteArrayInputStream(bytes));
@@ -275,6 +423,7 @@ public class MediaService {
             return directory == null ? 1 : directory.getInt(ExifIFD0Directory.TAG_ORIENTATION);
         } catch (Exception ignored) { return 1; }
     }
+    /** 按 EXIF 方向把图片旋转/翻转到正确朝向，5~8 需要交换宽高。 */
     private BufferedImage orient(BufferedImage source, int orientation) {
         int width = source.getWidth(), height = source.getHeight();
         boolean swap = orientation >= 5 && orientation <= 8;
@@ -296,6 +445,7 @@ public class MediaService {
         g.dispose();
         return target;
     }
+    /** 去掉上传文件名里的路径和换行，防止对象键或日志被污染。 */
     private String safeFilename(String name) {
         if (name == null) return "image";
         String value = name.replace("\\", "/");

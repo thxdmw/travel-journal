@@ -9,6 +9,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+/**
+ * 启动时检查对象存储桶是否可访问，不通过就直接让应用启动失败。
+ *
+ * <p>宁可起不来也不要带着坏掉的存储上线，否则问题要等到用户上传图片时才暴露。
+ * 本地开发可以用 app.minio.verify-on-startup=false 关掉。</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "app.minio", name = "verify-on-startup", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor

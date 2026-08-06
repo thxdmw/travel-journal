@@ -12,6 +12,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
+/**
+ * Jackson {@link JsonNode} 与 Postgres {@code jsonb} 字段的转换器。
+ *
+ * <p>写入时按 {@code Types.OTHER} 传字符串，交给驱动按 jsonb 处理；
+ * 读取时解析成 JsonNode。主题配置和日记模板数据都走这里。</p>
+ */
 @MappedTypes(JsonNode.class)
 @MappedJdbcTypes(JdbcType.OTHER)
 public class JsonNodeTypeHandler extends BaseTypeHandler<JsonNode> {

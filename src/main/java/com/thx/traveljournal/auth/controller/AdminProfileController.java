@@ -10,6 +10,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+/** 管理员个人资料接口：头像上传和全站主题切换。 */
 @RestController
 @RequestMapping("/api/admin/profile")
 @RequiredArgsConstructor

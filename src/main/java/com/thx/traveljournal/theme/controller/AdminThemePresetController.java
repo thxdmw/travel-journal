@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/** 后台主题接口：个人主题的增删改和复制。系统预设只能复制，不能直接改或删。 */
 @RestController
 @RequestMapping("/api/admin/themes")
 @RequiredArgsConstructor
