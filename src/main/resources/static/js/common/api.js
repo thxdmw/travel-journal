@@ -45,6 +45,7 @@
       me: () => http.get('/admin/auth/me'),
       changePassword: body => http.post('/admin/auth/change-password', body),
       uploadAvatar: form => http.post('/admin/profile/avatar', form),
+      updateDisplayName: body => http.put('/admin/profile/display-name', body),
       changeTheme: themeKey => http.put('/admin/profile/theme', { themeKey })
     },
     admin: {
@@ -90,6 +91,9 @@
         headers: { 'Content-Type': 'multipart/form-data' }
       }),
       setCover: (journalId, mediaId) => http.patch('/admin/journals/' + journalId + '/cover/' + mediaId),
+      // orderedIds 传的是 journal_media 关系 id，且必须是该日记的全部图片，少一张后端就 400
+      reorderMedia: (journalId, orderedIds) => http.put('/admin/journals/' + journalId + '/media/reorder', { orderedIds }),
+      updateMediaCaption: (relationId, caption) => http.put('/admin/journal-media/' + relationId, { caption }),
       deleteMedia: relationId => http.delete('/admin/journal-media/' + relationId),
       templates: (enabledOnly = false) => http.get('/admin/journal-templates', { params: { enabledOnly } }),
       template: id => http.get('/admin/journal-templates/' + id),

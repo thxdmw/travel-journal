@@ -43,7 +43,6 @@
     cursor.innerHTML = `
       <span class="travel-cursor__shape">
         <i class="travel-cursor__icon travel-cursor__compass"></i>
-        <i class="travel-cursor__icon travel-cursor__pin"></i>
         <i class="travel-cursor__icon travel-cursor__camera"></i>
         <i class="travel-cursor__icon travel-cursor__pen"></i>
         <i class="travel-cursor__icon travel-cursor__grab"></i>
@@ -83,8 +82,8 @@
     if (!(target instanceof Element)) return 'compass';
     if (target.closest('.leaflet-container, .map-box')) return 'map';
     if (target.closest('input, textarea, [contenteditable="true"]')) return 'writing';
-    if (target.closest('img, picture, .card-photo, .hero-photo, .trip-banner-photo, .gallery')) return 'photo';
-    if (target.closest('a, button, select, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"]), .el-select, .el-switch, .el-checkbox, .el-radio, .admin-trip-card, .workspace-head .back, .upload-box')) return 'link';
+    if (target.closest('img, picture, .card-photo, .hero-photo, .trip-banner-photo, .journal-gallery, .journal-carousel, .journal-compare')) return 'photo';
+    if (target.closest('a, button, select, [role="button"], [role="link"], [role="tab"], [tabindex]:not([tabindex="-1"]), .el-select, .el-switch, .el-checkbox, .el-radio, .el-tabs__item, .el-date-editor, .el-input-number__decrease, .el-input-number__increase, .admin-trip-card, .workspace-head .back, .upload-box')) return 'link';
     if (target.closest('.markdown-body, .preview, .article, .markdown-input, article')) return 'writing';
     return 'compass';
   }

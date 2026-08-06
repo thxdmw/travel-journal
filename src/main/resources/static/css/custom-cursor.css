@@ -49,7 +49,7 @@ html.travel-cursor-enabled .travel-cursor { display: block; }
 }
 
 .travel-cursor[data-state="compass"] .travel-cursor__compass,
-.travel-cursor[data-state="link"] .travel-cursor__pin,
+.travel-cursor[data-state="link"] .travel-cursor__compass,
 .travel-cursor[data-state="photo"] .travel-cursor__camera,
 .travel-cursor[data-state="writing"] .travel-cursor__pen,
 .travel-cursor[data-state="map"] .travel-cursor__grab {
@@ -91,28 +91,19 @@ html.travel-cursor-enabled .travel-cursor { display: block; }
   background: var(--travel-cursor-primary);
 }
 
-.travel-cursor__pin {
-  left: 6px;
-  top: 2px;
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--travel-cursor-accent);
-  border-radius: 50% 50% 50% 0;
-  background: color-mix(in srgb, var(--travel-cursor-paper) 90%, transparent);
-  transform: rotate(-45deg) scale(.72);
-}
-
-.travel-cursor[data-state="link"] .travel-cursor__pin { transform: rotate(-45deg) scale(1); }
-
-.travel-cursor__pin::after {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 5px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--travel-cursor-primary);
+/*
+ * 悬停链接时不再换成另一个图标，改由指南针自己做反馈：外圈换成强调色，
+ * 指针快速扫一圈再回正。这里旋转的是整个 __compass 元素——它的圆环和轴心
+ * 都是正圆且居中，视觉上只有 ::before 那根指针在转。
+ * 显隐用的 transform: scale() 和这里的 rotate() 是同一个属性，
+ * 所以 keyframes 里必须把 scale(1) 一起写上，否则播放期间图标会缩回 .72。
+ */
+.travel-cursor[data-state="link"] .travel-cursor__compass {
+  border-color: var(--travel-cursor-accent);
+  box-shadow:
+    inset 0 0 0 3px color-mix(in srgb, var(--travel-cursor-accent) 12%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--travel-cursor-accent) 20%, transparent);
+  animation: travel-cursor-needle-sweep 620ms cubic-bezier(.3, .8, .3, 1);
 }
 
 .travel-cursor__camera {
@@ -258,7 +249,9 @@ html.travel-cursor-enabled .travel-cursor { display: block; }
   border-color: var(--travel-cursor-accent);
 }
 
+/* 后台把开关挪到侧边栏右侧，折叠后跟着收回来 */
 body:has(.admin-shell) .travel-cursor-toggle { left: 238px; }
+body.sidebar-collapsed:has(.admin-shell) .travel-cursor-toggle { left: 82px; }
 
 .travel-cursor-toggle__icon { flex: 0 0 16px; font-size: 19px; line-height: 1; }
 .travel-cursor-toggle__label { margin-left: 9px; font-size: 12px; }
@@ -267,26 +260,25 @@ body:has(.admin-shell) .travel-cursor-toggle { left: 238px; }
 @media (hover: hover) and (pointer: fine) {
   .travel-cursor-toggle { display: inline-flex; }
 
+  /*
+   * 一律隐藏系统光标，不要再维护「哪些元素要隐藏」的白名单——
+   * Element Plus 的 tab、下拉、开关等组件自带 cursor:pointer，
+   * 白名单永远会漏掉几个，表现就是指南针旁边还跟着一只系统小手。
+   * ::before / ::after 也要带上，伪元素同样能自己声明 cursor。
+   */
   html.travel-cursor-enabled,
-  html.travel-cursor-enabled body,
-  html.travel-cursor-enabled a,
-  html.travel-cursor-enabled button,
-  html.travel-cursor-enabled [role="button"],
-  html.travel-cursor-enabled [tabindex]:not([tabindex="-1"]),
-  html.travel-cursor-enabled img,
-  html.travel-cursor-enabled article { cursor: none !important; }
+  html.travel-cursor-enabled *,
+  html.travel-cursor-enabled *::before,
+  html.travel-cursor-enabled *::after { cursor: none !important; }
 
-  html.travel-cursor-enabled input,
-  html.travel-cursor-enabled textarea,
-  html.travel-cursor-enabled [contenteditable="true"] { cursor: none !important; }
+  /* 光标开关本身是唯一的例外：关掉之后要还能用鼠标点回来 */
+  html.travel-cursor-enabled .travel-cursor-toggle,
+  html.travel-cursor-enabled .travel-cursor-toggle * { cursor: pointer !important; }
+}
 
-  html.travel-cursor-enabled .leaflet-container,
-  html.travel-cursor-enabled .leaflet-grab,
-  html.travel-cursor-enabled .map-box { cursor: none !important; }
-
-  html.travel-cursor-enabled .leaflet-dragging .leaflet-grab,
-  html.travel-cursor-enabled .leaflet-dragging .leaflet-container,
-  html.travel-cursor-enabled .leaflet-dragging .map-box { cursor: none !important; }
+@keyframes travel-cursor-needle-sweep {
+  from { transform: scale(1) rotate(0deg); }
+  to { transform: scale(1) rotate(360deg); }
 }
 
 @keyframes travel-cursor-trail-fade {
@@ -310,6 +302,8 @@ body:has(.admin-shell) .travel-cursor-toggle { left: 238px; }
   .travel-cursor-toggle { transition: none; }
   .travel-cursor-trail,
   .travel-cursor-ripple { display: none; }
+  /* 链接态只留描边高亮，不转指针。 */
+  .travel-cursor[data-state="link"] .travel-cursor__compass { animation: none; }
 }
 
 @media (hover: none), (pointer: coarse) {

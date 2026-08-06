@@ -50,8 +50,17 @@ public class JournalTemplateService {
     private static final Set<String> BLOCK_TYPES = Set.of(
             "trip-info", "text", "textarea", "quote", "rating", "checklist",
             "route", "itinerary", "expense-summary", "image", "gallery", "divider");
-    private static final Set<String> IMAGE_SIZES = Set.of("small", "medium", "large", "full");
+    /** 从旅行数据自动取值的区块。这些区块查不到数据时会整块消失，需要回报给用户。 */
+    private static final Set<String> AUTO_BLOCKS = Set.of("route", "itinerary", "expense-summary");
+    private static final Set<String> IMAGE_SIZES = Set.of("small", "medium", "large", "full", "bleed");
     private static final Set<String> IMAGE_ALIGNS = Set.of("left", "center", "right");
+    /**
+     * 图组的排布方式，和前端 journal-media.js 的 GALLERY_MODES、
+     * journal-media.css 的 .journal-gallery--* 是同一套值，改这里记得三处同步。
+     * stack 表示不合成图组，仍然一张一张地竖着排（保持模板的历史行为）。
+     */
+    private static final Set<String> GALLERY_LAYOUTS = Set.of(
+            "row", "grid", "masonry", "mosaic", "carousel", "filmstrip", "compare");
 
     private final JournalTemplateMapper mapper;
     private final TripMapper tripMapper;
@@ -66,8 +75,14 @@ public class JournalTemplateService {
                                 JsonNode definitionJson, Boolean enabled) {}
     public record GenerateInput(Long journalId, Long tripId, Long tripStopId,
                                 LocalDate occurredOn, JsonNode data) {}
+    /**
+     * @param skippedBlocks 因为查不到对应数据而没有生成的自动区块标题。
+     *                      这些区块会连标题一起从正文里消失，不告诉用户的话
+     *                      就会变成「模板说能自动带出，结果什么都没有」。
+     */
     public record GenerateResult(String markdown, JsonNode data, JsonNode snapshot,
-                                 Long templateId, Integer templateVersion) {}
+                                 Long templateId, Integer templateVersion,
+                                 List<String> skippedBlocks) {}
 
     public List<JournalTemplate> list(boolean enabledOnly) {
         return mapper.selectList(new LambdaQueryWrapper<JournalTemplate>()
@@ -175,14 +190,20 @@ public class JournalTemplateService {
         if (selectedStop != null) context.put("cityName", selectedStop.getCityName());
 
         StringBuilder markdown = new StringBuilder();
+        List<String> skipped = new ArrayList<>();
         ArrayNode blocks = (ArrayNode) template.getDefinitionJson().path("blocks");
         for (JsonNode block : blocks) {
             validateRequiredBlock(block, data);
-            appendBlock(markdown, block, data, trip, selectedStop, stops, itinerary,
+            boolean written = appendBlock(markdown, block, data, trip, selectedStop, stops, itinerary,
                     dayExpenses, tripExpenses, categoryNames, media);
+            // 只提示自动区块：文本类区块用户没填就是没填，不需要额外解释
+            if (!written && AUTO_BLOCKS.contains(block.path("type").asText())) {
+                String title = block.path("title").asText();
+                skipped.add(StringUtils.hasText(title) ? title : block.path("type").asText());
+            }
         }
         return new GenerateResult(markdown.toString().trim(), data,
-                template.getDefinitionJson().deepCopy(), template.getId(), template.getVersion());
+                template.getDefinitionJson().deepCopy(), template.getId(), template.getVersion(), skipped);
     }
 
     private void copyInput(TemplateInput input, JournalTemplate target) {
@@ -220,7 +241,8 @@ public class JournalTemplateService {
         return definition.deepCopy();
     }
 
-    private void appendBlock(StringBuilder out, JsonNode block, ObjectNode data,
+    /** @return 是否真的写出了内容；查不到数据的区块会整块跳过，由调用方决定要不要提示。 */
+    private boolean appendBlock(StringBuilder out, JsonNode block, ObjectNode data,
                              Trip trip, TripStop selectedStop, List<TripStop> stops,
                              List<ItineraryItem> itinerary, List<Expense> dayExpenses,
                              List<Expense> tripExpenses, Map<Long, String> categoryNames,
@@ -243,9 +265,10 @@ public class JournalTemplateService {
             case "divider" -> "---";
             default -> value.isTextual() ? value.asText() : "";
         };
-        if (!StringUtils.hasText(content)) return;
+        if (!StringUtils.hasText(content)) return false;
         if (StringUtils.hasText(title) && !"divider".equals(type)) out.append("## ").append(title).append("\n\n");
         out.append(content.trim()).append("\n\n");
+        return true;
     }
 
     private String tripInfo(Trip trip, TripStop stop, ObjectNode data, String blockId) {
@@ -320,22 +343,45 @@ public class JournalTemplateService {
         if (!multiple && ids.size() > 1) ids = ids.subList(0, 1);
         String size = IMAGE_SIZES.contains(config.path("imageSize").asText()) ? config.path("imageSize").asText() : "medium";
         String align = IMAGE_ALIGNS.contains(config.path("align").asText()) ? config.path("align").asText() : "center";
-        List<String> figures = new ArrayList<>();
+        String layout = config.path("layout").asText();
+
+        List<MediaService.MediaView> items = new ArrayList<>();
         for (Long id : ids) {
             MediaService.MediaView item = media.get(id);
             if (item == null) throw BusinessException.badRequest("模板选择的图片不属于当前日记");
-            figures.add(figure(item, size, align));
+            items.add(item);
         }
-        return String.join("\n\n", figures);
+        // 选了排布方式且确实是多张，才合成一个图组；否则维持一张一个 figure 的老行为
+        if (multiple && items.size() > 1 && GALLERY_LAYOUTS.contains(layout)) {
+            return gallery(items, layout, size, align);
+        }
+        return items.stream().map(item -> figure(item, size, align)).collect(Collectors.joining("\n\n"));
     }
 
+    /**
+     * 单张图片的受控 HTML。和前端 JournalMedia.buildFigure 生成的是同一套标记，
+     * 改动 class 契约时两边必须一起改。没有图注就不输出 figcaption——
+     * 用文件名兜底会让「1000002837.jpg」直接印在正文里。
+     */
     private String figure(MediaService.MediaView item, String size, String align) {
-        String caption = StringUtils.hasText(item.caption()) ? item.caption() : item.filename();
-        String safe = escapeHtml(caption);
+        String caption = item.caption();
+        String safe = escapeHtml(StringUtils.hasText(caption) ? caption : "旅行照片");
         return "<figure class=\"journal-figure journal-figure--" + size + " journal-figure--" + align + "\">\n"
                 + "  <img src=\"" + item.displayUrl() + "\" alt=\"" + safe + "\" loading=\"lazy\">\n"
-                + (StringUtils.hasText(caption) ? "  <figcaption>" + safe + "</figcaption>\n" : "")
+                + (StringUtils.hasText(caption) ? "  <figcaption>" + escapeHtml(caption) + "</figcaption>\n" : "")
                 + "</figure>";
+    }
+
+    /** 多张图片的图组。cols 用默认 3 列，需要别的列数由用户在编辑器里调。 */
+    private String gallery(List<MediaService.MediaView> items, String layout, String size, String align) {
+        StringBuilder markup = new StringBuilder("<figure class=\"journal-gallery journal-gallery--" + layout);
+        if ("grid".equals(layout) || "masonry".equals(layout)) markup.append(" journal-gallery--cols-3");
+        markup.append(" journal-figure--").append(size).append(" journal-figure--").append(align).append("\">\n");
+        for (MediaService.MediaView item : items) {
+            String alt = escapeHtml(StringUtils.hasText(item.caption()) ? item.caption() : "旅行照片");
+            markup.append("  <img src=\"").append(item.displayUrl()).append("\" alt=\"").append(alt).append("\" loading=\"lazy\">\n");
+        }
+        return markup.append("</figure>").toString();
     }
 
     private JsonNode blockValue(JsonNode blockData) {

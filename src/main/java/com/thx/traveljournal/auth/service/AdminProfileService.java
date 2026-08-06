@@ -87,6 +87,18 @@ public class AdminProfileService {
         return user;
     }
 
+    /** 修改前台展示的昵称。用户名是登录凭据，不随昵称变动。 */
+    @Transactional
+    public AdminUser updateDisplayName(String username, String displayName) {
+        String trimmed = displayName == null ? "" : displayName.trim();
+        if (trimmed.isEmpty()) throw BusinessException.badRequest("昵称不能为空");
+        if (trimmed.length() > 60) throw BusinessException.badRequest("昵称不能超过 60 个字符");
+        AdminUser user = requireByUsername(username);
+        user.setDisplayName(trimmed);
+        mapper.updateById(user);
+        return user;
+    }
+
     @Transactional
     /** 上传头像。新图写入成功后才更新数据库并删除旧图，中途失败不会弄丢原来的头像。 */
     public AdminUser uploadAvatar(String username, MultipartFile file) {

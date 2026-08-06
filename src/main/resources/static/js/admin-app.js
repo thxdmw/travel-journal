@@ -2,6 +2,8 @@
   const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
   const api = window.TravelApi;
   const A = api.admin;
+  // 正文图片标记的拼装、反解和轮播/对比的行为，和公开端共用一份
+  const JM = window.JournalMedia;
   const applyTheme = (theme,options) => window.TravelTheme.apply(theme,options);
   applyTheme(window.TravelTheme.stored());
   const message = text => ElementPlus.ElMessage.success(text);
@@ -25,7 +27,100 @@
   const journalStatusLabels = { DRAFT:'草稿', PUBLISHED:'已发布' };
   const statusLabel = value => tripStatusOptions.find(item => item.value === value)?.label || journalStatusLabels[value] || value;
   const itineraryTypeLabel = value => itineraryTypeOptions.find(item => item.value === value)?.label || value;
+  /** 后端存的是 HH:mm:ss，列表里只看时和分；没填结束时间就只显示开始。 */
+  const shortTime = value => (value ? String(value).slice(0, 5) : '');
+  const timeRange = (start, end) => {
+    const from = shortTime(start), to = shortTime(end);
+    if (from && to) return from + ' – ' + to;
+    return from || to || '—';
+  };
   const IMAGE_TYPES = ['image/jpeg','image/png','image/webp'];
+  /** 旅行工作台的 tab 顺序，同时用于校验 URL 上带回来的 tab 参数。 */
+  const TAB_ORDER = ['overview','stops','itinerary','budget','expenses','journals','settings'];
+
+  /*
+   * 模板预览用的示例数据和渲染器。
+   *
+   * 真正的生成在后端 JournalTemplateService.appendBlock，需要一次真实旅行；
+   * 而模板是在还没有旅行数据的时候设计的，所以预览只能用示例数据——这不是妥协，
+   * 「这个区块最后长什么样」本来就该用样例回答。
+   * 输出规则（标题前缀、空内容跳过、各区块的 Markdown 形态）与后端逐条对齐，
+   * 改后端 appendBlock 时记得同步这里。
+   */
+  const SAMPLE_PHOTO = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">' +
+    '<rect width="1200" height="800" fill="#d8cbb4"/>' +
+    '<text x="600" y="430" font-size="64" fill="#6b6152" text-anchor="middle" font-family="sans-serif">示例照片</text></svg>');
+  const SAMPLE = {
+    occurredOn: '2026-03-14',
+    city: '成都市',
+    tripTitle: '青城山一日游',
+    currency: 'CNY',
+    weather: '小雨',
+    mood: '松弛',
+    stops: ['成都市', '都江堰市', '青城山'],
+    itinerary: [
+      { time: '09:20', title: '成都东站出发', address: '成都东站' },
+      { time: '11:40', title: '青城山索道', address: '' },
+      { time: '14:05', title: '老君阁', address: '青城山景区' }
+    ],
+    expenses: [['交通', 168], ['门票', 90], ['餐饮', 76]]
+  };
+
+  function sampleBlockContent(block) {
+    const config = block.config || {};
+    const max = Number(config.max) || 5;
+    switch (block.type) {
+      case 'trip-info':
+        return '> ' + [SAMPLE.occurredOn, SAMPLE.city, SAMPLE.tripTitle, SAMPLE.weather, SAMPLE.mood].join(' · ');
+      case 'route':
+        return config.source === 'trip' ? SAMPLE.stops.join(' → ')
+          : SAMPLE.itinerary.map(x => x.title).join(' → ');
+      case 'itinerary':
+        return SAMPLE.itinerary.map(x => '- ' + x.time + ' ' + x.title + (x.address ? '（' + x.address + '）' : '')).join('\n');
+      case 'expense-summary': {
+        const rows = SAMPLE.expenses.map(([name, amount]) => '- ' + name + '：' + SAMPLE.currency + ' ' + amount);
+        const total = SAMPLE.expenses.reduce((sum, [, amount]) => sum + amount, 0);
+        return rows.join('\n') + '\n\n**合计：' + SAMPLE.currency + ' ' + total + '**';
+      }
+      case 'quote':
+        return '> ' + (config.placeholder || '雾散开的那一刻，整条山脊都露出来了。');
+      case 'rating':
+        return '★'.repeat(Math.min(4, max)) + '☆'.repeat(Math.max(0, max - 4)) + '（' + Math.min(4, max) + '/' + max + '）';
+      case 'checklist':
+        return ['- [x] 带好雨具', '- [ ] 买返程票', '- [ ] 寄明信片'].join('\n');
+      case 'image':
+      case 'gallery': {
+        const size = config.imageSize || 'medium';
+        const align = config.align || 'center';
+        const layout = config.layout;
+        const count = block.type === 'gallery' ? (layout === 'compare' ? 2 : 3) : 1;
+        const items = Array.from({ length: count }, () => ({ displayUrl: SAMPLE_PHOTO, alt: '示例照片' }));
+        return window.JournalMedia.buildFigure({
+          mode: block.type === 'gallery' && layout && layout !== 'stack' ? layout : 'single',
+          items, size, align, cols: 3, caption: ''
+        });
+      }
+      case 'divider':
+        return '---';
+      case 'text':
+        return config.placeholder || '一句话记录';
+      case 'textarea':
+        return config.placeholder || '我们只用半天时间就爬完青城山了，本来以为爬不到山顶。';
+      default:
+        return '';
+    }
+  }
+
+  /** 把模板区块渲染成一篇示例日记的 Markdown。 */
+  function renderTemplateSample(blocks) {
+    return (blocks || []).map(block => {
+      const content = sampleBlockContent(block);
+      if (!content) return '';
+      const heading = block.title && block.type !== 'divider' ? '## ' + block.title + '\n\n' : '';
+      return heading + content.trim();
+    }).filter(Boolean).join('\n\n');
+  }
 
   // 生成一条必填规则。下拉框和日期选择器要用 change 触发，输入框用 blur。
   const required = (message, trigger='blur') => ({ required:true, message, trigger });
@@ -219,7 +314,15 @@
   const TripWorkspace = {
     setup() {
       const route = VueRouter.useRoute(); const router = VueRouter.useRouter(); const id = Number(route.params.id);
-      const active = ref('overview');
+      /*
+       * 当前 tab 同步到 URL。之前它只是个本地 ref，从日记 tab 点进编辑器再返回，
+       * 工作台重新挂载就回到概览了；刷新页面也一样会丢。放进 query 之后，
+       * 返回和刷新都能停在原来那一栏。
+       */
+      const active = ref(TAB_ORDER.includes(route.query.tab) ? route.query.tab : 'overview');
+      watch(active, value => {
+        if (route.query.tab !== value) router.replace({ query: { ...route.query, tab: value } });
+      });
 
       // ------------------------------------------------------------------ 数据块
       // 工作台的数据按用途拆成独立数据块，每块单独记录「是否需要重新拉取」。
@@ -294,7 +397,7 @@
 
       const mapStatus = ref({ searchEnabled:false }), locationKeyword = ref(''), locationResults = ref([]),
             locationLoading = ref(false), stopMapEl = ref(null);
-      const tabOrder = ['overview','stops','itinerary','budget','expenses','journals','settings'];
+      const tabOrder = TAB_ORDER;
       let tabSwipeStart = null;
       let pickerMap = null, pickerMarker = null;
 
@@ -496,16 +599,16 @@
               openStop,closeStop,searchLocations,applyLocation,saveStop,
               openItem,saveItem,toggleCompleted,openExpense,saveExpense,saveCategory,
               remove,removeJournal,beginTabSwipe,endTabSwipe,router,
-              itineraryTypeOptions,statusLabel,itineraryTypeLabel};
+              itineraryTypeOptions,statusLabel,itineraryTypeLabel,timeRange};
     },
     template: `<div v-if="ready"><div class="workspace-head"><span class="back" @click="router.push('/trips')">← 返回</span><div><h2>{{data.trip.title}}</h2><div class="workspace-meta">{{data.trip.startDate}} — {{data.trip.endDate}} · {{statusLabel(data.trip.status)}}</div></div></div>
       <el-tabs v-model="active" class="workspace-tabs" @touchstart.passive="beginTabSwipe" @touchend.passive="endTabSwipe">
         <el-tab-pane label="概览" name="overview"><div v-loading="isLoading('trip','dashboard')" class="tab-loading-host"><div class="dashboard-grid"><div class="metric"><span>城市</span><strong>{{data.dashboard?.stopCount ?? '—'}}</strong></div><div class="metric"><span>行程</span><strong>{{data.dashboard?.itineraryCount ?? '—'}}</strong></div><div class="metric"><span>草稿</span><strong>{{data.dashboard?.draftCount ?? '—'}}</strong></div><div class="metric"><span>已发布</span><strong>{{data.dashboard?.publishedCount ?? '—'}}</strong></div></div><p>{{data.trip.summary||'还没有旅行简介。'}}</p></div></el-tab-pane>
         <el-tab-pane label="城市" name="stops"><div class="tab-actions"><el-button type="primary" @click="openStop()">添加城市</el-button></div><el-table v-loading="isLoading('stops')" :data="data.stops" max-height="calc(100vh - 360px)"><el-table-column prop="cityName" label="城市"/><el-table-column prop="countryName" label="国家"/><el-table-column prop="arrivalDate" label="到达"/><el-table-column prop="departureDate" label="离开"/><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openStop(row)">编辑</el-button><el-button link type="danger" @click="remove('stop',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="行程" name="itinerary"><div class="tab-actions"><el-button type="primary" @click="openItem()">添加行程</el-button></div><el-table v-loading="isLoading('itinerary')" :data="data.itinerary" max-height="calc(100vh - 360px)"><el-table-column prop="itemDate" label="日期" width="120"/><el-table-column prop="startTime" label="时间" width="100"/><el-table-column label="类型" width="110"><template #default="{row}">{{itineraryTypeLabel(row.type)}}</template></el-table-column><el-table-column prop="title" label="行程"/><el-table-column label="完成" width="80"><template #default="{row}"><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></template></el-table-column><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openItem(row)">编辑</el-button><el-button link type="danger" @click="remove('item',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="行程" name="itinerary"><div class="tab-actions"><el-button type="primary" @click="openItem()">添加行程</el-button></div><el-table v-loading="isLoading('itinerary')" :data="data.itinerary" max-height="calc(100vh - 360px)"><el-table-column prop="itemDate" label="日期" width="120"/><el-table-column label="时间" width="140"><template #default="{row}">{{timeRange(row.startTime,row.endTime)}}</template></el-table-column><el-table-column label="类型" width="110"><template #default="{row}">{{itineraryTypeLabel(row.type)}}</template></el-table-column><el-table-column prop="title" label="行程"/><el-table-column label="完成" width="80"><template #default="{row}"><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></template></el-table-column><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openItem(row)">编辑</el-button><el-button link type="danger" @click="remove('item',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
         <el-tab-pane label="预算" name="budget"><div v-loading="isLoading('budget')" class="tab-loading-host"><div class="budget-summary"><div class="item"><span>总预算</span><strong>{{data.budget?.currency}} {{data.budget?.plannedTotal ?? '—'}}</strong></div><div class="item"><span>已支出</span><strong>{{data.budget?.currency}} {{data.budget?.actualTotal ?? '—'}}</strong></div><div class="item"><span>剩余</span><strong :class="{over:data.budget?.remaining<0}">{{data.budget?.currency}} {{data.budget?.remaining ?? '—'}}</strong></div></div><el-table :data="data.budget?.categories||[]" max-height="calc(100vh - 430px)"><el-table-column prop="name" label="分类"/><el-table-column label="计划金额" min-width="180"><template #default="{row}"><el-input-number class="budget-amount-input" v-model="row.planned" :min="0" :precision="2"/></template></el-table-column><el-table-column prop="actual" label="实际支出"/><el-table-column prop="remaining" label="剩余"/><el-table-column width="90"><template #default="{row}"><el-button link @click="saveCategory(row)">保存</el-button></template></el-table-column></el-table></div></el-tab-pane>
         <el-tab-pane label="支出" name="expenses"><div class="tab-actions"><el-button type="primary" @click="openExpense()">记录支出</el-button></div><el-table v-loading="isLoading('expenses')" :data="data.expenses" max-height="calc(100vh - 360px)"><el-table-column prop="expenseDate" label="日期"/><el-table-column prop="description" label="说明"/><el-table-column prop="merchant" label="商户"/><el-table-column prop="amount" label="金额"/><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openExpense(row)">编辑</el-button><el-button link type="danger" @click="remove('expense',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="日记" name="journals"><div class="tab-actions"><el-button type="primary" @click="router.push('/journals/new?tripId='+data.trip.id)">新建日记</el-button></div><el-table v-loading="isLoading('journals')" :data="data.journals" max-height="calc(100vh - 360px)"><el-table-column prop="title" label="标题"/><el-table-column prop="occurredOn" label="日期"/><el-table-column label="状态"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="{row}"><el-button link @click="router.push('/journals/'+row.id)">编辑</el-button><el-button link type="danger" @click="removeJournal(row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="日记" name="journals"><div class="tab-actions"><el-button type="primary" @click="router.push('/journals/new?tripId='+data.trip.id+'&from=journals')">新建日记</el-button></div><el-table v-loading="isLoading('journals')" :data="data.journals" max-height="calc(100vh - 360px)"><el-table-column prop="title" label="标题"/><el-table-column prop="occurredOn" label="日期"/><el-table-column label="状态"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="{row}"><el-button link @click="router.push('/journals/'+row.id+'?from=journals')">编辑</el-button><el-button link type="danger" @click="removeJournal(row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
         <el-tab-pane label="设置" name="settings"><el-descriptions border :column="1"><el-descriptions-item label="Slug">{{data.trip.slug}}</el-descriptions-item><el-descriptions-item label="默认币种">{{data.trip.defaultCurrency}}</el-descriptions-item><el-descriptions-item label="封面"><img v-if="data.trip.coverMediaId" class="settings-cover" :src="'/api/media/'+data.trip.coverMediaId+'/thumbnail'" alt="旅行封面"><span v-else>还没有设置封面，可在旅行管理里编辑</span></el-descriptions-item><el-descriptions-item label="内部备注">{{data.trip.internalNote||'无'}}</el-descriptions-item></el-descriptions><el-button style="margin-top:18px" @click="router.push('/themes')">查看主题外观</el-button></el-tab-pane>
       </el-tabs>
 
@@ -530,7 +633,7 @@
           <el-form-item label="标题" prop="title"><el-input v-model="itemForm.title" placeholder="例如：清水寺"/></el-form-item>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="日期" prop="itemDate"><el-date-picker v-model="itemForm.itemDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择日期"/></el-form-item><el-form-item label="类型" prop="type"><el-select v-model="itemForm.type"><el-option v-for="x in itineraryTypeOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="开始"><el-time-picker v-model="itemForm.startTime" format="HH时mm分" value-format="HH:mm:ss" placeholder="开始时间"/></el-form-item><el-form-item label="结束" prop="endTime"><el-time-picker v-model="itemForm.endTime" format="HH时mm分" value-format="HH:mm:ss" placeholder="结束时间"/></el-form-item></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="所属城市"><el-select v-model="itemForm.tripStopId" clearable placeholder="不指定"><el-option v-for="x in data.stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item><el-form-item label="预计花费" prop="plannedCost"><el-input-number v-model="itemForm.plannedCost" :min="0" :precision="2"/></el-form-item></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="所属城市"><el-select v-model="itemForm.tripStopId" clearable placeholder="不指定"><el-option v-for="x in data.stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item><el-form-item prop="plannedCost"><template #label>预计花费<small class="form-hint">这一项打算花多少钱，{{data.trip?.defaultCurrency||'CNY'}}</small></template><el-input-number v-model="itemForm.plannedCost" :min="0" :precision="2" controls-position="right"/></el-form-item></div>
           <el-form-item label="地址"><el-input v-model="itemForm.address"/></el-form-item>
           <el-form-item label="备注"><el-input v-model="itemForm.note" type="textarea"/></el-form-item>
           <el-form-item><el-checkbox v-model="itemForm.allowOutsideTripDates">允许日期超出旅行的起止范围</el-checkbox></el-form-item>
@@ -555,7 +658,11 @@
       const route=VueRouter.useRoute(),router=VueRouter.useRouter(), id=ref(route.params.id==='new'?null:Number(route.params.id));
       const trips=ref([]),stops=ref([]),media=ref([]),templates=ref([]),themes=ref([]),uploading=ref(false),saving=ref(false),dirty=ref(false),fileInput=ref(null),textarea=ref(null);
       const templateDialog=ref(false),selectedTemplate=ref(null),templateData=ref({}),generating=ref(false),imageDialog=ref(false),mobilePane=ref('write'),mobileMetaCollapsed=ref(false);
-      const imageForm=reactive({item:null,size:'medium',align:'center',caption:''});
+      const previewEl=ref(null),selectedMedia=ref([]),dragFrom=ref(null),dragOver=ref(null);
+      // 版式面板的全部状态。默认值刻意留空字符串＝「跟随主题」，拼 class 时不输出。
+      // editRange 非空表示这次是在改正文里已有的一段图片，而不是插入新的。
+      const imageForm=reactive({items:[],mode:'single',size:'medium',align:'center',wrap:false,
+        ratio:'',focus:'',frame:'',radius:'',caption:'',captionPos:'',cols:3,editRange:null});
       const formRef=ref(null);
       const form=reactive({tripId:route.query.tripId?Number(route.query.tripId):null,tripStopId:null,title:'',slug:'',excerpt:'',contentMarkdown:'',occurredOn:'',coverMediaId:null,status:'DRAFT',themeKey:null,templateId:null,templateVersion:null,templateData:null,templateSnapshot:null,templateDetached:false});
       // 保存草稿时就校验，不用等到点「发布」才发现少填了东西
@@ -571,20 +678,156 @@
       async function load(){try{[trips.value,templates.value,themes.value]=await Promise.all([(await A.trips({page:1,pageSize:100})).items,A.templates(true),A.themes(true)]);if(id.value){Object.assign(form,await A.journal(id.value));media.value=await A.media(id.value);}if(form.tripId)stops.value=await A.stops(form.tripId);if(form.templateId){selectedTemplate.value=templates.value.find(x=>x.id===form.templateId)||{id:form.templateId,name:'日记所用模板',definitionJson:form.templateSnapshot};templateData.value=form.templateData||{};}dirty.value=false;}catch(e){fail(e);}}
       watch(()=>form.tripId,async value=>{if(value)stops.value=await A.stops(value);});
       watch(form,()=>dirty.value=true,{deep:true});
-      async function save(silent=false){if(!await validateForm(formRef))return false;saving.value=true;try{const body={tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,excerpt:form.excerpt,contentMarkdown:form.contentMarkdown,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,themeKey:form.themeKey,templateId:form.templateId,templateVersion:form.templateVersion,templateData:form.templateData,templateSnapshot:form.templateSnapshot,templateDetached:form.templateDetached};if(id.value)await A.updateJournal(id.value,body);else{const created=await A.createJournal(body);id.value=created.id;form.status=created.status;router.replace('/journals/'+created.id);}dirty.value=false;if(!silent)message('草稿已保存');return true;}catch(e){fail(e);return false;}finally{saving.value=false;}}
+      async function save(silent=false){if(!await validateForm(formRef))return false;saving.value=true;try{const body={tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,excerpt:form.excerpt,contentMarkdown:form.contentMarkdown,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,themeKey:form.themeKey,templateId:form.templateId,templateVersion:form.templateVersion,templateData:form.templateData,templateSnapshot:form.templateSnapshot,templateDetached:form.templateDetached};if(id.value)await A.updateJournal(id.value,body);else{const created=await A.createJournal(body);id.value=created.id;form.status=created.status;
+          // 换成正式 id 时要把 from 带上，否则保存后返回又会掉回概览
+          router.replace({path:'/journals/'+created.id,query:route.query.from?{from:route.query.from}:{}});}dirty.value=false;if(!silent)message('草稿已保存');return true;}catch(e){fail(e);return false;}finally{saving.value=false;}}
       async function publish(){try{if(!await save(true))return;await A.publishJournal(id.value);form.status='PUBLISHED';message('日记已发布');}catch(e){fail(e);}}
       async function unpublish(){try{await A.unpublishJournal(id.value);form.status='DRAFT';message('日记已撤回');}catch(e){fail(e);}}
-      async function upload(file){if(!id.value){ElementPlus.ElMessage.warning('请先保存草稿，再上传图片');return;}uploading.value=true;try{const fd=new FormData();fd.append('file',file);const item=await A.uploadMedia(id.value,fd);media.value.push(item);insertImage(item);message('图片已上传，可以设置版式后插入');}catch(e){fail(e);}finally{uploading.value=false;}}
+      /*
+       * 上传前必须已经有日记 id。图片是挂在 journal_media 上的，没有归属的日记
+       * 就没有任何入口能再找到它、更没法删除，只会一直占着对象存储——所以这里
+       * 宁可拦下来让用户先存一次草稿，也不允许先传后建。
+       */
+      async function requireDraft(){
+        if(id.value)return true;
+        try{
+          await confirm('图片要挂在日记下面，需要先保存一次草稿。现在保存吗？');
+          return await save(true);
+        }catch(e){return false;}
+      }
+      /** 多张时逐个串行上传：后端有单篇张数上限，串行才能在超限时准确停在那一张。 */
+      async function upload(files){
+        const list=Array.from(files||[]).filter(x=>x&&x.type&&x.type.startsWith('image/'));
+        if(!list.length)return;
+        if(!await requireDraft())return;
+        uploading.value=true;
+        const added=[];
+        try{
+          for(const file of list){
+            const fd=new FormData();fd.append('file',file);
+            const item=await A.uploadMedia(id.value,fd);
+            media.value.push(item);added.push(item);
+          }
+        }catch(e){fail(e);}
+        finally{uploading.value=false;}
+        if(!added.length)return;
+        message(added.length>1?('已上传 '+added.length+' 张，可以设置版式后插入'):'图片已上传，可以设置版式后插入');
+        // 一次传多张时默认按图组打开版式面板，省得一张张插
+        openImageDialog(added);
+      }
       function choose(){fileInput.value.click();}
-      function picked(event){const file=event.target.files[0];if(file)upload(file);event.target.value='';}
-      function onPaste(event){const file=Array.from(event.clipboardData?.files||[]).find(x=>x.type.startsWith('image/'));if(file){event.preventDefault();upload(file);}}
-      function dropped(event){const file=Array.from(event.dataTransfer?.files||[]).find(x=>x.type.startsWith('image/'));if(file)upload(file);}
-      function insertImage(item){imageForm.item=item;imageForm.size=item.height>item.width?'small':'medium';imageForm.align='center';imageForm.caption=item.caption||item.filename||'';imageDialog.value=true;}
-      function confirmImage(){if(!imageForm.item)return;const caption=escapeHtml(imageForm.caption);const syntax='\n<figure class="journal-figure journal-figure--'+imageForm.size+' journal-figure--'+imageForm.align+'">\n  <img src="'+imageForm.item.displayUrl+'" alt="'+caption+'" loading="lazy">\n'+(caption?'  <figcaption>'+caption+'</figcaption>\n':'')+'</figure>\n';insertAtCursor(syntax);imageDialog.value=false;mobilePane.value='write';}
+      function picked(event){upload(event.target.files);event.target.value='';}
+      function onPaste(event){const files=Array.from(event.clipboardData?.files||[]).filter(x=>x.type.startsWith('image/'));if(files.length){event.preventDefault();upload(files);}}
+      function dropped(event){upload(event.dataTransfer?.files);}
+      // 版式面板：预览台和最终写进正文的字符串走同一个 buildFigure，真正所见即所得
+      const figureMarkup=computed(()=>JM.buildFigure(imageForm));
+      const figurePreview=computed(()=>figureMarkup.value?DOMPurify.sanitize(marked.parse(figureMarkup.value)):'');
+      const isGallery=computed(()=>imageForm.items.length>1);
+      const galleryModes=[{value:'row',label:'并排'},{value:'grid',label:'网格'},{value:'masonry',label:'瀑布流'},{value:'mosaic',label:'拼贴'},{value:'carousel',label:'轮播'},{value:'filmstrip',label:'胶片条'},{value:'compare',label:'前后对比'}];
+      function resetImageForm(){Object.assign(imageForm,{items:[],mode:'single',size:'medium',align:'center',wrap:false,ratio:'',focus:'',frame:'',radius:'',caption:'',captionPos:'',cols:3,editRange:null});}
+      /** 打开版式面板。传入的图片来自媒体侧栏，多选时默认用并排。 */
+      function openImageDialog(items){
+        if(!items.length)return;
+        resetImageForm();
+        imageForm.items=items.map(item=>({displayUrl:item.displayUrl,alt:item.caption||''}));
+        imageForm.mode=items.length>1?'row':'single';
+        // 竖图默认小一点，免得一张照片吃掉整屏
+        imageForm.size=items.length===1&&items[0].height>items[0].width?'small':'medium';
+        imageForm.caption=items.length===1?(items[0].caption||''):'';
+        imageDialog.value=true;
+      }
+      function insertImage(item){openImageDialog([item]);}
+      function insertSelected(){openImageDialog(media.value.filter(x=>selectedMedia.value.includes(x.id)));}
+      function confirmImage(){
+        const markup=figureMarkup.value;
+        if(!markup)return;
+        if(imageForm.editRange){
+          const {start,end}=imageForm.editRange;
+          form.contentMarkdown=form.contentMarkdown.slice(0,start)+markup+form.contentMarkdown.slice(end);
+        }else{
+          insertAtCursor('\n'+markup+'\n');
+        }
+        imageDialog.value=false;selectedMedia.value=[];mobilePane.value='write';
+      }
+      /** 从正文里删掉正在编辑的这段图片；媒体本身留在图片库里。 */
+      function removeFigure(){
+        if(!imageForm.editRange)return;
+        const {start,end}=imageForm.editRange;
+        form.contentMarkdown=form.contentMarkdown.slice(0,start)+form.contentMarkdown.slice(end);
+        imageDialog.value=false;
+      }
+      /**
+       * 点实时预览里的图片就能改它的版式。预览里的块和正文里的 figure 段落
+       * 顺序一一对应，所以按序号定位就够，不用往正文里塞标记。
+       */
+      function editFigureAt(event){
+        // 轮播箭头、圆点和对比手柄是预览里的交互控件，点它们不该弹版式面板
+        if(event.target.closest?.('.journal-carousel__nav, .journal-carousel__dots, .journal-compare__handle'))return;
+        const block=event.target.closest?.('.journal-figure, .journal-gallery');
+        if(!block||!previewEl.value)return;
+        const blocks=Array.from(previewEl.value.querySelectorAll('.journal-figure, .journal-gallery'));
+        const index=blocks.indexOf(block);
+        const ranges=JM.figureRanges(form.contentMarkdown);
+        if(index<0||!ranges[index])return;
+        const parsed=JM.parseFigure(ranges[index].markup);
+        if(!parsed){ElementPlus.ElMessage.warning('这段图片是手工编辑过的，请直接在左侧正文里修改');return;}
+        resetImageForm();
+        Object.assign(imageForm,parsed);
+        imageForm.editRange={start:ranges[index].start,end:ranges[index].end};
+        imageDialog.value=true;
+      }
       function insertAtCursor(syntax){const el=textarea.value?.$el?.querySelector('textarea');if(!el){form.contentMarkdown+=syntax;return;}const start=el.selectionStart??form.contentMarkdown.length,end=el.selectionEnd??start;form.contentMarkdown=form.contentMarkdown.slice(0,start)+syntax+form.contentMarkdown.slice(end);nextTick(()=>{el.focus();el.selectionStart=el.selectionEnd=start+syntax.length;});}
       function insertFormat(before,after,placeholder){const el=textarea.value?.$el?.querySelector('textarea');const start=el?.selectionStart??form.contentMarkdown.length,end=el?.selectionEnd??start,selected=form.contentMarkdown.slice(start,end)||placeholder;insertAtCursor(before+selected+(after||''));}
-      function escapeHtml(value){return String(value||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+      /** 逐行加前缀，用于列表和引用：选中多行时每行都套上，而不是只在开头插一个。 */
+      function insertLinePrefix(prefix,placeholder,ordered){
+        const el=textarea.value?.$el?.querySelector('textarea');
+        const start=el?.selectionStart??form.contentMarkdown.length,end=el?.selectionEnd??start;
+        const selected=form.contentMarkdown.slice(start,end)||placeholder;
+        const body=selected.split('\n').map((line,index)=>(ordered?(index+1)+'. ':prefix)+line).join('\n');
+        insertAtCursor('\n'+body+'\n');
+      }
+      const toolbarGroups=[
+        [{label:'H2',title:'二级标题',run:()=>insertFormat('\n## ','\n','小标题')},
+         {label:'H3',title:'三级标题',run:()=>insertFormat('\n### ','\n','小节标题')}],
+        [{label:'粗体',title:'粗体',run:()=>insertFormat('**','**','重点文字')},
+         {label:'斜体',title:'斜体',run:()=>insertFormat('*','*','强调文字')},
+         {label:'删除线',title:'删除线',run:()=>insertFormat('~~','~~','划掉的话')},
+         {label:'高亮',title:'行内代码',run:()=>insertFormat('`','`','关键词')}],
+        [{label:'无序',title:'无序列表',run:()=>insertLinePrefix('- ','清单内容')},
+         {label:'有序',title:'有序列表',run:()=>insertLinePrefix('','第一步',true)},
+         {label:'待办',title:'待办清单',run:()=>insertLinePrefix('- [ ] ','要做的事')},
+         {label:'引用',title:'引用',run:()=>insertLinePrefix('> ','此刻想说的话')}],
+        [{label:'链接',title:'链接',run:()=>insertFormat('[','](https://)','链接文字')},
+         {label:'代码块',title:'代码块',run:()=>insertFormat('\n```\n','\n```\n','粘贴代码')},
+         {label:'表格',title:'插入表格',run:()=>insertAtCursor('\n| 时间 | 地点 | 花费 |\n| --- | --- | --- |\n|  |  |  |\n')},
+         {label:'分隔线',title:'分隔线',run:()=>insertAtCursor('\n---\n')}]
+      ];
       async function setCover(item){try{await A.setCover(id.value,item.id);form.coverMediaId=item.id;message('已设为封面');}catch(e){fail(e);}}
+      function toggleSelect(item){
+        const index=selectedMedia.value.indexOf(item.id);
+        if(index<0)selectedMedia.value=[...selectedMedia.value,item.id];
+        else selectedMedia.value=selectedMedia.value.filter(x=>x!==item.id);
+      }
+      const allSelected=computed(()=>media.value.length>0&&selectedMedia.value.length===media.value.length);
+      function toggleSelectAll(){selectedMedia.value=allSelected.value?[]:media.value.map(x=>x.id);}
+      /** 图注存进 journal_media，正文之外的图片库和公开端灯箱才能用上同一份文字。 */
+      async function saveCaption(item){
+        try{await A.updateMediaCaption(item.relationId,item.caption||'');}catch(e){fail(e);}
+      }
+      function onDragStart(index){dragFrom.value=index;}
+      function onDragOver(index){if(dragFrom.value!==null&&dragFrom.value!==index)dragOver.value=index;}
+      function onDragEnd(){dragFrom.value=null;dragOver.value=null;}
+      // 后端要求排序列表包含该日记的全部图片，所以整表重排后一次性提交；失败就回滚
+      async function onDrop(index){
+        const from=dragFrom.value;onDragEnd();
+        if(from===null||from===index)return;
+        const before=media.value.slice();
+        const next=before.slice();
+        next.splice(index,0,next.splice(from,1)[0]);
+        media.value=next;
+        try{await A.reorderMedia(id.value,next.map(x=>x.relationId));}
+        catch(e){media.value=before;fail(e);}
+      }
       // 封面图片现在也能删，删掉后封面引用由后端清空，这里同步清掉本地状态
       async function removeMedia(item){
         const isCover=form.coverMediaId===item.id;
@@ -592,6 +835,7 @@
           await confirm(isCover?'这张图片是当前日记封面，删除后封面会被清空。确定删除吗？':'确定删除这张图片吗？');
           await A.deleteMedia(item.relationId);
           media.value=media.value.filter(x=>x.relationId!==item.relationId);
+          selectedMedia.value=selectedMedia.value.filter(x=>x!==item.id);
           if(isCover)form.coverMediaId=null;
           message('图片已删除');
         }catch(e){if(e!=='cancel'&&e!=='close')fail(e);}
@@ -603,13 +847,64 @@
         if(!selectedTemplate.value)return ElementPlus.ElMessage.warning('请选择模板');
         if(!form.tripId||!form.occurredOn)return ElementPlus.ElMessage.warning('请先选择旅行和发生日期');
         if(form.contentMarkdown.trim()){try{await confirm('生成模板内容会替换当前正文，是否继续？');}catch(e){return;}}
-        generating.value=true;try{const result=await A.generateTemplate(selectedTemplate.value.id,{journalId:id.value,tripId:form.tripId,tripStopId:form.tripStopId,occurredOn:form.occurredOn,data:templateData.value});form.contentMarkdown=result.markdown;form.templateId=result.templateId;form.templateVersion=result.templateVersion;form.templateData=result.data;form.templateSnapshot=result.snapshot;form.templateDetached=false;if(!form.title){const city=stops.value.find(x=>x.id===form.tripStopId)?.cityName;form.title=[city,selectedTemplate.value.name].filter(Boolean).join(' · ');}if(!form.slug)form.slug='journal-'+form.occurredOn.replaceAll('-','')+'-'+Date.now().toString().slice(-5);templateDialog.value=false;mobilePane.value='write';message('模板已生成，可以继续润色');}catch(e){fail(e);}finally{generating.value=false;}
+        generating.value=true;try{const result=await A.generateTemplate(selectedTemplate.value.id,{journalId:id.value,tripId:form.tripId,tripStopId:form.tripStopId,occurredOn:form.occurredOn,data:templateData.value});form.contentMarkdown=result.markdown;form.templateId=result.templateId;form.templateVersion=result.templateVersion;form.templateData=result.data;form.templateSnapshot=result.snapshot;form.templateDetached=false;if(!form.title){const city=stops.value.find(x=>x.id===form.tripStopId)?.cityName;form.title=[city,selectedTemplate.value.name].filter(Boolean).join(' · ');}if(!form.slug)form.slug='journal-'+form.occurredOn.replaceAll('-','')+'-'+Date.now().toString().slice(-5);templateDialog.value=false;mobilePane.value='write';
+        // 自动区块查不到数据会整块消失，不说一声用户只会觉得「模板没生效」
+        if(result.skippedBlocks?.length){
+          ElementPlus.ElMessageBox.alert(
+            '这些区块没有生成，因为在这次旅行里查不到对应数据：<br><b>'+result.skippedBlocks.join('、')+'</b>'+
+            '<br><br>先去旅行工作台补上当天的行程或支出记录，再重新生成即可；也可以在区块设置里把统计范围改成整趟旅行。',
+            '部分区块没有数据',{dangerouslyUseHTMLString:true,confirmButtonText:'知道了'}).catch(()=>{});
+        }else message('模板已生成，可以继续润色');
+        }catch(e){fail(e);}finally{generating.value=false;}
       }
       function markDetached(){if(form.templateId)form.templateDetached=true;}
-      function backToTrip(){router.push(form.tripId?'/trips/'+form.tripId:'/trips');}
+      /*
+       * 返回到来的那一栏。日记编辑器基本都是从工作台的「日记」tab 进来的，
+       * 之前一律 push 到 /trips/{id}，工作台就回到默认的概览了。
+       * from 由入口带上来，没有就退回日记 tab——这是最可能的来源。
+       */
+      function backToTrip(){
+        if(!form.tripId)return router.push('/trips');
+        const tab=TAB_ORDER.includes(route.query.from)?route.query.from:'journals';
+        router.push({path:'/trips/'+form.tripId,query:{tab}});
+      }
       function beforeUnload(e){if(dirty.value){e.preventDefault();e.returnValue='';}}
-      onMounted(()=>{load();window.addEventListener('beforeunload',beforeUnload);});onBeforeUnmount(()=>window.removeEventListener('beforeunload',beforeUnload));
-      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,mobilePane,mobileMetaCollapsed,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,confirmImage,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
+      /*
+       * 编辑区和预览区按滚动进度百分比联动。两边内容高度不同（Markdown 源码
+       * 比渲染结果矮），所以同步的是「滚到了百分之几」而不是像素。
+       * syncing 这个闩是必须的：给 B 设 scrollTop 会触发 B 的 scroll 事件，
+       * 不挡住就会两边来回推、抖成一团。
+       */
+      const scrollLocked=ref(localStorage.getItem('travel-journal.editor-scroll-lock')!=='off');
+      let syncing=false;
+      watch(scrollLocked,value=>localStorage.setItem('travel-journal.editor-scroll-lock',value?'on':'off'));
+      function editorTextarea(){return textarea.value?.$el?.querySelector('textarea')||null;}
+      function mirrorScroll(from,to){
+        if(!scrollLocked.value||syncing||!from||!to)return;
+        const fromRange=from.scrollHeight-from.clientHeight;
+        const toRange=to.scrollHeight-to.clientHeight;
+        if(fromRange<=0||toRange<=0)return;
+        syncing=true;
+        to.scrollTop=(from.scrollTop/fromRange)*toRange;
+        requestAnimationFrame(()=>{syncing=false;});
+      }
+      function onEditorScroll(){mirrorScroll(editorTextarea(),previewEl.value);}
+      function onPreviewScroll(){mirrorScroll(previewEl.value,editorTextarea());}
+      // 预览是 v-html 渲染的，轮播和前后对比的结构只能在每次重渲染之后补上
+      watch(html,()=>nextTick(()=>{JM.teardown(previewEl.value);JM.enhance(previewEl.value);}));
+      // 版式面板的预览台同理，这样在面板里就能真的滑轮播、拖对比手柄
+      watch(figurePreview,()=>nextTick(()=>JM.enhance(document.querySelector('.image-layout-dialog .figure-stage'))));
+      onMounted(()=>{
+        load();window.addEventListener('beforeunload',beforeUnload);
+        // el-input 的 textarea 要等渲染完才拿得到
+        nextTick(()=>editorTextarea()?.addEventListener('scroll',onEditorScroll,{passive:true}));
+      });
+      onBeforeUnmount(()=>{
+        JM.teardown(previewEl.value);
+        editorTextarea()?.removeEventListener('scroll',onEditorScroll);
+        window.removeEventListener('beforeunload',beforeUnload);
+      });
+      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,mobileMetaCollapsed,toolbarGroups,scrollLocked,onPreviewScroll,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
     },
     template: `<div class="editor-page"><div class="editor-top"><el-button link @click="backToTrip">← 返回</el-button><h2>编辑旅行日记</h2><span class="status">{{statusLabel(form.status)}}</span><span class="word-count">{{wordCount}} 字</span><div class="editor-actions"><el-button @click="openTemplate">{{form.templateId?'填写模板':'从模板开始'}}</el-button><el-button :loading="saving" @click="save()">保存草稿</el-button><el-button v-if="form.status==='PUBLISHED'" @click="unpublish">撤回</el-button><el-button type="primary" @click="publish">发布日记</el-button></div></div>
       <button type="button" class="editor-meta-toggle" :aria-expanded="!mobileMetaCollapsed" @click="mobileMetaCollapsed=!mobileMetaCollapsed"><span>{{mobileMetaCollapsed?(form.title||'日记信息'):'收起日记信息'}}</span><span aria-hidden="true">{{mobileMetaCollapsed?'⌄':'⌃'}}</span></button>
@@ -618,12 +913,47 @@
       <div class="editor-meta editor-meta-secondary"><el-form-item prop="slug"><el-input v-model="form.slug" placeholder="slug（必填），例如 tokyo-spring"/></el-form-item><el-form-item><el-input v-model="form.excerpt" placeholder="摘要"/></el-form-item><el-form-item><el-select v-model="form.themeKey" clearable placeholder="继承旅行 / 全站主题"><el-option v-for="x in themes" :key="x.themeKey" :label="x.name" :value="x.themeKey"/></el-select></el-form-item></div>
       <div v-if="form.templateId" class="template-state" :class="{detached:form.templateDetached}"><span>{{form.templateDetached?'正文已自由修改，不会自动覆盖':'正文仍与模板填写数据关联'}}</span><button type="button" @click="openTemplate">继续填写模板</button></div></el-form>
       <div class="editor-mobile-tabs"><button type="button" :class="{active:mobilePane==='write'}" @click="mobilePane='write'">写作</button><button type="button" :class="{active:mobilePane==='preview'}" @click="mobilePane='preview'">预览</button><button type="button" :class="{active:mobilePane==='media'}" @click="mobilePane='media'">图片</button></div>
-      <div class="editor-grid"><section class="editor-column" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small>支持粘贴图片</small></div><div class="writing-toolbar"><button type="button" @click="insertFormat('## ','','小标题')">H2</button><button type="button" @click="insertFormat('**','**','重点文字')">粗体</button><button type="button" @click="insertFormat('> ','','此刻想说的话')">引用</button><button type="button" @click="insertFormat('- ','','清单内容')">清单</button><button type="button" @click="insertFormat('\\n---\\n','','')">分隔线</button></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste"/></section>
-        <section class="editor-column" :class="{'mobile-active':mobilePane==='preview'}"><div class="editor-label">实时预览</div><article class="preview markdown-body" v-html="html"></article></section>
-        <aside class="editor-column" :class="{'mobile-active':mobilePane==='media'}"><div class="editor-label">图片管理</div><div class="media-side"><div class="upload-box" @click="choose" @drop.prevent="dropped" @dragover.prevent><span v-if="!uploading">选择、拖拽或粘贴图片<br><small>JPEG / PNG / WebP</small></span><span v-else>正在上传…</span></div><input ref="fileInput" hidden type="file" accept="image/jpeg,image/png,image/webp" @change="picked">
-          <div v-for="item in media" :key="item.id" class="media-item"><img :src="item.thumbnailUrl"><div><small>{{item.filename}}</small><div><el-button link size="small" @click="insertImage(item)">插入</el-button><el-button link size="small" @click="setCover(item)">{{form.coverMediaId===item.id?'当前封面':'设封面'}}</el-button><el-button link type="danger" size="small" @click="removeMedia(item)">删除</el-button></div></div></div>
+      <div class="editor-grid"><section class="editor-column" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small>支持粘贴图片</small></div><div class="writing-toolbar"><template v-for="(group,gi) in toolbarGroups" :key="gi"><span v-if="gi" class="toolbar-sep" aria-hidden="true"></span><button v-for="item in group" :key="item.label" type="button" :title="item.title" @click="item.run()">{{item.label}}</button></template></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste"/></section>
+        <button type="button" class="scroll-lock" :class="{locked:scrollLocked}" :aria-pressed="scrollLocked" :title="scrollLocked?'已锁定：编辑与预览同步滚动':'已解锁：两侧各自滚动'" :aria-label="scrollLocked?'解锁滚动同步':'锁定滚动同步'" @click="scrollLocked=!scrollLocked">{{scrollLocked?'🔒':'🔓'}}</button>
+        <section class="editor-column" :class="{'mobile-active':mobilePane==='preview'}"><div class="editor-label">实时预览 <small>点图片可改版式</small></div><article ref="previewEl" class="preview markdown-body" v-html="html" @click="editFigureAt" @scroll.passive="onPreviewScroll"></article></section>
+        <aside class="editor-column" :class="{'mobile-active':mobilePane==='media'}"><div class="editor-label">图片管理</div><div class="media-side"><div class="upload-box" @click="choose" @drop.prevent="dropped" @dragover.prevent><span v-if="!uploading">选择、拖拽或粘贴图片<br><small>可多选，JPEG / PNG / WebP</small></span><span v-else>正在上传…</span></div><input ref="fileInput" hidden type="file" multiple accept="image/jpeg,image/png,image/webp" @change="picked">
+          <div v-if="media.length" class="media-order"><el-checkbox :model-value="allSelected" :indeterminate="selectedMedia.length>0&&!allSelected" @change="toggleSelectAll">全选</el-checkbox><span v-if="selectedMedia.length">已选 {{selectedMedia.length}} 张 <el-button link type="primary" size="small" @click="insertSelected">插入{{selectedMedia.length>1?'图组':'正文'}}</el-button></span></div>
+          <div v-for="(item,index) in media" :key="item.id" class="media-item"
+               :class="{selected:selectedMedia.includes(item.id),dragging:dragFrom===index,'drop-before':dragOver===index&&dragFrom>index,'drop-after':dragOver===index&&dragFrom<index}"
+               draggable="true" @dragstart="onDragStart(index)" @dragover.prevent="onDragOver(index)" @drop.prevent="onDrop(index)" @dragend="onDragEnd">
+            <el-checkbox :model-value="selectedMedia.includes(item.id)" @change="toggleSelect(item)" :aria-label="'选择 '+item.filename"/>
+            <img :src="item.thumbnailUrl" :alt="item.caption||item.filename" :title="item.filename">
+            <div><el-input class="media-item__caption" v-model="item.caption" placeholder="图注（留空则不显示）" @change="saveCaption(item)"/>
+              <div><el-button link size="small" @click="insertImage(item)">插入</el-button><el-button link size="small" @click="setCover(item)">{{form.coverMediaId===item.id?'当前封面':'设封面'}}</el-button><el-button link type="danger" size="small" @click="removeMedia(item)">删除</el-button></div></div></div>
         </div></aside></div>
-      <el-dialog v-model="imageDialog" title="设置图片版式" width="min(560px,94vw)" class="image-layout-dialog"><div v-if="imageForm.item" class="image-layout-body"><img :src="imageForm.item.thumbnailUrl" :alt="imageForm.caption"><el-form label-position="top"><el-form-item label="图片说明"><el-input v-model="imageForm.caption" placeholder="这张照片背后的故事"/></el-form-item><el-form-item label="展示大小"><el-radio-group v-model="imageForm.size"><el-radio-button value="small">小</el-radio-button><el-radio-button value="medium">中</el-radio-button><el-radio-button value="large">大</el-radio-button><el-radio-button value="full">通栏</el-radio-button></el-radio-group></el-form-item><el-form-item label="对齐方式"><el-radio-group v-model="imageForm.align"><el-radio-button value="left">居左</el-radio-button><el-radio-button value="center">居中</el-radio-button><el-radio-button value="right">居右</el-radio-button></el-radio-group></el-form-item></el-form></div><template #footer><el-button @click="imageDialog=false">取消</el-button><el-button type="primary" @click="confirmImage">插入正文</el-button></template></el-dialog>
+      <el-dialog v-model="imageDialog" :title="imageForm.editRange?'修改图片版式':'设置图片版式'" width="min(1000px,96vw)" class="image-layout-dialog">
+        <div class="image-layout-body">
+          <div class="figure-stage markdown-body" v-html="figurePreview"></div>
+          <div class="image-layout-controls"><el-form label-position="top">
+            <template v-if="isGallery">
+              <div class="image-layout-group-title">展示模式</div>
+              <el-form-item><el-radio-group v-model="imageForm.mode"><el-radio-button v-for="m in galleryModes" :key="m.value" :value="m.value">{{m.label}}</el-radio-button></el-radio-group>
+                <div v-if="imageForm.mode==='compare'&&imageForm.items.length!==2" class="image-layout-hint">前后对比只支持恰好两张图片，当前选了 {{imageForm.items.length}} 张，会退回竖向排列。</div></el-form-item>
+              <el-form-item v-if="['grid','masonry'].includes(imageForm.mode)" label="列数"><el-radio-group v-model="imageForm.cols"><el-radio-button :value="2">2 列</el-radio-button><el-radio-button :value="3">3 列</el-radio-button><el-radio-button :value="4">4 列</el-radio-button></el-radio-group></el-form-item>
+            </template>
+            <div class="image-layout-group-title">版式</div>
+            <el-form-item label="展示大小"><el-radio-group v-model="imageForm.size"><el-radio-button value="small">小</el-radio-button><el-radio-button value="medium">中</el-radio-button><el-radio-button value="large">大</el-radio-button><el-radio-button value="full">满宽</el-radio-button><el-radio-button value="bleed">通栏出血</el-radio-button></el-radio-group></el-form-item>
+            <el-form-item label="对齐方式"><el-radio-group v-model="imageForm.align"><el-radio-button value="left">居左</el-radio-button><el-radio-button value="center">居中</el-radio-button><el-radio-button value="right">居右</el-radio-button></el-radio-group></el-form-item>
+            <el-form-item><el-checkbox v-model="imageForm.wrap" :disabled="imageForm.align==='center'||['full','bleed'].includes(imageForm.size)">让正文文字环绕图片</el-checkbox>
+              <div class="image-layout-hint">需要先设为居左或居右，且不是满宽/通栏。窄屏会自动取消环绕。</div></el-form-item>
+            <div class="image-layout-group-title">裁剪</div>
+            <el-form-item label="显示比例"><el-radio-group v-model="imageForm.ratio"><el-radio-button value="">原始比例</el-radio-button><el-radio-button value="16x9">16:9</el-radio-button><el-radio-button value="4x3">4:3</el-radio-button><el-radio-button value="1x1">1:1</el-radio-button><el-radio-button value="3x4">3:4</el-radio-button></el-radio-group>
+              <div class="image-layout-hint">原始比例下卡片会贴合照片本身；选了比例则按比例裁剪填满。</div></el-form-item>
+            <el-form-item v-if="imageForm.ratio" label="裁剪焦点"><el-radio-group v-model="imageForm.focus"><el-radio-button value="">居中</el-radio-button><el-radio-button value="top">偏上</el-radio-button><el-radio-button value="bottom">偏下</el-radio-button></el-radio-group></el-form-item>
+            <div class="image-layout-group-title">外观</div>
+            <el-form-item label="画框"><el-radio-group v-model="imageForm.frame"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">无框</el-radio-button><el-radio-button value="line">细描边</el-radio-button><el-radio-button value="paper">相纸白边</el-radio-button><el-radio-button value="float">浮起阴影</el-radio-button><el-radio-button value="polaroid">宝丽来</el-radio-button></el-radio-group></el-form-item>
+            <el-form-item label="圆角"><el-radio-group v-model="imageForm.radius"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">直角</el-radio-button><el-radio-button value="soft">小圆角</el-radio-button><el-radio-button value="round">大圆角</el-radio-button></el-radio-group></el-form-item>
+            <div class="image-layout-group-title">图注</div>
+            <el-form-item label="图注文字"><el-input v-model="imageForm.caption" placeholder="这张照片背后的故事，留空则不显示"/></el-form-item>
+            <el-form-item label="图注位置"><el-radio-group v-model="imageForm.captionPos"><el-radio-button value="">下方居中</el-radio-button><el-radio-button value="left">下方居左</el-radio-button><el-radio-button v-if="!isGallery" value="overlay">悬浮图上</el-radio-button><el-radio-button v-if="!isGallery" value="side">右侧</el-radio-button><el-radio-button value="none">隐藏</el-radio-button></el-radio-group></el-form-item>
+          </el-form></div>
+        </div>
+        <template #footer><el-button v-if="imageForm.editRange" type="danger" link @click="removeFigure">从正文移除</el-button><el-button @click="imageDialog=false">取消</el-button><el-button type="primary" @click="confirmImage">{{imageForm.editRange?'保存修改':'插入正文'}}</el-button></template></el-dialog>
       <el-dialog v-model="templateDialog" title="用模板开始写作" width="min(980px,96vw)" class="template-writing-dialog"><div class="template-writing"><aside class="template-choices"><button v-for="item in templates" :key="item.id" type="button" :class="{active:selectedTemplate?.id===item.id}" @click="selectTemplate(item)"><strong>{{item.name}}</strong><span>{{item.description}}</span><small>{{item.builtin?'系统模板':'我的模板'}}</small></button></aside><section v-if="selectedTemplate" class="template-fields"><header><h3>{{selectedTemplate.name}}</h3><p>旅行、路线、行程和支出会自动读取；你只需写下只有自己知道的感受。</p></header><div v-for="block in templateBlocks" :key="block.id" class="template-field"><template v-if="block.type==='trip-info'"><label>{{block.title}}</label><div class="form-grid form-grid-2"><el-input v-model="templateData[block.id].weather" placeholder="天气，例如 晴 / 海风"/><el-input v-model="templateData[block.id].mood" placeholder="心情，例如 松弛 / 惊喜"/></div></template><template v-else-if="['text','textarea','quote'].includes(block.type)"><label>{{block.title}} <em v-if="block.required">必填</em></label><el-input v-model="templateData[block.id].value" :type="block.type==='text'?'text':'textarea'" :rows="block.type==='text'?1:4" :placeholder="block.config?.placeholder||'写下这一段'"/></template><template v-else-if="block.type==='rating'"><label>{{block.title}}</label><el-rate v-model="templateData[block.id].value" :max="block.config?.max||5" show-text/></template><template v-else-if="block.type==='image'"><label>{{block.title}}</label><el-select v-model="templateData[block.id].mediaIds" clearable placeholder="选择一张已上传图片"><el-option v-for="item in media" :key="item.id" :label="item.caption||item.filename" :value="item.id"/></el-select><small v-if="!media.length">先保存草稿并上传图片，之后可回来补充。</small></template><template v-else-if="block.type==='gallery'"><label>{{block.title}}</label><el-select v-model="templateData[block.id].mediaIds" multiple collapse-tags placeholder="选择已上传图片"><el-option v-for="item in media" :key="item.id" :label="item.caption||item.filename" :value="item.id"/></el-select><small v-if="!media.length">先保存草稿并上传图片，之后可回来补充。</small></template><div v-else class="template-auto-block"><strong>{{block.title}}</strong><span>将从当前旅行数据自动整理</span></div></div></section></div><template #footer><el-button @click="templateDialog=false">取消</el-button><el-button type="primary" :loading="generating" @click="generateFromTemplate">生成日记正文</el-button></template></el-dialog>
     </div>`
   };
@@ -631,31 +961,61 @@
   const TemplateManager = {
     setup() {
       const items=ref([]),loading=ref(false),dialog=ref(false),editing=ref(null);
+      const previewDialog=ref(false),previewing=ref(null),previewEl=ref(null),builderPreviewEl=ref(null);
+      // auto 标记的区块由旅行数据自动填充，查不到数据就整块不生成——说明里必须讲清楚取的是什么
       const blockTypes=[
-        {value:'trip-info',label:'旅行信息'},{value:'text',label:'单行文字'},{value:'textarea',label:'长文字'},{value:'quote',label:'引用'},
-        {value:'rating',label:'评分'},{value:'checklist',label:'清单'},{value:'route',label:'路线'},{value:'itinerary',label:'行程'},
-        {value:'expense-summary',label:'花费汇总'},{value:'image',label:'单图'},{value:'gallery',label:'照片墙'},{value:'divider',label:'分隔线'}
+        {value:'trip-info',label:'旅行信息',auto:true,desc:'自动带出：日记日期、所选城市、旅行标题，再加上你填的天气和心情，渲染成一行引用。'},
+        {value:'text',label:'单行文字',desc:'一个单行输入框，写标题式的短句。填写提示语可以在这里预设。'},
+        {value:'textarea',label:'长文字',desc:'多行输入框，正文主体一般用这个。'},
+        {value:'quote',label:'引用',desc:'你填的内容会渲染成引用块，适合放当天最想记住的一句话。'},
+        {value:'rating',label:'评分',desc:'星级评分，生成为 ★★★★☆（4/5）这样的文字。可设置满分。'},
+        {value:'checklist',label:'清单',desc:'待办清单，生成为 Markdown 的 - [ ] 列表。'},
+        {value:'route',label:'路线',auto:true,desc:'自动带出路线。「当天行程」按日记日期取当天行程条目的标题；「旅行城市」取整趟旅行的城市顺序。对应来源没有记录时，这一块不会生成。'},
+        {value:'itinerary',label:'行程',auto:true,desc:'自动带出日记当天的行程条目，按时间排成列表（时间 + 标题 + 地址）。当天没有行程记录时，这一块不会生成。'},
+        {value:'expense-summary',label:'花费汇总',auto:true,desc:'自动带出支出并按预算分类合计。「当天」只统计日记日期当天的支出，「整趟旅行」统计这次旅行的全部支出。对应范围内没有支出记录时，这一块不会生成。'},
+        {value:'image',label:'单图',desc:'填写日记时从已上传图片里选一张插入，可设尺寸和对齐。'},
+        {value:'gallery',label:'照片墙',desc:'填写日记时选多张图片，按设定的排布方式生成图组。'},
+        {value:'divider',label:'分隔线',desc:'一条水平分隔线，用来断开段落。'}
       ];
+      const blockMeta=type=>blockTypes.find(x=>x.value===type)||{};
       const form=reactive({name:'',description:'',category:'CUSTOM',enabled:true,definitionJson:{title:'',blocks:[]}});
       async function load(){loading.value=true;try{items.value=await A.templates(false);}catch(e){fail(e);}finally{loading.value=false;}}
       function reset(){editing.value=null;Object.assign(form,{name:'',description:'',category:'CUSTOM',enabled:true,definitionJson:{title:'',blocks:[]}});}
       function create(){reset();dialog.value=true;}
       function edit(item){editing.value=item.id;Object.assign(form,{name:item.name,description:item.description||'',category:item.category||'CUSTOM',enabled:item.enabled,definitionJson:JSON.parse(JSON.stringify(item.definitionJson))});dialog.value=true;}
       function blockLabel(type){return blockTypes.find(x=>x.value===type)?.label||type;}
-      function addBlock(type){const label=blockLabel(type),config={};if(['text','textarea','quote'].includes(type))config.placeholder='写下这一段';if(['image','gallery'].includes(type)){config.imageSize='medium';config.align='center';}if(type==='rating')config.max=5;if(type==='route')config.source='itinerary';if(type==='expense-summary')config.source='expense';form.definitionJson.blocks.push({id:'block_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5),type,title:label,required:false,config});}
+      // 用示例数据把区块渲染成成稿的样子——系统模板和正在编辑的模板走同一条路
+      const sampleHtml=blocks=>DOMPurify.sanitize(marked.parse(renderTemplateSample(blocks),{breaks:true}));
+      const builderPreview=computed(()=>sampleHtml(form.definitionJson.blocks));
+      const previewHtml=computed(()=>previewing.value?sampleHtml(previewing.value.definitionJson?.blocks):'');
+      function preview(item){previewing.value=item;previewDialog.value=true;}
+      // 预览里也可能有轮播和前后对比，同样要在渲染后补结构
+      watch(builderPreview,()=>nextTick(()=>{JM.teardown(builderPreviewEl.value);JM.enhance(builderPreviewEl.value);}));
+      watch(previewHtml,()=>nextTick(()=>{JM.teardown(previewEl.value);JM.enhance(previewEl.value);}));
+      function addBlock(type){const label=blockLabel(type),config={};if(['text','textarea','quote'].includes(type))config.placeholder='写下这一段';if(['image','gallery'].includes(type)){config.imageSize='medium';config.align='center';}if(type==='gallery')config.layout='grid';if(type==='rating')config.max=5;if(type==='route')config.source='itinerary';if(type==='expense-summary')config.source='expense';form.definitionJson.blocks.push({id:'block_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5),type,title:label,required:false,config});}
       function move(index,offset){const target=index+offset;if(target<0||target>=form.definitionJson.blocks.length)return;const [block]=form.definitionJson.blocks.splice(index,1);form.definitionJson.blocks.splice(target,0,block);}
       function copyBlock(index){const source=form.definitionJson.blocks[index],copy=JSON.parse(JSON.stringify(source));copy.id='block_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5);copy.title+=' 副本';form.definitionJson.blocks.splice(index+1,0,copy);}
       async function save(){if(!form.definitionJson.blocks.length)return ElementPlus.ElMessage.warning('请至少添加一个区块');try{const body={name:form.name,description:form.description,category:form.category,enabled:form.enabled,definitionJson:{title:form.name,blocks:form.definitionJson.blocks}};editing.value?await A.updateTemplate(editing.value,body):await A.createTemplate(body);dialog.value=false;message('模板已保存');load();}catch(e){fail(e);}}
       async function duplicate(item){try{const copy=await A.duplicateTemplate(item.id);message('已复制为“'+copy.name+'”');load();}catch(e){fail(e);}}
       async function remove(item){try{await confirm('确定删除模板“'+item.name+'”吗？');await A.deleteTemplate(item.id);message('模板已删除');load();}catch(e){if(e!=='cancel'&&e!=='close')fail(e);}}
       onMounted(load);
-      return{items,loading,dialog,editing,form,blockTypes,load,create,edit,blockLabel,addBlock,move,copyBlock,save,duplicate,remove};
+      return{items,loading,dialog,editing,form,blockTypes,blockMeta,previewDialog,previewing,previewHtml,builderPreview,previewEl,builderPreviewEl,
+             load,create,edit,preview,blockLabel,addBlock,move,copyBlock,save,duplicate,remove};
     },
     template:`<div><div class="page-head"><div><h2>日记模板</h2><p>把常写的结构保存下来，下次只填当时的天气、心情和故事。</p></div><el-button type="primary" @click="create">新建我的模板</el-button></div>
-      <div v-loading="loading" class="template-card-grid"><article v-for="item in items" :key="item.id" class="panel template-card"><header><span>{{item.builtin?'系统模板':'我的模板'}}</span><small>第 {{item.version}} 版</small></header><h3>{{item.name}}</h3><p>{{item.description||'还没有模板说明'}}</p><div class="template-block-tags"><i v-for="block in item.definitionJson.blocks.slice(0,6)" :key="block.id">{{block.title||blockLabel(block.type)}}</i></div><footer><el-button link @click="duplicate(item)">复制</el-button><template v-if="!item.builtin"><el-button link type="primary" @click="edit(item)">编辑</el-button><el-button link type="danger" @click="remove(item)">删除</el-button></template></footer></article></div>
-      <el-dialog v-model="dialog" :title="editing?'编辑我的模板':'新建我的模板'" width="min(920px,96vw)" class="template-editor-dialog"><el-form label-position="top"><div class="form-grid form-grid-2"><el-form-item label="模板名称"><el-input v-model="form.name" maxlength="120" placeholder="例如：海边慢游的一天"/></el-form-item><el-form-item label="是否启用"><el-switch v-model="form.enabled" active-text="启用" inactive-text="停用"/></el-form-item></div><el-form-item label="模板说明"><el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" show-word-limit/></el-form-item></el-form>
-        <div class="block-library"><span>添加区块</span><button v-for="type in blockTypes" :key="type.value" type="button" @click="addBlock(type.value)">＋ {{type.label}}</button></div>
-        <div class="template-builder"><el-empty v-if="!form.definitionJson.blocks.length" description="从上方添加第一个区块"/><article v-for="(block,index) in form.definitionJson.blocks" :key="block.id" class="template-block-editor"><div class="block-order"><button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><strong>{{index+1}}</strong><button type="button" :disabled="index===form.definitionJson.blocks.length-1" @click="move(index,1)">↓</button></div><div class="block-fields"><div class="form-grid form-grid-2"><el-input v-model="block.title" placeholder="区块标题"><template #prepend>{{blockLabel(block.type)}}</template></el-input><el-switch v-model="block.required" active-text="必填" inactive-text="选填"/></div><el-input v-if="['text','textarea','quote'].includes(block.type)" v-model="block.config.placeholder" placeholder="填写提示语"/><div v-if="['image','gallery'].includes(block.type)" class="form-grid form-grid-2"><el-select v-model="block.config.imageSize"><el-option label="小图" value="small"/><el-option label="中图" value="medium"/><el-option label="大图" value="large"/><el-option label="通栏" value="full"/></el-select><el-select v-model="block.config.align"><el-option label="居左" value="left"/><el-option label="居中" value="center"/><el-option label="居右" value="right"/></el-select></div></div><div class="block-actions"><button type="button" @click="copyBlock(index)">复制</button><button type="button" class="danger" @click="form.definitionJson.blocks.splice(index,1)">删除</button></div></article></div>
+      <div v-loading="loading" class="template-card-grid"><article v-for="item in items" :key="item.id" class="panel template-card"><header><span>{{item.builtin?'系统模板':'我的模板'}}</span><small>第 {{item.version}} 版</small></header><h3>{{item.name}}</h3><p>{{item.description||'还没有模板说明'}}</p><div class="template-block-tags"><i v-for="block in item.definitionJson.blocks.slice(0,6)" :key="block.id">{{block.title||blockLabel(block.type)}}</i></div><footer><el-button link @click="preview(item)">预览</el-button><el-button link @click="duplicate(item)">复制</el-button><template v-if="!item.builtin"><el-button link type="primary" @click="edit(item)">编辑</el-button><el-button link type="danger" @click="remove(item)">删除</el-button></template></footer></article></div>
+      <el-dialog v-model="previewDialog" :title="(previewing?.name||'模板')+' · 预览'" width="min(860px,96vw)" class="template-preview-dialog"><p class="template-preview-note">下面是用示例旅行数据渲染的效果，实际生成时会换成这篇日记所属旅行的真实内容。</p><article ref="previewEl" class="preview markdown-body template-preview-body" v-html="previewHtml"></article><template #footer><el-button @click="previewDialog=false">关闭</el-button><el-button v-if="previewing" type="primary" @click="previewDialog=false;duplicate(previewing)">复制为我的模板</el-button></template></el-dialog>
+      <el-dialog v-model="dialog" :title="editing?'编辑我的模板':'新建我的模板'" width="min(1320px,96vw)" class="template-editor-dialog"><el-form label-position="top"><div class="form-grid form-grid-2"><el-form-item label="模板名称"><el-input v-model="form.name" maxlength="120" placeholder="例如：海边慢游的一天"/></el-form-item><el-form-item label="是否启用"><el-switch v-model="form.enabled" active-text="启用" inactive-text="停用"/></el-form-item></div><el-form-item label="模板说明"><el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" show-word-limit/></el-form-item></el-form>
+        <div class="block-library"><span>添加区块</span><el-tooltip v-for="type in blockTypes" :key="type.value" :content="type.desc" placement="top" :show-after="200" popper-class="block-tip"><button type="button" :class="{auto:type.auto}" @click="addBlock(type.value)">＋ {{type.label}}<i v-if="type.auto" aria-hidden="true">自动</i></button></el-tooltip></div>
+        <div class="template-workbench">
+        <div class="template-builder"><el-empty v-if="!form.definitionJson.blocks.length" description="从上方添加第一个区块"/><article v-for="(block,index) in form.definitionJson.blocks" :key="block.id" class="template-block-editor"><div class="block-order"><button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><strong>{{index+1}}</strong><button type="button" :disabled="index===form.definitionJson.blocks.length-1" @click="move(index,1)">↓</button></div><div class="block-fields"><div class="block-title-row"><el-input v-model="block.title" placeholder="区块标题，显示为正文里的小标题"><template #prepend>{{blockLabel(block.type)}}</template></el-input><el-switch v-model="block.required" active-text="必填" inactive-text="选填"/></div>
+              <p class="block-desc">{{blockMeta(block.type).desc}}</p>
+              <el-input v-if="['text','textarea','quote'].includes(block.type)" v-model="block.config.placeholder" placeholder="填写提示语"/>
+              <el-select v-if="block.type==='route'" v-model="block.config.source"><el-option label="路线来源：当天行程条目" value="itinerary"/><el-option label="路线来源：整趟旅行的城市顺序" value="trip"/></el-select>
+              <el-select v-if="block.type==='expense-summary'" v-model="block.config.source"><el-option label="统计范围：日记当天的支出" value="expense"/><el-option label="统计范围：整趟旅行的全部支出" value="trip"/></el-select>
+              <el-input-number v-if="block.type==='rating'" v-model="block.config.max" :min="3" :max="10" controls-position="right" style="width:140px"/><div v-if="['image','gallery'].includes(block.type)" class="form-grid form-grid-2"><el-select v-model="block.config.imageSize"><el-option label="小图" value="small"/><el-option label="中图" value="medium"/><el-option label="大图" value="large"/><el-option label="满宽" value="full"/><el-option label="通栏出血" value="bleed"/></el-select><el-select v-model="block.config.align"><el-option label="居左" value="left"/><el-option label="居中" value="center"/><el-option label="居右" value="right"/></el-select></div><el-select v-if="block.type==='gallery'" v-model="block.config.layout" placeholder="图组排布"><el-option label="竖向逐张排列" value="stack"/><el-option label="并排" value="row"/><el-option label="网格" value="grid"/><el-option label="瀑布流" value="masonry"/><el-option label="拼贴" value="mosaic"/><el-option label="轮播" value="carousel"/><el-option label="胶片条" value="filmstrip"/><el-option label="前后对比" value="compare"/></el-select></div><div class="block-actions"><button type="button" @click="copyBlock(index)">复制</button><button type="button" class="danger" @click="form.definitionJson.blocks.splice(index,1)">删除</button></div></article></div>
+        <aside class="template-live-preview"><div class="template-live-head">实时预览<small>示例数据</small></div><article ref="builderPreviewEl" class="preview markdown-body template-preview-body" v-html="builderPreview"></article><div v-if="!form.definitionJson.blocks.length" class="template-live-empty">添加区块后这里会显示生成的日记长什么样</div></aside>
+        </div>
         <template #footer><el-button @click="dialog=false">取消</el-button><el-button type="primary" @click="save">保存模板</el-button></template></el-dialog>
     </div>`
   };
@@ -701,14 +1061,39 @@
         } catch (error) { fail(error); }
         finally { changingPassword.value = false; }
       }
-      return { session, avatarInput, avatarUrl, uploading, password, changingPassword, chooseAvatar, picked, changePassword };
+      // 昵称就地编辑：点一下变输入框，回车或失焦保存，Esc 放弃
+      const editingName = ref(false);
+      const nameDraft = ref('');
+      const savingName = ref(false);
+      function startEditName() { nameDraft.value = session.user?.displayName || ''; editingName.value = true; }
+      function cancelEditName() { editingName.value = false; }
+      async function saveName() {
+        if (!editingName.value) return;
+        const next = nameDraft.value.trim();
+        if (!next) return fail(new Error('昵称不能为空'));
+        if (next === session.user?.displayName) return cancelEditName();
+        savingName.value = true;
+        try {
+          const updated = await api.auth.updateDisplayName({ displayName: next });
+          session.user = { ...session.user, ...updated };
+          editingName.value = false;
+          message('昵称已更新');
+        } catch (error) { fail(error); }
+        finally { savingName.value = false; }
+      }
+      return { session, avatarInput, avatarUrl, uploading, password, changingPassword, chooseAvatar, picked, changePassword,
+               editingName, nameDraft, savingName, startEditName, cancelEditName, saveName };
     },
     template: `
-      <div><div class="page-head"><div><h2>个人资料</h2><p>管理登录密码和网站展示头像。</p></div></div>
+      <div><div class="page-head"><div><h2>个人资料</h2><p>管理昵称、登录密码和网站展示头像。</p></div></div>
         <div class="profile-grid">
-          <section class="panel panel-pad profile-card"><h3>头像</h3>
+          <section class="panel panel-pad profile-card"><h3>头像与昵称</h3>
             <div class="profile-avatar"><img v-if="avatarUrl" :src="avatarUrl" alt="管理员头像"><span v-else>{{session.user?.displayName?.slice(0,1) || '旅'}}</span></div>
-            <div><strong>{{session.user?.displayName}}</strong><p>{{session.user?.username}}</p></div>
+            <div class="profile-name">
+              <div v-if="!editingName" class="profile-name-view"><strong>{{session.user?.displayName}}</strong><el-button link size="small" @click="startEditName">改昵称</el-button></div>
+              <div v-else class="profile-name-edit"><el-input v-model="nameDraft" size="small" maxlength="60" show-word-limit placeholder="前台展示的昵称" @keyup.enter="saveName" @keyup.esc="cancelEditName"/><el-button link size="small" :loading="savingName" @click="saveName">保存</el-button><el-button link size="small" @click="cancelEditName">取消</el-button></div>
+              <p>{{session.user?.username}}<small class="form-hint">登录用户名，不可修改</small></p>
+            </div>
             <el-button type="primary" :loading="uploading" @click="chooseAvatar">上传新头像</el-button>
             <input ref="avatarInput" hidden type="file" accept="image/jpeg,image/png,image/webp" @change="picked">
             <small>支持 JPEG、PNG、WebP，最大 5MB；上传后前台头像会同步更新。</small>
@@ -856,13 +1241,23 @@
     setup() {
       const drawer=ref(false); const route=VueRouter.useRoute();
       const full=computed(()=>route.meta.full);
+      // 桌面端侧边栏折叠成图标条，记住选择；手机端走的是 drawer，不受这个影响
+      const collapsed=ref(localStorage.getItem('travel-journal.sidebar')==='collapsed');
+      watch(collapsed,value=>{
+        localStorage.setItem('travel-journal.sidebar',value?'collapsed':'expanded');
+        document.body.classList.toggle('sidebar-collapsed',value);
+      },{immediate:true});
       watch(()=>route.fullPath,()=>drawer.value=false);
       async function logout(){try{await api.auth.logout();session.user=null;session.checked=true;router.replace('/login');}catch(e){fail(e);}}
-      return{session,drawer,route,full,logout};
+      return{session,drawer,route,full,collapsed,logout};
     },
     template: `<router-view v-if="route.meta.public"></router-view><div v-else class="admin-shell">
       <div class="sidebar-backdrop" :class="{open:drawer}" @click="drawer=false"></div>
-      <aside class="admin-sidebar" :class="{open:drawer}"><button class="sidebar-close" type="button" aria-label="收起侧边栏" @click="drawer=false">×</button><div class="sidebar-brand">远行手记<small>TRAVEL JOURNAL</small></div><nav class="side-nav"><router-link to="/" @click="drawer=false">⌂ 管理首页</router-link><router-link to="/trips" @click="drawer=false">▣ 旅行管理</router-link><router-link to="/templates" @click="drawer=false">▤ 日记模板</router-link><router-link to="/themes" @click="drawer=false">◈ 主题外观</router-link><router-link to="/profile" @click="drawer=false">◎ 个人资料</router-link><a href="/" target="_blank" @click="drawer=false">↗ 查看网站</a></nav><div class="sidebar-user"><div class="sidebar-avatar"><img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="头像"><span v-else>{{session.user?.displayName?.slice(0,1) || '旅'}}</span></div><div><div>{{session.user?.displayName}}</div><small>{{session.user?.username}}</small></div></div></aside>
+      <aside class="admin-sidebar" :class="{open:drawer,collapsed}"><button class="sidebar-close" type="button" aria-label="收起侧边栏" @click="drawer=false">×</button>
+        <div class="sidebar-brand">远行手记<small>TRAVEL JOURNAL</small></div>
+        <button class="sidebar-collapse" type="button" :aria-pressed="collapsed" :title="collapsed?'展开侧边栏':'折叠侧边栏'" :aria-label="collapsed?'展开侧边栏':'折叠侧边栏'" @click="collapsed=!collapsed">{{collapsed?'»':'«'}}</button>
+        <nav class="side-nav"><router-link to="/" title="管理首页" @click="drawer=false"><i aria-hidden="true">⌂</i><span>管理首页</span></router-link><router-link to="/trips" title="旅行管理" @click="drawer=false"><i aria-hidden="true">▣</i><span>旅行管理</span></router-link><router-link to="/templates" title="日记模板" @click="drawer=false"><i aria-hidden="true">▤</i><span>日记模板</span></router-link><router-link to="/themes" title="主题外观" @click="drawer=false"><i aria-hidden="true">◈</i><span>主题外观</span></router-link><router-link to="/profile" title="个人资料" @click="drawer=false"><i aria-hidden="true">◎</i><span>个人资料</span></router-link><a href="/" target="_blank" title="查看网站" @click="drawer=false"><i aria-hidden="true">↗</i><span>查看网站</span></a></nav>
+        <div class="sidebar-user" :title="session.user?.displayName"><div class="sidebar-avatar"><img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="头像"><span v-else>{{session.user?.displayName?.slice(0,1) || '旅'}}</span></div><div><div>{{session.user?.displayName}}</div><small>{{session.user?.username}}</small></div></div></aside>
       <main class="admin-main"><template v-if="!full"><header class="admin-topbar"><el-button class="mobile-toggle" @click="drawer=!drawer">☰</el-button><h1>{{route.meta.title}}</h1><div class="top-actions"><el-button link @click="logout">退出登录</el-button></div></header><div class="admin-content"><router-view></router-view></div></template><router-view v-else></router-view></main>
     </div>`
   };

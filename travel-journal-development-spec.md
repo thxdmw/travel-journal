@@ -266,8 +266,8 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 
 采用以下方式：
 
-1. 新日记先保存为草稿，取得日记 ID 后才能上传图片。
-2. 编辑器支持选择、拖拽或粘贴图片；插入时选择小、中、大、通栏和左、中、右对齐，并可填写图注。正文写入固定 class 的受控 HTML：
+1. 新日记先保存为草稿，取得日记 ID 后才能上传图片。图片挂在 journal_media 上，没有归属日记的图片没有任何入口能再找到或删除，只会一直占着对象存储；编辑器在未保存时会先引导保存草稿，不允许先传后建。支持一次选多张，串行上传以便在超出单篇上限时准确停住。
+2. 编辑器支持选择、拖拽或粘贴图片；插入时通过版式面板设置各项，并可填写图注。正文写入固定 class 的受控 HTML：
 
    ~~~markdown
    <figure class="journal-figure journal-figure--medium journal-figure--center">
@@ -276,13 +276,40 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
    </figure>
    ~~~
 
-3. 正文只保存上述稳定的应用内媒体地址，不保存 MinIO 地址、对象键或预签名 URL。
-4. 浏览器请求 GET /api/media/{mediaId}/display 时，后端检查媒体可见性，再 302 跳转到新生成的短期 MinIO 预签名地址。
-5. 媒体关联已发布日记时允许访客访问 display 和 thumbnail；草稿媒体仅管理员可访问；original 默认仅管理员下载。
-6. 上传接口同时建立 journal_media 关联，因此同一张图片既可插入正文，也可出现在日记图片库中。
-7. 删除媒体前检查正文是否仍引用该媒体；仍被引用时拒绝删除并提示先移除正文中的图片。作为日记封面或旅行封面不构成拒绝理由，删除时自动清空对应封面引用。
-8. 后端只允许站内媒体地址、figure/img/figcaption 和固定布局 class，拒绝外部图片、事件属性、脚本和任意内联样式。
-9. 公开端限制竖图最大高度，手机端统一使用可读宽度；点击正文图片进入灯箱查看大图。
+3. 版式由若干条正交的 class 轴组成，**每条轴的默认值一律不输出 class**，沿用主题的 `data-image-*` 设置。因此上面这段最简形式与历史日记完全一致，扩展版式不会影响已有正文。
+
+   | 轴 | class | 取值 |
+   |---|---|---|
+   | 大小 | `journal-figure--{v}` | small / medium / large / full / bleed（通栏出血） |
+   | 对齐 | `journal-figure--{v}` | left / center / right |
+   | 文字环绕 | `journal-figure--wrap` | 仅在 left / right 且非 full / bleed 时输出 |
+   | 裁剪比例 | `journal-figure--ratio-{v}` | 16x9 / 4x3 / 1x1 / 3x4（默认原始比例，不输出） |
+   | 裁剪焦点 | `journal-figure--focus-{v}` | top / bottom（默认居中，不输出） |
+   | 画框 | `journal-figure--frame-{v}` | none / line / paper / float / polaroid（默认跟随主题） |
+   | 圆角 | `journal-figure--radius-{v}` | none / soft / round（默认跟随主题） |
+   | 图注 | `journal-figure--caption-{v}` | left / overlay / side / none（默认下方居中） |
+
+4. 多张图片写成图组，与单图平级，复用上面的大小和对齐轴：
+
+   ~~~markdown
+   <figure class="journal-gallery journal-gallery--grid journal-gallery--cols-3 journal-figure--large journal-figure--center">
+     <img src="/api/media/123/display" alt="图片说明" loading="lazy">
+     <img src="/api/media/124/display" alt="图片说明" loading="lazy">
+     <figcaption>图组说明</figcaption>
+   </figure>
+   ~~~
+
+   排布方式为 row 并排、grid 网格、masonry 瀑布流、mosaic 拼贴、carousel 轮播、filmstrip 胶片条、compare 前后对比。前四种纯 CSS；后三种由 `js/common/journal-media.js` 在渲染后重排结构并挂事件，重排只发生在运行时 DOM，正文字符串不受影响。compare 要求恰好两张，否则退回竖向堆叠。
+5. 这套标记的拼装和反解集中在 `js/common/journal-media.js` 的 `buildFigure` / `parseFigure`，样式集中在 `css/journal-media.css`（公开端与后台预览共用），后端模板生成在 `JournalTemplateService.figure()` / `gallery()`。改动 class 契约时这三处必须同步。
+6. 正文只保存上述稳定的应用内媒体地址，不保存 MinIO 地址、对象键或预签名 URL。
+7. 浏览器请求 GET /api/media/{mediaId}/display 时，后端检查媒体可见性，再 302 跳转到新生成的短期 MinIO 预签名地址。
+8. 媒体关联已发布日记时允许访客访问 display 和 thumbnail；草稿媒体仅管理员可访问；original 默认仅管理员下载。
+9. 上传接口同时建立 journal_media 关联，因此同一张图片既可插入正文，也可出现在日记图片库中。
+10. 删除媒体前检查正文是否仍引用该媒体；仍被引用时拒绝删除并提示先移除正文中的图片。作为日记封面或旅行封面不构成拒绝理由，删除时自动清空对应封面引用。
+11. 后端只允许站内媒体地址、figure/img/figcaption 和固定布局 class，拒绝外部图片、事件属性、脚本和任意内联样式。
+12. 公开端图片盒子收缩到照片本身，不做 `object-fit:contain` letterbox（那会在竖图两侧留下空条，而圆角、阴影和相纸边框都画在空盒子上）；需要填满时由裁剪比例轴切换为 `cover`。手机端统一使用可读宽度，环绕与通栏自动降级。
+13. 点击正文图片进入灯箱；灯箱按组翻页——同一个图组算一组，正文里零散的单图整篇算一组，支持左右箭头和键盘方向键。
+14. 公开端不再在正文之后自动铺一遍图片墙。有了正文里的多图模式，那样只会把插过的图重复展示一次；后台的「图片管理」仍然列出该日记的全部图片，供插入、设封面和排序。
 
 这样可以保留 Markdown 的简洁性，同时让图片上传、预览、发布和 MinIO 私有访问保持稳定。MVP 不允许用户手工填写任意外部图片地址，避免外链失效和隐私跟踪。
 
@@ -292,7 +319,8 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 - 只支持 JPEG、PNG 和 WebP。
 - 每张保存原图、1280px 展示图和 480px 缩略图。
 - 自动纠正 EXIF 方向，并移除公开图片的 EXIF GPS 信息。
-- 支持排序、说明、封面设置和删除。
+- 支持排序、说明、封面设置和删除。图片库支持拖拽排序（整表重排后一次性提交 relationId 列表）和就地编辑图注（写入 `journal_media.caption`，插入正文时作为默认图注）。
+- 图注留空时不渲染 `<figcaption>`，也不用文件名兜底，避免「1000002837.jpg」被印在正文里。
 - MinIO Bucket 必须私有，数据库只保存对象键和元数据。
 - 图片列表接口返回稳定媒体地址；后端媒体读取接口校验权限后跳转到短期预签名 URL。
 
@@ -302,6 +330,8 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 
 - 日记模板由固定白名单区块组成，支持个人模板的新增、复制、排序和删除，不允许 JavaScript、任意 Vue 模板或不受控 HTML。
 - 模板可自动读取旅行信息、城市路线、当天行程、支出和图片，生成后仍保存为 Markdown/受控 HTML。
+- 路线和花费汇总的取数范围由区块的 `config.source` 决定：路线为 `itinerary`（当天行程）或 `trip`（旅行城市顺序）；花费汇总为 `expense`（日记当天）或 `trip`（整趟旅行）。模板编辑器必须把这个选项暴露出来，否则用户建的模板永远只会取当天数据。
+- 自动区块查不到数据时会连标题一起跳过，生成接口通过 `skippedBlocks` 返回这些区块名，前端据此提示用户去补当天的行程或支出记录，避免「说好能自动带出、结果什么都没有」。
 - 日记保存模板 ID、版本、填写数据、模板快照和自由编辑状态，模板后续修改不影响历史日记。
 - 主题只保存语义化 Token：色彩、字体、字号、行高、圆角、内容宽度、密度、图片风格和动效。
 - 主题继承顺序为“单篇日记 > 所属旅行 > 全站 > 系统默认”。
@@ -506,7 +536,7 @@ journal_media：
 - /#/：首页，展示简介、最近日记、旅行与城市统计。
 - /#/trips：旅行列表，支持按年份筛选。
 - /#/trips/:slug：旅行详情、城市顺序、地图和已发布日记时间线。
-- /#/journals/:slug：Markdown 日记、图片画廊、上一篇和下一篇。
+- /#/journals/:slug：Markdown 日记、正文内的单图与图组、上一篇和下一篇。
 - /#/map：访问过的城市 Marker 和相关日记。
 
 ### 8.2 管理端
@@ -564,7 +594,8 @@ journal_media：
 - 首页首屏使用左右分栏：左侧标题、简介和主操作，右侧旅行封面图。
 - 最近日记使用三列图文卡片，移动端改为单列。
 - 足迹地图与旅行统计并排展示，地图使用低饱和底图和陶土色 Marker。
-- 日记详情强调阅读体验，图片可穿插在正文中，图片库放在正文之后。
+- 日记详情强调阅读体验，图片穿插在正文中，由作者决定每一处的版式和图组排布。
+- 正文排版规则集中在 `css/journal-media.css`，公开端和后台预览共用同一份；样式表不替作者往正文里加内容（曾经的 h2 自动编号和首段首字下沉已移除），否则会出现「预览一个样、发布出去另一个样」。两端只有正文字号是有意的差异，走 `--body-size`。
 
 #### 管理端
 

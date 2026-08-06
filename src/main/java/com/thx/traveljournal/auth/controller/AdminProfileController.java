@@ -5,6 +5,7 @@ import com.thx.traveljournal.auth.service.AdminProfileService;
 import com.thx.traveljournal.common.api.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -18,19 +19,29 @@ public class AdminProfileController {
     private final AdminProfileService service;
 
     public record ThemeRequest(@NotBlank String themeKey) {}
-    public record ProfileUpdate(String avatarUrl, String themeKey) {}
+    public record DisplayNameRequest(@NotBlank @Size(max = 60) String displayName) {}
+    public record ProfileUpdate(String displayName, String avatarUrl, String themeKey) {}
 
     @PostMapping("/avatar")
     public ApiResponse<ProfileUpdate> uploadAvatar(@RequestParam("file") MultipartFile file,
                                                     Authentication authentication) {
-        AdminUser user = service.uploadAvatar(authentication.getName(), file);
-        return ApiResponse.ok(new ProfileUpdate(service.avatarUrl(user), user.getThemeKey()));
+        return ApiResponse.ok(view(service.uploadAvatar(authentication.getName(), file)));
     }
 
     @PutMapping("/theme")
     public ApiResponse<ProfileUpdate> updateTheme(@Valid @RequestBody ThemeRequest request,
                                                    Authentication authentication) {
-        AdminUser user = service.updateTheme(authentication.getName(), request.themeKey());
-        return ApiResponse.ok(new ProfileUpdate(service.avatarUrl(user), user.getThemeKey()));
+        return ApiResponse.ok(view(service.updateTheme(authentication.getName(), request.themeKey())));
+    }
+
+    /** 修改前台展示的昵称。用户名是登录凭据，不在这里改。 */
+    @PutMapping("/display-name")
+    public ApiResponse<ProfileUpdate> updateDisplayName(@Valid @RequestBody DisplayNameRequest request,
+                                                        Authentication authentication) {
+        return ApiResponse.ok(view(service.updateDisplayName(authentication.getName(), request.displayName())));
+    }
+
+    private ProfileUpdate view(AdminUser user) {
+        return new ProfileUpdate(user.getDisplayName(), service.avatarUrl(user), user.getThemeKey());
     }
 }

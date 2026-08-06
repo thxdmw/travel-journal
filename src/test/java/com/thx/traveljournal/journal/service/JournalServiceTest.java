@@ -75,6 +75,33 @@ class JournalServiceTest {
     }
 
     @Test
+    void multiImageGalleryBlockShouldBeAccepted() {
+        JournalEntry entry = validEntry();
+        entry.setContentMarkdown("""
+                <figure class="journal-gallery journal-gallery--grid journal-gallery--cols-3 journal-figure--large journal-figure--center">
+                  <img src="/api/media/42/display" alt="第一张" loading="lazy">
+                  <img src="/api/media/43/display" alt="第二张" loading="lazy">
+                  <figcaption>清晨的老君阁</figcaption>
+                </figure>""");
+        service.create(entry);
+        verify(mapper).insert(entry);
+    }
+
+    @Test
+    void galleryWithExternalImageShouldStillBeRejected() {
+        JournalEntry entry = validEntry();
+        entry.setContentMarkdown("""
+                <figure class="journal-gallery journal-gallery--row">
+                  <img src="/api/media/42/display" alt="站内" loading="lazy">
+                  <img src="https://example.com/photo.jpg" alt="外链" loading="lazy">
+                </figure>""");
+        assertThatThrownBy(() -> service.create(entry))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("站内地址");
+        verify(mapper, never()).insert(any(JournalEntry.class));
+    }
+
+    @Test
     void blankContentCannotBePublished() {
         JournalEntry entry = validEntry();
         entry.setId(9L);

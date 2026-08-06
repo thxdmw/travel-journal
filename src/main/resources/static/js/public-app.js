@@ -303,26 +303,51 @@
     setup() {
       const route = VueRouter.useRoute();
       const data = ref(null);
+      const article = ref(null);
       const lightbox = ref(null);
       const progress = ref(0);
       const html = computed(() => data.value ? DOMPurify.sanitize(marked.parse(data.value.contentMarkdown || '', { breaks: true })) : '');
       const readingMinutes = computed(() => Math.max(1,Math.ceil(String(data.value?.contentMarkdown||'').replace(/<[^>]+>|[#>*_`\[\]()-]/g,'').replace(/\s/g,'').length/500)));
-      function openLightbox(src, caption) { lightbox.value = { src, caption: caption || '旅行照片' }; }
-      function openArticleImage(event) { if (event.target instanceof HTMLImageElement) openLightbox(event.target.src, event.target.alt); }
-      function closeOnEscape(event) { if (event.key === 'Escape') lightbox.value = null; }
+      const current = computed(() => lightbox.value ? lightbox.value.items[lightbox.value.index] : null);
+      // 灯箱统一按「一组」打开：正文里的多图块是一组，零散单图整篇算一组，
+      // 正文后的图片库整体算一组，这样左右键都能翻。
+      function openLightbox(items, index) { lightbox.value = { items, index: Math.max(0, index) }; }
+      function openArticleImage(event) {
+        if (!(event.target instanceof HTMLImageElement)) return;
+        const group = window.JournalMedia.groupOf(event.target);
+        openLightbox(group.map(image => ({ src: image.src, caption: image.alt || '' })), group.indexOf(event.target));
+      }
+      function stepLightbox(delta) {
+        if (!lightbox.value) return;
+        const total = lightbox.value.items.length;
+        lightbox.value.index = (lightbox.value.index + delta + total) % total;
+      }
+      function onKeydown(event) {
+        if (!lightbox.value) return;
+        if (event.key === 'Escape') lightbox.value = null;
+        else if (event.key === 'ArrowLeft') stepLightbox(-1);
+        else if (event.key === 'ArrowRight') stepLightbox(1);
+      }
       function updateProgress(){const height=document.documentElement.scrollHeight-window.innerHeight;progress.value=height>0?Math.min(100,Math.max(0,window.scrollY/height*100)):0;}
-      onMounted(async () => { data.value = await api.journal(route.params.slug);setScopedTheme(data.value.theme); window.addEventListener('keydown', closeOnEscape);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(updateProgress); });
-      onBeforeUnmount(() => {window.removeEventListener('keydown', closeOnEscape);window.removeEventListener('scroll',updateProgress);clearScopedTheme();});
-      return { data, html, lightbox, progress, readingMinutes, openLightbox, openArticleImage };
+      // 正文是 v-html 塞进来的，轮播和前后对比的结构只能在渲染之后补
+      watch(html, () => nextTick(() => { window.JournalMedia.teardown(article.value); window.JournalMedia.enhance(article.value); }));
+      onMounted(async () => { data.value = await api.journal(route.params.slug);setScopedTheme(data.value.theme); window.addEventListener('keydown', onKeydown);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(()=>{updateProgress();window.JournalMedia.enhance(article.value);}); });
+      onBeforeUnmount(() => {window.JournalMedia.teardown(article.value);window.removeEventListener('keydown', onKeydown);window.removeEventListener('scroll',updateProgress);clearScopedTheme();});
+      return { data, article, html, lightbox, current, progress, readingMinutes, openLightbox, openArticleImage, stepLightbox };
     },
     template: `
       <main v-if="data" class="page article">
         <div class="reading-progress" aria-hidden="true"><span :style="{width:progress+'%'}"></span></div>
         <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div></header>
-        <article class="markdown-body" v-html="html" @click="openArticleImage"></article>
-        <div v-if="data.media.length" class="gallery"><button v-for="item in data.media" :key="item.id" type="button" @click="openLightbox(item.displayUrl,item.caption || item.filename)"><img :src="item.thumbnailUrl" :alt="item.caption || item.filename"></button></div>
+        <article ref="article" class="markdown-body" v-html="html" @click="openArticleImage"></article>
         <nav class="article-nav"><router-link v-if="data.previousSlug" :to="'/journals/'+data.previousSlug">← 上一篇</router-link><span v-else></span><router-link v-if="data.nextSlug" :to="'/journals/'+data.nextSlug">下一篇 →</router-link></nav>
-        <teleport to="body"><div v-if="lightbox" class="photo-lightbox" role="dialog" aria-modal="true" @click.self="lightbox=null"><button type="button" aria-label="关闭大图" @click="lightbox=null">×</button><figure><img :src="lightbox.src" :alt="lightbox.caption"><figcaption>{{lightbox.caption}}</figcaption></figure></div></teleport>
+        <teleport to="body"><div v-if="lightbox" class="photo-lightbox" role="dialog" aria-modal="true" @click.self="lightbox=null">
+          <button type="button" class="lightbox-close" aria-label="关闭大图" @click="lightbox=null">×</button>
+          <button v-if="lightbox.items.length>1" type="button" class="lightbox-step lightbox-step--prev" aria-label="上一张" @click.stop="stepLightbox(-1)">‹</button>
+          <button v-if="lightbox.items.length>1" type="button" class="lightbox-step lightbox-step--next" aria-label="下一张" @click.stop="stepLightbox(1)">›</button>
+          <figure @click.stop><img :src="current.src" :alt="current.caption || '旅行照片'"><figcaption v-if="current.caption">{{current.caption}}</figcaption></figure>
+          <span v-if="lightbox.items.length>1" class="lightbox-count">{{lightbox.index+1}} / {{lightbox.items.length}}</span>
+        </div></teleport>
       </main><div v-else class="loading">正在展开日记…</div>`
   };
 
