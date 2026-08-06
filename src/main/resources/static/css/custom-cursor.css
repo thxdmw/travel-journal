@@ -278,7 +278,7 @@ body:has(.admin-shell) .travel-cursor-toggle { left: 238px; }
 
   html.travel-cursor-enabled input,
   html.travel-cursor-enabled textarea,
-  html.travel-cursor-enabled [contenteditable="true"] { cursor: text !important; }
+  html.travel-cursor-enabled [contenteditable="true"] { cursor: none !important; }
 
   html.travel-cursor-enabled .leaflet-container,
   html.travel-cursor-enabled .leaflet-grab,

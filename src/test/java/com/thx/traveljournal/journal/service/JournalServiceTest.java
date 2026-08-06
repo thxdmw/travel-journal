@@ -58,6 +58,23 @@ class JournalServiceTest {
     }
 
     @Test
+    void externalHtmlImageShouldBeRejected() {
+        JournalEntry entry = validEntry();
+        entry.setContentMarkdown("<figure><img src=\"https://example.com/photo.jpg\"></figure>");
+        assertThatThrownBy(() -> service.create(entry))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("站内地址");
+    }
+
+    @Test
+    void controlledHtmlImageShouldBeAccepted() {
+        JournalEntry entry = validEntry();
+        entry.setContentMarkdown("<figure class=\"journal-figure journal-figure--medium\"><img src=\"/api/media/42/display\"></figure>");
+        service.create(entry);
+        verify(mapper).insert(entry);
+    }
+
+    @Test
     void blankContentCannotBePublished() {
         JournalEntry entry = validEntry();
         entry.setId(9L);

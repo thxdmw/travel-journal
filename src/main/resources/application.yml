@@ -65,3 +65,7 @@ app:
     bucket: ${MINIO_BUCKET:travel-journal-dev}
     presigned-url-ttl-minutes: ${MINIO_PRESIGNED_URL_TTL_MINUTES:60}
     verify-on-startup: ${MINIO_VERIFY_ON_STARTUP:true}
+  map:
+    provider: ${APP_MAP_PROVIDER:amap}
+    amap-web-service-key: ${AMAP_WEB_SERVICE_KEY:}
+    search-enabled: ${APP_MAP_SEARCH_ENABLED:true}

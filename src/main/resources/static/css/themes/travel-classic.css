@@ -17,6 +17,12 @@
   --tj-shadow-soft: 0 5px 20px rgba(57, 47, 36, .06);
   --tj-radius: 12px;
   --tj-radius-small: 8px;
+  --tj-image-radius: 8px;
+  --tj-button-radius: 8px;
+  --tj-body-size: 16px;
+  --tj-body-line-height: 1.8;
+  --tj-content-width: 1200px;
+  --tj-article-width: 760px;
   --tj-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
   --tj-sans: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 

@@ -1,9 +1,12 @@
 package com.thx.traveljournal.journal.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.service.JournalService;
+import com.thx.traveljournal.theme.service.ThemePresetService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +20,7 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 public class AdminJournalController {
     private final JournalService service;
+    private final ThemePresetService themePresetService;
 
     public record JournalRequest(@NotNull Long tripId, Long tripStopId,
                                  @NotBlank @Size(max=200) String title,
@@ -24,7 +28,13 @@ public class AdminJournalController {
                                  @Size(max=500) String excerpt,
                                  @NotNull String contentMarkdown,
                                  @NotNull LocalDate occurredOn,
-                                 Long coverMediaId) {}
+                                 Long coverMediaId,
+                                 @Size(max=80) String themeKey,
+                                 Long templateId,
+                                 Integer templateVersion,
+                                 JsonNode templateData,
+                                 JsonNode templateSnapshot,
+                                 Boolean templateDetached) {}
 
     @GetMapping
     public ApiResponse<PageResponse<JournalEntry>> list(@RequestParam(defaultValue="1") long page,
@@ -54,6 +64,7 @@ public class AdminJournalController {
     private JournalEntry toEntity(JournalRequest request) {
         JournalEntry entity = new JournalEntry();
         BeanUtils.copyProperties(request, entity);
+        entity.setThemeKey(themePresetService.validateSelection(request.themeKey()));
         return entity;
     }
 }

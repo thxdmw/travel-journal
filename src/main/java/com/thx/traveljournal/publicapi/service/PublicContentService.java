@@ -7,12 +7,16 @@ import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.media.service.MediaService;
+import com.thx.traveljournal.media.entity.JournalMedia;
+import com.thx.traveljournal.media.mapper.JournalMediaMapper;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
 import com.thx.traveljournal.trip.mapper.TripStopMapper;
+import com.thx.traveljournal.theme.service.ThemePresetService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -26,33 +30,58 @@ public class PublicContentService {
     private final TripStopMapper stopMapper;
     private final JournalMapper journalMapper;
     private final MediaService mediaService;
+    private final JournalMediaMapper journalMediaMapper;
+    private final ThemePresetService themePresetService;
 
     public record JournalCard(Long id, String title, String slug, String excerpt, LocalDate occurredOn,
                               String tripTitle, String tripSlug, String cityName, String coverUrl) {}
     public record TripCard(Long id, String title, String slug, String summary, String status,
                            LocalDate startDate, LocalDate endDate, List<String> cities,
                            long journalCount, String coverUrl) {}
-    public record TripDetail(TripCard trip, List<TripStopView> stops, List<JournalCard> journals) {}
+    public record TripDetail(TripCard trip, List<TripStopView> stops, List<JournalCard> journals,
+                             ThemePresetService.ThemeView theme) {}
     public record TripStopView(String cityName, String regionName, String countryName,
                                java.math.BigDecimal latitude, java.math.BigDecimal longitude,
+                               String formattedAddress, String adcode, String coordinateSystem,
                                LocalDate arrivalDate, LocalDate departureDate, int sortOrder) {}
     public record JournalDetail(JournalCard journal, String contentMarkdown,
-                                List<MediaService.MediaView> media, String previousSlug, String nextSlug) {}
-    public record CityMarker(String cityName, String countryName, java.math.BigDecimal latitude,
+                                List<MediaService.MediaView> media, String previousSlug, String nextSlug,
+                                ThemePresetService.ThemeView theme) {}
+    public record CityMarker(String cityName, String regionName, String countryName,
+                             String adcode, String coordinateSystem,
+                             java.math.BigDecimal latitude,
                              java.math.BigDecimal longitude, LocalDate firstVisitedOn,
-                             long tripCount, long publishedJournalCount, List<JournalLink> journals) {}
+                             List<Integer> visitedYears, long tripCount, long publishedJournalCount,
+                             List<TripLink> trips, List<JournalLink> journals) {}
+    public record TripLink(String title, String slug) {}
     public record JournalLink(String title, String slug, String tripTitle, String tripSlug) {}
     public record Home(List<JournalCard> recentJournals, List<TripCard> recentTrips,
-                       long tripCount, long cityCount, long journalCount, long photoCount) {}
+                       List<CityMarker> cityMarkers, long tripCount, long cityCount,
+                       long journalCount, long photoCount) {}
 
     public Home home() {
         List<JournalEntry> published = publishedJournals();
-        List<JournalCard> journals = published.stream().limit(6).map(this::card).toList();
-        List<TripCard> allTrips = publicTrips();
-        List<TripCard> trips = allTrips.stream().limit(3).toList();
-        long photos = published.stream().mapToLong(j -> mediaService.list(j.getId()).size()).sum();
-        long cityCount = mapCities().size();
-        return new Home(journals, trips, allTrips.size(), cityCount, published.size(), photos);
+        if (published.isEmpty()) return new Home(List.of(), List.of(), List.of(), 0, 0, 0, 0);
+        Set<Long> tripIds = published.stream().map(JournalEntry::getTripId).collect(Collectors.toSet());
+        Map<Long, Trip> tripMap = tripMapper.selectByIds(tripIds).stream()
+                .collect(Collectors.toMap(Trip::getId, Function.identity()));
+        List<TripStop> allStops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+                .in(TripStop::getTripId, tripIds).orderByAsc(TripStop::getSortOrder, TripStop::getId));
+        Map<Long, TripStop> stopMap = allStops.stream().collect(Collectors.toMap(TripStop::getId, Function.identity()));
+        Map<Long, List<TripStop>> stopsByTrip = allStops.stream().collect(Collectors.groupingBy(TripStop::getTripId));
+        List<JournalCard> journals = published.stream().limit(6)
+                .map(entry -> card(entry, tripMap.get(entry.getTripId()), stopMap.get(entry.getTripStopId()))).toList();
+        Map<Long, Long> journalCounts = published.stream()
+                .collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
+        List<TripCard> allTrips = tripMap.values().stream()
+                .sorted(Comparator.comparing(Trip::getStartDate).reversed())
+                .map(trip -> tripCard(trip, journalCounts.getOrDefault(trip.getId(), 0L),
+                        stopsByTrip.getOrDefault(trip.getId(), List.of()))).toList();
+        List<CityMarker> cities = mapCities(published, tripMap, allStops);
+        long photos = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                .in(JournalMedia::getJournalEntryId, published.stream().map(JournalEntry::getId).toList()));
+        return new Home(journals, allTrips.stream().limit(3).toList(), cities,
+                allTrips.size(), cities.size(), published.size(), photos);
     }
 
     public List<TripCard> publicTrips() {
@@ -74,7 +103,8 @@ public class PublicContentService {
         List<TripStopView> stops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
                         .eq(TripStop::getTripId, trip.getId()).orderByAsc(TripStop::getSortOrder))
                 .stream().map(this::stopView).toList();
-        return new TripDetail(tripCard(trip, journals.size()), stops, journals.stream().map(this::card).toList());
+        return new TripDetail(tripCard(trip, journals.size()), stops, journals.stream().map(this::card).toList(),
+                themePresetService.effective(null, trip.getThemeKey()));
     }
 
     public PageResponse<JournalCard> journals(long page, long pageSize) {
@@ -96,7 +126,10 @@ public class PublicContentService {
                 .filter(i -> tripJournals.get(i).getId().equals(entry.getId())).findFirst().orElse(-1);
         String previous = index > 0 ? tripJournals.get(index - 1).getSlug() : null;
         String next = index >= 0 && index < tripJournals.size() - 1 ? tripJournals.get(index + 1).getSlug() : null;
-        return new JournalDetail(card(entry), entry.getContentMarkdown(), mediaService.list(entry.getId()), previous, next);
+        Trip trip = tripMapper.selectById(entry.getTripId());
+        TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
+        return new JournalDetail(card(entry, trip, stop), entry.getContentMarkdown(), mediaService.list(entry.getId()),
+                previous, next, themePresetService.effective(entry.getThemeKey(), trip.getThemeKey()));
     }
 
     public List<CityMarker> mapCities() {
@@ -108,24 +141,36 @@ public class PublicContentService {
                 .collect(Collectors.toMap(Trip::getId, Function.identity()));
         List<TripStop> stops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
                 .in(TripStop::getTripId, byTrip.keySet()).orderByAsc(TripStop::getArrivalDate));
+        return mapCities(published, trips, stops);
+    }
+
+    private List<CityMarker> mapCities(List<JournalEntry> published, Map<Long, Trip> trips,
+                                       List<TripStop> stops) {
         Map<String, List<TripStop>> grouped = stops.stream().collect(Collectors.groupingBy(
-                stop -> stop.getCountryName() + "|" + stop.getCityName(), LinkedHashMap::new, Collectors.toList()));
+                stop -> stop.getCountryName() + "|" + (StringUtils.hasText(stop.getAdcode()) ? stop.getAdcode() : stop.getCityName()),
+                LinkedHashMap::new, Collectors.toList()));
         List<CityMarker> result = new ArrayList<>();
         for (List<TripStop> cityStops : grouped.values()) {
             TripStop first = cityStops.get(0);
             Set<Long> tripIds = cityStops.stream().map(TripStop::getTripId).collect(Collectors.toSet());
             List<JournalEntry> cityJournals = published.stream()
                     .filter(j -> tripIds.contains(j.getTripId()))
-                    .filter(j -> j.getTripStopId() == null || cityStops.stream().anyMatch(s -> s.getId().equals(j.getTripStopId())))
+                    .filter(j -> j.getTripStopId() != null && cityStops.stream().anyMatch(s -> s.getId().equals(j.getTripStopId())))
                     .toList();
+            List<TripLink> tripLinks = tripIds.stream().map(trips::get).filter(Objects::nonNull)
+                    .sorted(Comparator.comparing(Trip::getStartDate).reversed())
+                    .map(t -> new TripLink(t.getTitle(), t.getSlug())).toList();
             List<JournalLink> links = cityJournals.stream().map(j -> {
                 Trip trip = trips.get(j.getTripId());
                 return new JournalLink(j.getTitle(), j.getSlug(), trip.getTitle(), trip.getSlug());
             }).toList();
             LocalDate firstDate = cityStops.stream().map(TripStop::getArrivalDate).filter(Objects::nonNull)
                     .min(LocalDate::compareTo).orElse(null);
-            result.add(new CityMarker(first.getCityName(), first.getCountryName(), first.getLatitude(),
-                    first.getLongitude(), firstDate, tripIds.size(), cityJournals.size(), links));
+            List<Integer> years = cityStops.stream().map(TripStop::getArrivalDate).filter(Objects::nonNull)
+                    .map(LocalDate::getYear).distinct().sorted().toList();
+            result.add(new CityMarker(first.getCityName(), first.getRegionName(), first.getCountryName(),
+                    first.getAdcode(), first.getCoordinateSystem(), first.getLatitude(), first.getLongitude(),
+                    firstDate, years, tripIds.size(), cityJournals.size(), tripLinks, links));
         }
         return result;
     }
@@ -138,22 +183,31 @@ public class PublicContentService {
     private JournalCard card(JournalEntry entry) {
         Trip trip = tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
+        return card(entry, trip, stop);
+    }
+
+    private JournalCard card(JournalEntry entry, Trip trip, TripStop stop) {
         return new JournalCard(entry.getId(), entry.getTitle(), entry.getSlug(), entry.getExcerpt(),
                 entry.getOccurredOn(), trip.getTitle(), trip.getSlug(),
                 stop == null ? null : stop.getCityName(), mediaUrl(entry.getCoverMediaId(), "display"));
     }
 
     private TripCard tripCard(Trip trip, long journalCount) {
-        List<String> cities = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
-                        .eq(TripStop::getTripId, trip.getId()).orderByAsc(TripStop::getSortOrder))
-                .stream().map(TripStop::getCityName).toList();
+        List<TripStop> stops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+                .eq(TripStop::getTripId, trip.getId()).orderByAsc(TripStop::getSortOrder));
+        return tripCard(trip, journalCount, stops);
+    }
+
+    private TripCard tripCard(Trip trip, long journalCount, List<TripStop> stops) {
+        List<String> cities = stops.stream().map(TripStop::getCityName).toList();
         return new TripCard(trip.getId(), trip.getTitle(), trip.getSlug(), trip.getSummary(), trip.getStatus(),
                 trip.getStartDate(), trip.getEndDate(), cities, journalCount, mediaUrl(trip.getCoverMediaId(), "display"));
     }
 
     private TripStopView stopView(TripStop stop) {
         return new TripStopView(stop.getCityName(), stop.getRegionName(), stop.getCountryName(),
-                stop.getLatitude(), stop.getLongitude(), stop.getArrivalDate(), stop.getDepartureDate(),
+                stop.getLatitude(), stop.getLongitude(), stop.getFormattedAddress(), stop.getAdcode(),
+                stop.getCoordinateSystem(), stop.getArrivalDate(), stop.getDepartureDate(),
                 stop.getSortOrder() == null ? 0 : stop.getSortOrder());
     }
 

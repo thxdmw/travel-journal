@@ -19,6 +19,11 @@ public class TripStop extends BaseEntity {
     private String countryCode;
     private BigDecimal latitude;
     private BigDecimal longitude;
+    private String placeId;
+    private String formattedAddress;
+    private String adcode;
+    private String coordinateSystem;
+    private String locationSource;
     private LocalDate arrivalDate;
     private LocalDate departureDate;
     private Integer sortOrder;

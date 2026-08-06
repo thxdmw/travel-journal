@@ -7,11 +7,12 @@
 - 单管理员登录、退出和修改密码
 - 旅行、城市停靠点、行程管理
 - 分类预算、实际支出和超支汇总
-- Markdown 旅行日记、草稿、发布与撤回
-- JPEG、PNG、WebP 图片上传、缩略图、正文插图和封面
-- 公开首页、旅行列表、日记详情和城市足迹地图
+- Markdown 旅行日记、草稿、发布、撤回和区块化日记模板
+- JPEG、PNG、WebP 图片上传、缩略图、正文插图、尺寸/对齐/图注和灯箱
+- 地点搜索、地图选点、逆地理编码、旅行路线和可筛选城市足迹地图
+- 公开首页、旅行列表和日记详情
 - 桌面端和手机端响应式布局
-- 只读主题功能占位，默认主题为 travel-classic
+- 远行手记与三亚海风预设、可视化主题 DIY，以及全站/旅行/日记三级主题覆盖
 
 ## 技术栈
 
@@ -20,7 +21,7 @@
 - MyBatis-Plus、PostgreSQL、Flyway
 - MinIO Java SDK、Thumbnailator、Apache Tika
 - Vue 3、Vue Router、Element Plus、Axios、Leaflet、marked、DOMPurify 浏览器版
-- Maven Wrapper、Docker 多阶段构建
+- Maven、Docker 多阶段构建
 
 PostgreSQL 和 MinIO 由使用者自行管理，本项目不创建或托管这两个服务。
 
@@ -58,6 +59,8 @@ cp .env.example .env
 - APP_ADMIN_USERNAME、APP_ADMIN_PASSWORD
 - APP_BASE_URL
 
+地图搜索是可选能力。需要使用时，在高德开放平台创建“Web 服务”Key，并配置 `AMAP_WEB_SERVICE_KEY`。Key 仅由后端请求高德接口，不会发送到浏览器；未配置时仍可通过地图点选和手工坐标保存地点。
+
 APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。创建完成后不会覆盖数据库中的密码，也不会在日志中输出明文。
 
 生产密码建议不少于 16 位。首次登录后可通过认证接口修改密码。
@@ -69,16 +72,16 @@ APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。�
 Linux/macOS：
 
 ~~~bash
-./mvnw clean test
-./mvnw spring-boot:run
+mvn clean test
+mvn spring-boot:run
 ~~~
 
 Windows PowerShell：
 
 ~~~powershell
 $env:JAVA_HOME = "D:\java\environment\jdk21"
-.\mvnw.cmd clean test
-.\mvnw.cmd spring-boot:run
+mvn clean test
+mvn spring-boot:run
 ~~~
 
 访问：
@@ -90,10 +93,13 @@ $env:JAVA_HOME = "D:\java\environment\jdk21"
 
 ## 图片与 Markdown
 
-新日记需要先保存为草稿再上传图片。图片上传成功后，编辑器会在正文中插入稳定地址：
+新日记需要先保存为草稿再上传图片。插入时可以选择小、中、大、通栏以及左、中、右对齐，编辑器会写入受控的站内 HTML：
 
 ~~~markdown
-![图片说明](/api/media/123/display)
+<figure class="journal-figure journal-figure--medium journal-figure--center">
+  <img src="/api/media/123/display" alt="海边落日" loading="lazy">
+  <figcaption>海边落日</figcaption>
+</figure>
 ~~~
 
 正文不保存 MinIO 对象键或临时预签名地址。媒体接口会检查日记是否公开：
@@ -104,6 +110,24 @@ $env:JAVA_HOME = "D:\java\environment\jdk21"
 - 鉴权通过后，接口使用 302 跳转到短期 MinIO 预签名地址。
 
 删除仍被正文、日记封面或旅行封面引用的图片会被拒绝。
+
+## 日记模板
+
+后台“日记模板”内置城市一日游、多日旅行总结、美食探店、景点打卡、图片日记和旅途随笔。系统模板可复制为个人模板，再自由添加、复制、删除和排序区块。
+
+模板生成时会读取当前旅行的城市路线、当天行程、支出和已上传图片。生成结果仍是 Markdown/受控 HTML，可以继续自由编辑；日记会保存模板版本、填写数据和模板快照，后续修改模板不会破坏历史日记。
+
+## 主题设计
+
+后台“主题外观”可以直接使用内置预设，也可以复制或新建个人主题。设计器支持色彩、字体、阅读字号、页面宽度、内容密度、圆角、图片比例/风格、动效设置，并提供真实网站的桌面和手机实时预览、撤销/重做、阅读对比度提醒以及 JSON 导入导出。
+
+主题按以下顺序覆盖：
+
+~~~text
+单篇日记主题 > 所属旅行主题 > 全站主题 > 系统默认主题
+~~~
+
+个人主题只保存受控的语义化设计 Token，不接受任意 CSS、JavaScript 或远程脚本。
 
 ## 前端说明
 
@@ -122,8 +146,8 @@ $env:JAVA_HOME = "D:\java\environment\jdk21"
 ## Maven 构建
 
 ~~~bash
-./mvnw clean test
-./mvnw clean package
+mvn clean test
+mvn clean package
 ~~~
 
 产物：
@@ -203,6 +227,7 @@ mc mirror minio/travel-journal /backup/travel-journal
 - 旅行日期校验
 - 预算汇总和超支判断
 - 日记草稿与发布校验
+- 主题 Token 白名单与危险颜色值校验
 - 图片上传处理
 - 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行）
 
@@ -210,6 +235,7 @@ mc mirror minio/travel-journal /backup/travel-journal
 
 ~~~bash
 node --check src/main/resources/static/js/common/api.js
+node --check src/main/resources/static/js/common/theme.js
 node --check src/main/resources/static/js/public-app.js
 node --check src/main/resources/static/js/admin-app.js
 ~~~
@@ -224,8 +250,11 @@ src/main/java/com/thx/traveljournal/
 ├── config
 ├── itinerary
 ├── journal
+├── journaltemplate
+├── map
 ├── media
 ├── publicapi
+├── theme
 └── trip
 ~~~
 

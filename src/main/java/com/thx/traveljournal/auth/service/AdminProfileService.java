@@ -5,16 +5,17 @@ import com.thx.traveljournal.auth.entity.AdminUser;
 import com.thx.traveljournal.auth.mapper.AdminUserMapper;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.config.AppProperties;
+import com.thx.traveljournal.theme.service.ThemePresetService;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.Http;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
-import lombok.RequiredArgsConstructor;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.tika.Tika;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -29,7 +30,6 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Service
-@RequiredArgsConstructor
 public class AdminProfileService {
     public static final String DEFAULT_THEME = "travel-classic";
     public static final List<String> THEMES = List.of(DEFAULT_THEME, "sanya-breeze");
@@ -38,7 +38,21 @@ public class AdminProfileService {
     private final AdminUserMapper mapper;
     private final MinioClient minioClient;
     private final AppProperties properties;
+    private final ThemePresetService themePresetService;
     private final Tika tika = new Tika();
+
+    @Autowired
+    public AdminProfileService(AdminUserMapper mapper, MinioClient minioClient, AppProperties properties,
+                               ThemePresetService themePresetService) {
+        this.mapper = mapper;
+        this.minioClient = minioClient;
+        this.properties = properties;
+        this.themePresetService = themePresetService;
+    }
+
+    public AdminProfileService(AdminUserMapper mapper, MinioClient minioClient, AppProperties properties) {
+        this(mapper, minioClient, properties, null);
+    }
 
     public AdminUser requireByUsername(String username) {
         AdminUser user = mapper.selectOne(new LambdaQueryWrapper<AdminUser>()
@@ -56,7 +70,11 @@ public class AdminProfileService {
 
     @Transactional
     public AdminUser updateTheme(String username, String themeKey) {
-        if (!THEMES.contains(themeKey)) throw BusinessException.badRequest("主题不存在");
+        if (themePresetService == null) {
+            if (!THEMES.contains(themeKey)) throw BusinessException.badRequest("主题不存在");
+        } else {
+            themeKey = themePresetService.validateSelection(themeKey);
+        }
         AdminUser user = requireByUsername(username);
         user.setThemeKey(themeKey);
         mapper.updateById(user);

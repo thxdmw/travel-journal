@@ -4,6 +4,7 @@ import com.thx.traveljournal.auth.entity.AdminUser;
 import com.thx.traveljournal.auth.service.AdminProfileService;
 import com.thx.traveljournal.common.api.ApiResponse;
 import lombok.RequiredArgsConstructor;
+import com.thx.traveljournal.theme.service.ThemePresetService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,14 +17,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class PublicProfileController {
     private final AdminProfileService service;
+    private final ThemePresetService themePresetService;
 
-    public record PublicProfile(String displayName, String avatarUrl, String themeKey) {}
+    public record PublicProfile(String displayName, String avatarUrl, String themeKey,
+                                ThemePresetService.ThemeView theme) {}
 
     @GetMapping
     public ApiResponse<PublicProfile> profile() {
         AdminUser user = service.publicUser();
         String themeKey = user.getThemeKey() == null ? AdminProfileService.DEFAULT_THEME : user.getThemeKey();
-        return ApiResponse.ok(new PublicProfile(user.getDisplayName(), service.avatarUrl(user), themeKey));
+        return ApiResponse.ok(new PublicProfile(user.getDisplayName(), service.avatarUrl(user), themeKey,
+                themePresetService.resolve(themeKey)));
     }
 
     @GetMapping("/avatar")

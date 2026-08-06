@@ -5,6 +5,7 @@ import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.service.TripService;
+import com.thx.traveljournal.theme.service.ThemePresetService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AdminTripController {
     private final TripService service;
+    private final ThemePresetService themePresetService;
 
     public record TripRequest(@NotBlank @Size(max=160) String title,
                               @NotBlank @Size(max=180) String slug,
@@ -29,13 +31,19 @@ public class AdminTripController {
                               @NotNull LocalDate startDate,
                               @NotNull LocalDate endDate,
                               @NotBlank @Pattern(regexp="[A-Za-z]{3}") String defaultCurrency,
-                              Long coverMediaId, String internalNote) {}
+                              Long coverMediaId, String internalNote,
+                              @Size(max=80) String themeKey) {}
     public record StatusRequest(@NotBlank String status) {}
     public record StopRequest(@NotBlank @Size(max=120) String cityName,
                               @Size(max=120) String regionName,
                               @NotBlank @Size(max=120) String countryName,
                               @Pattern(regexp="^$|[A-Za-z]{2}") String countryCode,
                               @NotNull BigDecimal latitude, @NotNull BigDecimal longitude,
+                              @Size(max=128) String placeId,
+                              @Size(max=500) String formattedAddress,
+                              @Size(max=32) String adcode,
+                              @Size(max=20) String coordinateSystem,
+                              @Size(max=30) String locationSource,
                               LocalDate arrivalDate, LocalDate departureDate,
                               Integer sortOrder, @Size(max=1000) String note) {}
     public record ReorderRequest(@NotEmpty List<Long> orderedIds) {}
@@ -83,6 +91,7 @@ public class AdminTripController {
     private Trip toTrip(TripRequest request) {
         Trip trip = new Trip();
         BeanUtils.copyProperties(request, trip);
+        trip.setThemeKey(themePresetService.validateSelection(request.themeKey()));
         return trip;
     }
     private TripStop toStop(StopRequest request) {

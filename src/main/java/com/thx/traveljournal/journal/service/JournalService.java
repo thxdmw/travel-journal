@@ -7,13 +7,15 @@ import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.common.util.SlugUtils;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
+import com.thx.traveljournal.journaltemplate.entity.JournalTemplate;
+import com.thx.traveljournal.journaltemplate.mapper.JournalTemplateMapper;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.mapper.JournalMediaMapper;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
 import com.thx.traveljournal.trip.mapper.TripStopMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -24,14 +26,31 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 public class JournalService {
     private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
             "!\\[[^\\]]*]\\(([^\\s)]+)(?:\\s+\"[^\"]*\")?\\)");
+    private static final Pattern HTML_IMAGE = Pattern.compile(
+            "<img\\s+[^>]*src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>", Pattern.CASE_INSENSITIVE);
     private final JournalMapper mapper;
     private final TripMapper tripMapper;
     private final TripStopMapper stopMapper;
     private final JournalMediaMapper journalMediaMapper;
+    private final JournalTemplateMapper templateMapper;
+
+    @Autowired
+    public JournalService(JournalMapper mapper, TripMapper tripMapper, TripStopMapper stopMapper,
+                          JournalMediaMapper journalMediaMapper, JournalTemplateMapper templateMapper) {
+        this.mapper = mapper;
+        this.tripMapper = tripMapper;
+        this.stopMapper = stopMapper;
+        this.journalMediaMapper = journalMediaMapper;
+        this.templateMapper = templateMapper;
+    }
+
+    public JournalService(JournalMapper mapper, TripMapper tripMapper, TripStopMapper stopMapper,
+                          JournalMediaMapper journalMediaMapper) {
+        this(mapper, tripMapper, stopMapper, journalMediaMapper, null);
+    }
 
     public PageResponse<JournalEntry> list(long page, long pageSize, Long tripId, String status, String keyword) {
         LambdaQueryWrapper<JournalEntry> query = new LambdaQueryWrapper<JournalEntry>()
@@ -53,6 +72,7 @@ public class JournalService {
     public JournalEntry create(JournalEntry entry) {
         entry.setStatus("DRAFT");
         entry.setPublishedAt(null);
+        if (entry.getTemplateDetached() == null) entry.setTemplateDetached(false);
         validate(entry, false);
         mapper.insert(entry);
         return entry;
@@ -109,6 +129,7 @@ public class JournalService {
             throw BusinessException.badRequest("发布前必须填写日记正文");
         }
         validateMarkdownImages(entry.getContentMarkdown());
+        validateTemplate(entry);
         if (entry.getCoverMediaId() != null) {
             long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
                     .eq(JournalMedia::getJournalEntryId, entry.getId())
@@ -119,12 +140,35 @@ public class JournalService {
 
     private void validateMarkdownImages(String markdown) {
         if (!StringUtils.hasText(markdown)) return;
-        Matcher matcher = MARKDOWN_IMAGE.matcher(markdown);
+        validateImageMatches(MARKDOWN_IMAGE.matcher(markdown));
+        validateImageMatches(HTML_IMAGE.matcher(markdown));
+    }
+
+    private void validateImageMatches(Matcher matcher) {
         while (matcher.find()) {
             String url = matcher.group(1);
             if (!url.matches("/api/media/\\d+/(display|thumbnail)")) {
                 throw BusinessException.badRequest("日记图片必须使用已上传媒体的站内地址");
             }
         }
+    }
+
+    private void validateTemplate(JournalEntry entry) {
+        if (entry.getTemplateId() == null) {
+            entry.setTemplateVersion(null);
+            entry.setTemplateData(null);
+            entry.setTemplateSnapshot(null);
+            entry.setTemplateDetached(false);
+            return;
+        }
+        JournalTemplate template = templateMapper == null ? null : templateMapper.selectById(entry.getTemplateId());
+        if (template == null) throw BusinessException.badRequest("日记模板不存在");
+        if (entry.getTemplateVersion() == null) entry.setTemplateVersion(template.getVersion());
+        if (entry.getTemplateSnapshot() == null) entry.setTemplateSnapshot(template.getDefinitionJson().deepCopy());
+        if (entry.getTemplateData() != null && !entry.getTemplateData().isObject())
+            throw BusinessException.badRequest("模板填写数据格式不正确");
+        if (entry.getTemplateSnapshot() != null && !entry.getTemplateSnapshot().isObject())
+            throw BusinessException.badRequest("模板快照格式不正确");
+        if (entry.getTemplateDetached() == null) entry.setTemplateDetached(false);
     }
 }

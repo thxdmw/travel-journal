@@ -82,7 +82,7 @@
   function stateFor(target) {
     if (!(target instanceof Element)) return 'compass';
     if (target.closest('.leaflet-container, .map-box')) return 'map';
-    if (target.closest('input, textarea, [contenteditable="true"]')) return 'native';
+    if (target.closest('input, textarea, [contenteditable="true"]')) return 'writing';
     if (target.closest('img, picture, .card-photo, .hero-photo, .trip-banner-photo, .gallery')) return 'photo';
     if (target.closest('a, button, select, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"]), .el-select, .el-switch, .el-checkbox, .el-radio, .admin-trip-card, .workspace-head .back, .upload-box')) return 'link';
     if (target.closest('.markdown-body, .preview, .article, .markdown-input, article')) return 'writing';

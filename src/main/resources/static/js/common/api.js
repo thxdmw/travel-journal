@@ -36,7 +36,7 @@
       journals: (page = 1, pageSize = 12) => http.get('/public/journals', { params: { page, pageSize } }),
       journal: slug => http.get('/public/journals/' + encodeURIComponent(slug)),
       cities: () => http.get('/public/map/cities'),
-      profile: () => http.get('/public/profile')
+      profile: () => http.get('/public/profile', { params: { v: Date.now() } })
     },
     auth: {
       login: body => http.post('/admin/auth/login', body),
@@ -57,6 +57,9 @@
       createStop: (id, body) => http.post('/admin/trips/' + id + '/stops', body),
       updateStop: (id, body) => http.put('/admin/stops/' + id, body),
       deleteStop: id => http.delete('/admin/stops/' + id),
+      mapStatus: () => http.get('/admin/map/status'),
+      searchLocations: (keyword, region) => http.get('/admin/map/search', { params: { keyword, region } }),
+      reverseLocation: (latitude, longitude) => http.get('/admin/map/reverse', { params: { latitude, longitude } }),
       itinerary: id => http.get('/admin/trips/' + id + '/itinerary'),
       createItinerary: (id, body) => http.post('/admin/trips/' + id + '/itinerary', body),
       updateItinerary: (id, body) => http.put('/admin/itinerary/' + id, body),
@@ -82,7 +85,19 @@
         headers: { 'Content-Type': 'multipart/form-data' }
       }),
       setCover: (journalId, mediaId) => http.patch('/admin/journals/' + journalId + '/cover/' + mediaId),
-      deleteMedia: relationId => http.delete('/admin/journal-media/' + relationId)
+      deleteMedia: relationId => http.delete('/admin/journal-media/' + relationId),
+      templates: (enabledOnly = false) => http.get('/admin/journal-templates', { params: { enabledOnly } }),
+      template: id => http.get('/admin/journal-templates/' + id),
+      createTemplate: body => http.post('/admin/journal-templates', body),
+      updateTemplate: (id, body) => http.put('/admin/journal-templates/' + id, body),
+      deleteTemplate: id => http.delete('/admin/journal-templates/' + id),
+      duplicateTemplate: id => http.post('/admin/journal-templates/' + id + '/duplicate'),
+      generateTemplate: (id, body) => http.post('/admin/journal-templates/' + id + '/generate', body),
+      themes: (enabledOnly = false) => http.get('/admin/themes', { params: { enabledOnly } }),
+      createTheme: body => http.post('/admin/themes', body),
+      updateTheme: (id, body) => http.put('/admin/themes/' + id, body),
+      deleteTheme: id => http.delete('/admin/themes/' + id),
+      duplicateTheme: id => http.post('/admin/themes/' + id + '/duplicate')
     }
   };
 })();

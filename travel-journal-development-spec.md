@@ -17,9 +17,9 @@
 6. 本项目直接使用 MinIO Java SDK，实现旅行日记自己的媒体存储服务、数据表和对象键规则。
 7. PostgreSQL 和 MinIO 均由使用者自行管理；本项目只提供连接配置，不创建或部署这两个服务。
 8. 生产环境只构建一个 Spring Boot 镜像，前端静态文件随 Jar 一起发布。
-9. 本文档最终确认前，只修改文档，不创建脚手架或业务代码。
+9. 本文档是当前实现与后续维护的基准；数据库结构只能通过新增 Flyway 迁移演进。
 10. 首版视觉方向采用“暖白纸张感 + 森林绿 + 陶土色”的旅行杂志风格，以 docs/assets/travel-journal-ui-direction-v1.png 为实现参考。
-11. MVP 只预留主题功能入口和 CSS 变量结构，不实现多主题切换、主题商店或自定义主题编辑器。
+11. 主题功能保持个人项目所需的轻量规模：支持内置预设、个人主题 DIY 和三级覆盖，不实现主题商店或任意 CSS/脚本上传。
 
 ---
 
@@ -225,10 +225,12 @@ travel-journal/
 
 ### 4.2 城市停靠点
 
-每个停靠点包含城市、地区、国家、经纬度、到达日期、离开日期、排序和备注。
+每个停靠点包含城市、地区、国家、经纬度、地点 ID、格式化地址、行政区代码、坐标系、数据来源、到达日期、离开日期、排序和备注。
 
-- 地图只展示城市级 Marker，不保存详细路线。
-- 经纬度由管理员手工录入或点击地图选点。
+- 后台优先通过地点/POI 搜索选取位置，也支持地图点击、拖动 Marker、逆地理编码和高级坐标编辑。
+- 国内地点统一标记 GCJ-02，其他来源可标记 WGS84；后端拒绝非法坐标和未确认的 `(0,0)`。
+- 单次旅行地图按停靠顺序展示编号 Marker 和路线连线；足迹地图支持国家、年份、旅行和“仅有日记”筛选。
+- 地图瓦片具有高德与 OpenStreetMap 回退图层；缩放需按住 Ctrl 再滚动，避免移动页面时误缩放。
 - 同一旅行允许多次访问同一城市。
 
 ### 4.3 行程
@@ -263,10 +265,13 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 采用以下方式：
 
 1. 新日记先保存为草稿，取得日记 ID 后才能上传图片。
-2. 编辑器支持选择、拖拽或粘贴图片；前端上传成功后，在光标位置自动插入 Markdown：
+2. 编辑器支持选择、拖拽或粘贴图片；插入时选择小、中、大、通栏和左、中、右对齐，并可填写图注。正文写入固定 class 的受控 HTML：
 
    ~~~markdown
-   ![图片说明](/api/media/123/display)
+   <figure class="journal-figure journal-figure--medium journal-figure--center">
+     <img src="/api/media/123/display" alt="图片说明" loading="lazy">
+     <figcaption>图片说明</figcaption>
+   </figure>
    ~~~
 
 3. 正文只保存上述稳定的应用内媒体地址，不保存 MinIO 地址、对象键或预签名 URL。
@@ -274,7 +279,8 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 5. 媒体关联已发布日记时允许访客访问 display 和 thumbnail；草稿媒体仅管理员可访问；original 默认仅管理员下载。
 6. 上传接口同时建立 journal_media 关联，因此同一张图片既可插入正文，也可出现在日记图片库中。
 7. 删除媒体前检查正文是否仍引用该媒体；仍被引用时拒绝删除并提示先移除正文中的图片。
-8. 图片说明写入 Markdown 的 alt 文本；图片库中的 caption 继续单独保存，可由编辑器同步填写。
+8. 后端只允许站内媒体地址、figure/img/figcaption 和固定布局 class，拒绝外部图片、事件属性、脚本和任意内联样式。
+9. 公开端限制竖图最大高度，手机端统一使用可读宽度；点击正文图片进入灯箱查看大图。
 
 这样可以保留 Markdown 的简洁性，同时让图片上传、预览、发布和 MinIO 私有访问保持稳定。MVP 不允许用户手工填写任意外部图片地址，避免外链失效和隐私跟踪。
 
@@ -289,6 +295,15 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 - 图片列表接口返回稳定媒体地址；后端媒体读取接口校验权限后跳转到短期预签名 URL。
 
 本项目直接实现轻量的 MediaStorageService 和 MinioMediaStorageService，不使用 CMS 的文件应用、文件策略、命名空间或相关数据库表。
+
+### 4.7 日记模板与主题
+
+- 日记模板由固定白名单区块组成，支持个人模板的新增、复制、排序和删除，不允许 JavaScript、任意 Vue 模板或不受控 HTML。
+- 模板可自动读取旅行信息、城市路线、当天行程、支出和图片，生成后仍保存为 Markdown/受控 HTML。
+- 日记保存模板 ID、版本、填写数据、模板快照和自由编辑状态，模板后续修改不影响历史日记。
+- 主题只保存语义化 Token：色彩、字体、字号、行高、圆角、内容宽度、密度、图片风格和动效。
+- 主题继承顺序为“单篇日记 > 所属旅行 > 全站 > 系统默认”。
+- 个人主题支持真实网站实时预览、桌面/手机切换、撤销/重做、对比度提醒和 JSON 导入导出。
 
 ---
 
@@ -307,17 +322,17 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
 
 admin_user：
 
-- id、username、password_hash、display_name、enabled、last_login_at、created_at、updated_at。
+- id、username、password_hash、display_name、avatar_object_key、theme_key、enabled、last_login_at、created_at、updated_at。
 - 用户名唯一，不提供注册接口。
 - 当表为空且配置了初始账号环境变量时创建管理员；已有管理员时忽略初始账号配置。
 
 trip：
 
-- id、title、slug、summary、status、start_date、end_date、default_currency、cover_media_id、internal_note、created_at、updated_at。
+- id、title、slug、summary、status、start_date、end_date、default_currency、cover_media_id、internal_note、theme_key、created_at、updated_at。
 
 trip_stop：
 
-- id、trip_id、city_name、region_name、country_name、country_code、latitude、longitude、arrival_date、departure_date、sort_order、note、created_at、updated_at。
+- id、trip_id、city_name、region_name、country_name、country_code、latitude、longitude、place_id、formatted_address、adcode、coordinate_system、location_source、arrival_date、departure_date、sort_order、note、created_at、updated_at。
 
 itinerary_item：
 
@@ -335,7 +350,15 @@ expense：
 
 journal_entry：
 
-- id、trip_id、trip_stop_id、title、slug、excerpt、content_markdown、status、occurred_on、cover_media_id、published_at、created_at、updated_at。
+- id、trip_id、trip_stop_id、title、slug、excerpt、content_markdown、status、occurred_on、cover_media_id、published_at、theme_key、template_id、template_version、template_data、template_snapshot、template_detached、created_at、updated_at。
+
+journal_template：
+
+- id、name、description、category、definition_json、builtin、enabled、version、created_at、updated_at。
+
+theme_preset：
+
+- id、theme_key、name、description、base_theme_key、preview_image_url、definition_json、builtin、enabled、version、created_at、updated_at。
 
 media_asset：
 
@@ -441,7 +464,22 @@ journal_media：
 | GET | /api/media/{mediaId}/display | 获取正文展示图，按日记状态鉴权后跳转 |
 | GET | /api/media/{mediaId}/original | 下载原图，仅管理员 |
 
-### 7.5 公开接口
+### 7.5 日记模板、主题和地图录入
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET、POST | /api/admin/journal-templates | 查询或新建日记模板 |
+| GET、PUT、DELETE | /api/admin/journal-templates/{id} | 查询、更新或删除个人模板 |
+| POST | /api/admin/journal-templates/{id}/duplicate | 复制模板 |
+| POST | /api/admin/journal-templates/{id}/generate | 从旅行数据生成日记正文 |
+| GET、POST | /api/admin/themes | 查询或新建主题 |
+| PUT、DELETE | /api/admin/themes/{id} | 更新或删除个人主题 |
+| POST | /api/admin/themes/{id}/duplicate | 复制主题 |
+| GET | /api/admin/map/status | 查询地点搜索配置状态 |
+| GET | /api/admin/map/search | 服务端地点/POI 搜索 |
+| GET | /api/admin/map/reverse | 服务端逆地理编码 |
+
+### 7.6 公开接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -472,12 +510,16 @@ journal_media：
 - /admin/#/：简单统计和最近编辑内容。
 - /admin/#/trips：旅行列表、新建和编辑。
 - /admin/#/trips/:id：城市、行程、预算、支出、日记和设置。
-- /admin/#/journals/:id/edit：Markdown 编辑、预览、图片、封面、保存和发布。
+- /admin/#/journals/:id：模板填写、Markdown 编辑、预览、图片布局、封面、主题、保存和发布。
+- /admin/#/templates：模板列表和白名单区块编辑器。
+- /admin/#/themes：主题预设、个人主题和实时主题设计器。
+- /admin/#/profile：头像上传和密码修改。
 
 ### 8.3 响应式
 
 - 小于 768px 时，后台菜单改为抽屉，列表在必要时改为卡片。
-- 日记编辑在手机端使用上下布局。
+- 日记编辑在手机端使用“写作、预览、图片”分段切换，模板填写和图片布局弹窗使用全屏布局。
+- 旅行工作台菜单支持点击、横向滚动和左右滑动切换。
 - 地图全宽，主要按钮点击区域不小于 44px。
 - 图片上传支持手机相册。
 
@@ -526,15 +568,14 @@ journal_media：
 - Markdown 编辑页在桌面端采用编辑、预览和图片管理组合布局，移动端改为 Tab 或上下布局。
 - Element Plus 通过 CSS 变量覆盖为统一主题，不保留默认蓝色作为主色。
 
-### 8.5 主题功能占位
+### 8.5 主题系统
 
-MVP 为未来换肤预留结构，但首版只启用 travel-classic：
-
-- 主题颜色、字体、圆角、阴影和间距放在 static/css/themes/travel-classic.css 中。
-- 页面根节点设置 data-theme="travel-classic"，组件样式只引用语义化 CSS 变量。
-- 后台“系统设置”中显示“主题外观”入口；占位页展示当前主题缩略图、名称和“更多主题后续开放”，不提供可操作的切换按钮。
-- MVP 不新增主题数据库表、主题管理接口、上传主题包或在线编辑 CSS。
-- 后续真正实现主题切换时，再新增主题清单和持久化配置，不能修改业务数据结构。
+- 内置 `travel-classic`（远行手记）和 `sanya-breeze`（三亚海风），基础主题 CSS 负责封面图和兼容回退。
+- `theme_preset.definition_json` 保存经过后端白名单归一化的语义 Token；浏览器只把这些 Token 映射为固定 CSS 变量和枚举化 `data-*` 状态。
+- 系统预设不可直接修改或删除，需复制为个人主题后再设计；正在被全站、旅行或日记引用的个人主题不能删除。
+- 实时预览使用同源 iframe 加载真实公开网站，通过受控 `postMessage` 应用未保存 Token，避免 Element Plus 样式污染预览。
+- 移动端设计器先展示手机预览，再展示设置表单；触控滚动保留但隐藏最外层滚动条。
+- 主题导入仅接收 JSON 数据，经后端白名单校验后保存；不接受 CSS 文件、远程脚本或事件。
 
 ---
 
@@ -757,11 +798,13 @@ docker build -t travel-journal:latest .
 - [ ] 单管理员且无注册入口。
 - [ ] 旅行、城市、行程、预算和支出可管理。
 - [ ] 日记支持 Markdown、草稿、发布和撤回。
-- [ ] 图片支持上传、排序、说明、封面和删除。
+- [ ] 图片支持上传、排序、说明、封面、正文布局和灯箱。
 - [ ] 首页、旅行、日记和城市地图可公开浏览。
 - [ ] 手机端和桌面端可用。
 - [ ] 首版页面与已确认视觉参考保持一致。
-- [ ] 主题 CSS 变量和只读占位入口已预留。
+- [ ] 地点搜索、地图选点/逆地理编码、路线和足迹筛选可用。
+- [ ] 日记模板、自动旅行数据填充和移动端结构化写作可用。
+- [ ] 主题预设、个人 DIY、实时预览和三级覆盖可用。
 
 ### 数据与安全
 
@@ -782,10 +825,10 @@ docker build -t travel-journal:latest .
 
 ---
 
-## 16. 文档确认后给 Codex 的首次实现指令
+## 16. 持续实现约束
 
 ~~~text
-请完整阅读 travel-journal-development-spec.md，只实现“阶段 1：单体脚手架”。
+请完整阅读 travel-journal-development-spec.md，并在现有单体工程上增量实现。
 
 必须遵守：
 1. 单 Maven 工程，前后端代码放在一起。
@@ -794,14 +837,14 @@ docker build -t travel-journal:latest .
 4. PostgreSQL 和 MinIO 只提供连接配置，不在项目中部署服务。
 5. Dockerfile 参考 CMS 的多阶段构建方式，但使用 Java 21。
 6. 不复制 CMS 的文件系统模块或其他业务代码。
-7. 不提前实现后续阶段。
-8. 完成后运行 Maven 测试、Maven 打包和 Docker 构建，修复失败后再汇报。
+7. 已执行的 Flyway 迁移不可修改，只能新增版本。
+8. 完成后运行 JavaScript 语法检查、Maven 测试和 Maven 打包，修复失败后再汇报。
 ~~~
 
 ---
 
 ## 17. 后续可选增强
 
-MVP 稳定后再考虑：完整主题切换和自定义主题、城市搜索与地理编码、路线连线、标签、全文搜索、年度总结、照片墙、RSS、多币种手工汇率、HEIC 转换、PWA 和分享海报。
+稳定后再考虑：标签、全文搜索、年度总结、照片墙、RSS、多币种手工汇率、HEIC 转换、PWA、分享海报，以及从旅行照片辅助提取主题色。
 
-这些增强项不得进入当前 MVP，也不得阻塞首个可用版本。
+这些增强项不阻塞当前个人可用版本。

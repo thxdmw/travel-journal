@@ -83,6 +83,7 @@ public class TripService {
         trip.setDefaultCurrency(input.getDefaultCurrency());
         trip.setCoverMediaId(input.getCoverMediaId());
         trip.setInternalNote(input.getInternalNote());
+        trip.setThemeKey(input.getThemeKey());
         prepare(trip);
         tripMapper.updateById(trip);
         return trip;
@@ -148,6 +149,11 @@ public class TripService {
         stop.setCountryCode(input.getCountryCode());
         stop.setLatitude(input.getLatitude());
         stop.setLongitude(input.getLongitude());
+        stop.setPlaceId(input.getPlaceId());
+        stop.setFormattedAddress(input.getFormattedAddress());
+        stop.setAdcode(input.getAdcode());
+        stop.setCoordinateSystem(input.getCoordinateSystem());
+        stop.setLocationSource(input.getLocationSource());
         stop.setArrivalDate(input.getArrivalDate());
         stop.setDepartureDate(input.getDepartureDate());
         stop.setSortOrder(input.getSortOrder());
@@ -187,11 +193,26 @@ public class TripService {
     }
 
     private void validateStop(TripStop stop) {
+        if (stop.getLatitude() == null || stop.getLongitude() == null)
+            throw BusinessException.badRequest("请选择地点坐标");
         if (stop.getLatitude().compareTo(BigDecimal.valueOf(-90)) < 0 || stop.getLatitude().compareTo(BigDecimal.valueOf(90)) > 0)
             throw BusinessException.badRequest("纬度必须在 -90 到 90 之间");
         if (stop.getLongitude().compareTo(BigDecimal.valueOf(-180)) < 0 || stop.getLongitude().compareTo(BigDecimal.valueOf(180)) > 0)
             throw BusinessException.badRequest("经度必须在 -180 到 180 之间");
+        if (stop.getLatitude().compareTo(BigDecimal.ZERO) == 0 && stop.getLongitude().compareTo(BigDecimal.ZERO) == 0)
+            throw BusinessException.badRequest("地点坐标不能同时为 0，请在地图上选择真实位置");
         if (stop.getArrivalDate() != null && stop.getDepartureDate() != null && stop.getDepartureDate().isBefore(stop.getArrivalDate()))
             throw BusinessException.badRequest("离开日期不能早于到达日期");
+        if (StringUtils.hasText(stop.getCountryCode())) stop.setCountryCode(stop.getCountryCode().trim().toUpperCase());
+        String coordinateSystem = StringUtils.hasText(stop.getCoordinateSystem())
+                ? stop.getCoordinateSystem().trim().toUpperCase() : "GCJ02";
+        if (!Set.of("GCJ02", "WGS84").contains(coordinateSystem))
+            throw BusinessException.badRequest("坐标系仅支持 GCJ02 或 WGS84");
+        stop.setCoordinateSystem(coordinateSystem);
+        String source = StringUtils.hasText(stop.getLocationSource())
+                ? stop.getLocationSource().trim().toUpperCase() : "MANUAL";
+        if (!Set.of("AMAP_SEARCH", "AMAP_REVERSE", "MAP_PICK", "MANUAL").contains(source))
+            throw BusinessException.badRequest("无效的地点来源");
+        stop.setLocationSource(source);
     }
 }
