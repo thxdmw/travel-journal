@@ -730,6 +730,39 @@
       const themes=ref([]),changing=ref(''),saving=ref(false),editor=ref(false),editing=ref(null),previewFrame=ref(null),previewMode=ref('desktop'),importInput=ref(null);
       const history=ref([]),historyIndex=ref(-1);
       let historyTimer=null,restoring=false,originalSnapshot='';
+      // 预览 iframe 的模拟视口宽度。前台 public.css 的断点是按视口宽度判断的，
+      // 而 iframe 内部的视口就是它自身宽度——面板只有 800 出头，会直接落进
+      // max-width:900px 的移动端断点，于是「桌面」预览显示的其实是手机布局。
+      // 解决办法：iframe 按真实桌面宽度渲染，再用 transform 缩放塞进面板。
+      // 桌面不给高度：浏览器窗口高度本来就不固定，让它填满面板能多看到些内容。
+      // 手机必须给高度：机身比例是固定的，只按宽度缩放会把 390×844 压成 390×610。
+      const PREVIEW_VIEWPORTS={desktop:{width:1280,height:null},mobile:{width:390,height:844}};
+      const previewWrap=ref(null);
+      const previewBox=reactive({scale:1,frameWidth:PREVIEW_VIEWPORTS.desktop.width,frameHeight:800,stageWidth:PREVIEW_VIEWPORTS.desktop.width,stageHeight:800});
+      const stageStyle=computed(()=>({width:previewBox.stageWidth+'px',height:previewBox.stageHeight+'px'}));
+      const frameStyle=computed(()=>({width:previewBox.frameWidth+'px',height:previewBox.frameHeight+'px',transform:'scale('+previewBox.scale+')'}));
+      let previewObserver=null;
+      function measurePreview(){
+        const wrap=previewWrap.value;
+        if(!wrap)return;
+        const styles=getComputedStyle(wrap);
+        const available=wrap.clientWidth-parseFloat(styles.paddingLeft||0)-parseFloat(styles.paddingRight||0);
+        const height=wrap.clientHeight-parseFloat(styles.paddingTop||0)-parseFloat(styles.paddingBottom||0);
+        if(available<=0||height<=0)return;
+        const viewport=PREVIEW_VIEWPORTS[previewMode.value]||PREVIEW_VIEWPORTS.desktop;
+        // 只缩不放。定高的（手机）要同时受宽高约束，机身比例才不会变形；
+        // 不定高的（桌面）只按宽度缩，高度反过来由面板高度推算。
+        const scale=viewport.height
+          ? Math.min(1,available/viewport.width,height/viewport.height)
+          : Math.min(1,available/viewport.width);
+        const frameHeight=viewport.height||height/scale;
+        previewBox.scale=scale;
+        previewBox.frameWidth=viewport.width;
+        previewBox.frameHeight=frameHeight;
+        // 外层占位用缩放后的尺寸，避免未缩放的宽度把面板撑出滚动条
+        previewBox.stageWidth=viewport.width*scale;
+        previewBox.stageHeight=frameHeight*scale;
+      }
       const colorFields=[['background','页面背景'],['surface','内容背景'],['surfaceSoft','柔和背景'],['primary','主要文字'],['primarySoft','次级主色'],['accent','强调操作'],['accentHover','强调悬停'],['sand','装饰沙色'],['text','正文颜色'],['muted','弱化文字'],['border','边框颜色'],['danger','危险提示']];
       const defaultDefinition={colors:{background:'#F7F2E8',surface:'#FFFCF6',surfaceSoft:'#F1E7D7',primary:'#264A3D',primarySoft:'#42685A',accent:'#C76D4B',accentHover:'#B65B3B',sand:'#DFC9A8',text:'#2A2D2B',muted:'#77736B',border:'#E6DAC8',danger:'#B7483E'},typography:{headingFamily:'serif',bodyFamily:'sans',bodySize:16,lineHeight:1.8},shape:{cardRadius:12,imageRadius:8,buttonRadius:8},layout:{contentWidth:1200,articleWidth:760,density:'comfortable',homeLayout:'editorial'},image:{style:'natural',shadow:'soft',defaultRatio:'16:9'},motion:{level:'subtle'}};
       const form=reactive({name:'',description:'',baseThemeKey:'travel-classic',previewImageUrl:'',enabled:true,definitionJson:JSON.parse(JSON.stringify(defaultDefinition))});
@@ -760,16 +793,33 @@
       async function duplicateTheme(item){try{const created=await A.duplicateTheme(item.id);await load();openEditor(created,false);message('已复制主题，可以开始设计');}catch(e){fail(e);}}
       async function saveTheme(){saving.value=true;try{const body={name:form.name,description:form.description,baseThemeKey:form.baseThemeKey,previewImageUrl:form.previewImageUrl||null,enabled:form.enabled,definitionJson:form.definitionJson};const saved=editing.value?await A.updateTheme(editing.value,body):await A.createTheme(body);if(session.user?.themeKey===saved.themeKey)applyTheme(saved);editor.value=false;await load();message('主题已保存');}catch(e){fail(e);}finally{saving.value=false;}}
       async function removeTheme(item){try{await confirm('确定删除主题“'+item.name+'”吗？');await A.deleteTheme(item.id);await load();message('主题已删除');}catch(e){if(e!=='cancel'&&e!=='close')fail(e);}}
-      function postPreview(){nextTick(()=>previewFrame.value?.contentWindow?.postMessage({type:'travel-theme-preview',theme:{themeKey:'preview',baseThemeKey:form.baseThemeKey,definitionJson:deep(form.definitionJson)}},location.origin));}
+      // 把当前设计推给预览 iframe。改一个颜色就会触发一次，所以预览页没能正常加载时
+      // （contentWindow 的 origin 变成 null，postMessage 直接抛错）要吞掉异常，
+      // 否则控制台会被同一条报错刷屏——真正的原因浏览器自己已经报出来了。
+      function postPreview(){nextTick(()=>{
+        const frame=previewFrame.value?.contentWindow;
+        if(!frame)return;
+        try{frame.postMessage({type:'travel-theme-preview',theme:{themeKey:'preview',baseThemeKey:form.baseThemeKey,definitionJson:deep(form.definitionJson)}},location.origin);}
+        catch(_){}
+      });}
       function exportTheme(item){const payload={schemaVersion:1,name:item.name,description:item.description,baseThemeKey:item.baseThemeKey,previewImageUrl:item.previewImageUrl,definitionJson:item.definitionJson};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=item.themeKey+'.json';link.click();URL.revokeObjectURL(link.href);}
       function chooseImport(){importInput.value.click();}
       async function imported(event){const file=event.target.files[0];event.target.value='';if(!file)return;try{const data=JSON.parse(await file.text());if(!data.definitionJson)throw new Error('文件中缺少 definitionJson');assignSnapshot({name:(data.name||'导入的主题')+' · 导入',description:data.description||'',baseThemeKey:data.baseThemeKey||'travel-classic',previewImageUrl:data.previewImageUrl||'',enabled:true,definitionJson:data.definitionJson});editing.value=null;editor.value=true;nextTick(()=>{seedHistory();postPreview();});}catch(e){fail(new Error('导入失败：'+e.message));}}
       function luminance(hex){const values=String(hex).replace('#','').match(/.{2}/g)?.map(x=>parseInt(x,16)/255)||[0,0,0];return values.map(x=>x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4)).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);}
       function contrastRatio(a,b){const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
       watch(form,()=>{postPreview();if(restoring||!editor.value)return;clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,280);},{deep:true});
+      // 弹窗是 destroy-on-close，每次打开都是新元素，所以监听 ref 本身而不是只在挂载时接一次
+      watch(previewWrap,element=>{
+        previewObserver?.disconnect();
+        previewObserver=null;
+        if(!element)return;
+        previewObserver=new ResizeObserver(measurePreview);
+        previewObserver.observe(element);
+      });
+      watch(previewMode,()=>nextTick(measurePreview));
       onMounted(load);
-      onBeforeUnmount(()=>clearTimeout(historyTimer));
-      return {session,themes,changing,editor,editing,previewFrame,previewMode,importInput,form,colorFields,contrast,canUndo,canRedo,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor};
+      onBeforeUnmount(()=>{clearTimeout(historyTimer);previewObserver?.disconnect();});
+      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,contrast,canUndo,canRedo,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor};
     },
     template: `<div><div class="page-head"><div><h2>主题外观</h2><p>选择预设，或设计自己的色彩、字体、布局与图片风格；公开网站会同步更新。</p></div><div class="theme-page-actions"><input ref="importInput" type="file" accept="application/json" hidden @change="imported"><el-button @click="chooseImport">导入 JSON</el-button><el-button type="primary" @click="openEditor(null,true)">新建设计</el-button></div></div>
       <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey" class="panel theme-preview" :class="{selected:session.user?.themeKey===item.themeKey}">
@@ -783,7 +833,7 @@
           <details><summary>字体与阅读</summary><div class="theme-setting-grid"><label>标题字体<el-select v-model="form.definitionJson.typography.headingFamily"><el-option label="旅行杂志衬线" value="serif"/><el-option label="现代无衬线" value="sans"/></el-select></label><label>正文字体<el-select v-model="form.definitionJson.typography.bodyFamily"><el-option label="清晰无衬线" value="sans"/><el-option label="沉浸衬线" value="serif"/></el-select></label><label>正文字号<el-input-number v-model="form.definitionJson.typography.bodySize" :min="14" :max="22"/></label><label>正文行高<el-input-number v-model="form.definitionJson.typography.lineHeight" :min="1.4" :max="2.2" :step="0.1"/></label></div></details>
           <details><summary>形状与布局</summary><div class="theme-setting-grid"><label>卡片圆角<el-input-number v-model="form.definitionJson.shape.cardRadius" :min="0" :max="32"/></label><label>图片圆角<el-input-number v-model="form.definitionJson.shape.imageRadius" :min="0" :max="32"/></label><label>按钮圆角<el-input-number v-model="form.definitionJson.shape.buttonRadius" :min="0" :max="32"/></label><label>内容宽度<el-input-number v-model="form.definitionJson.layout.contentWidth" :min="960" :max="1600" :step="20"/></label><label>文章宽度<el-input-number v-model="form.definitionJson.layout.articleWidth" :min="600" :max="1000" :step="20"/></label><label>内容密度<el-select v-model="form.definitionJson.layout.density"><el-option label="紧凑" value="compact"/><el-option label="舒适" value="comfortable"/><el-option label="宽松" value="relaxed"/></el-select></label><label>首页布局<el-select v-model="form.definitionJson.layout.homeLayout"><el-option label="旅行杂志" value="editorial"/><el-option label="整齐卡片" value="classic"/></el-select></label></div></details>
           <details><summary>图片与动效</summary><div class="theme-setting-grid"><label>图片风格<el-select v-model="form.definitionJson.image.style"><el-option label="自然" value="natural"/><el-option label="柔和圆角" value="rounded"/><el-option label="相纸" value="paper"/></el-select></label><label>图片阴影<el-select v-model="form.definitionJson.image.shadow"><el-option label="无" value="none"/><el-option label="轻柔" value="soft"/><el-option label="悬浮" value="floating"/></el-select></label><label>卡片图片比例<el-select v-model="form.definitionJson.image.defaultRatio"><el-option label="原始比例" value="natural"/><el-option label="16:9" value="16:9"/><el-option label="4:3" value="4:3"/><el-option label="1:1" value="1:1"/></el-select></label><label>页面动效<el-select v-model="form.definitionJson.motion.level"><el-option label="细微" value="subtle"/><el-option label="关闭" value="none"/></el-select></label></div></details>
-        </section><section class="theme-live"><header><strong>网站实时预览</strong><div><button type="button" :class="{active:previewMode==='desktop'}" @click="previewMode='desktop'">桌面</button><button type="button" :class="{active:previewMode==='mobile'}" @click="previewMode='mobile'">手机</button></div></header><div class="theme-frame-wrap" :class="previewMode"><iframe ref="previewFrame" src="/?theme-preview=1" title="主题实时预览" @load="postPreview"></iframe></div></section></div>
+        </section><section class="theme-live"><header><strong>网站实时预览</strong><div><button type="button" :class="{active:previewMode==='desktop'}" @click="previewMode='desktop'">桌面</button><button type="button" :class="{active:previewMode==='mobile'}" @click="previewMode='mobile'">手机</button></div></header><div ref="previewWrap" class="theme-frame-wrap" :class="previewMode"><div class="preview-stage" :style="stageStyle"><iframe ref="previewFrame" :style="frameStyle" src="/?theme-preview=1" title="主题实时预览" @load="postPreview"></iframe></div></div></section></div>
         <template #footer><el-button @click="editor=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveTheme">保存主题</el-button></template>
       </el-dialog>
     </div>`

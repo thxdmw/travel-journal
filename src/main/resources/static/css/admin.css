@@ -230,9 +230,11 @@ body { margin:0; color:var(--tj-text); background:var(--tj-bg); font:var(--tj-bo
 .theme-live > header { flex:0 0 48px; display:flex; align-items:center; justify-content:space-between; padding:0 14px; color:var(--tj-primary); background:var(--tj-surface); border-bottom:1px solid var(--tj-border); }
 .theme-live header button { padding:5px 10px; border:0; border-radius:6px; color:var(--tj-muted); background:transparent; }
 .theme-live header button.active { color:white; background:var(--tj-primary); }
-.theme-frame-wrap { flex:1; min-height:0; display:flex; justify-content:center; overflow:auto; padding:12px; }
-.theme-frame-wrap iframe { width:100%; height:100%; border:0; border-radius:8px; background:white; box-shadow:0 8px 30px rgba(0,0,0,.14); }
-.theme-frame-wrap.mobile iframe { width:390px; max-width:100%; flex:0 0 390px; }
+.theme-frame-wrap { flex:1; min-height:0; display:flex; justify-content:center; overflow:hidden; padding:12px; }
+/* 舞台占位用的是缩放后的尺寸，iframe 本身按模拟视口宽度渲染再 scale 进来，
+   所以外层不会被未缩放的宽度撑出滚动条。具体尺寸由 measurePreview 内联下发。 */
+.preview-stage { position:relative; flex:0 0 auto; overflow:hidden; border-radius:8px; background:white; box-shadow:0 8px 30px rgba(0,0,0,.14); }
+.preview-stage iframe { position:absolute; top:0; left:0; border:0; transform-origin:top left; background:white; }
 [data-density="compact"] .admin-content { padding-top:20px; }
 [data-density="compact"] .panel-pad { padding:17px; }
 [data-density="relaxed"] .admin-content { padding-top:34px; }

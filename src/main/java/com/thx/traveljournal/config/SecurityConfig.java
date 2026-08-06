@@ -62,6 +62,14 @@ public class SecurityConfig {
                     .csrfTokenRepository(csrf)
                     .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
                     .ignoringRequestMatchers("/api/admin/auth/login"))
+            .headers(headers -> headers
+                    // 主题设计器要用 iframe 内嵌自己的前台页面做实时预览，而 Spring Security
+                    // 默认下发 X-Frame-Options: DENY，会把同源嵌套一起拒掉。放开到同源即可，
+                    // 跨站点击劫持仍然被挡住。
+                    .frameOptions(frame -> frame.sameOrigin())
+                    // 现代浏览器优先看 CSP 的 frame-ancestors。这里只声明这一条指令，
+                    // 不会影响脚本、样式等其它资源的加载策略。
+                    .contentSecurityPolicy(csp -> csp.policyDirectives("frame-ancestors 'self'")))
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/", "/index.html", "/admin", "/admin/", "/admin/index.html",
                             "/css/**", "/js/**", "/favicon.ico", "/api/public/**", "/api/media/**",
