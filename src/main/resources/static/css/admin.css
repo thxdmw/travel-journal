@@ -353,8 +353,14 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
   .theme-live { order:1; flex:0 0 330px; min-height:330px; }
   .theme-setting-grid,.theme-color-grid { grid-template-columns:1fr; }
   .theme-designer-dialog .el-dialog__footer { padding:10px 12px; }
-  /* 手机端是抽屉，折叠没有意义：强制回到完整宽度并藏掉折叠按钮 */
-  .admin-shell,body.sidebar-collapsed .admin-shell { grid-template-columns:220px 1fr; }
+  /*
+   * 手机端侧边栏是 position:fixed 的抽屉，不占 grid 列，所以外壳必须保持单列
+   * （上面第一条 .admin-shell 已经设了 1fr）；折叠态也一样，不能在这里写成
+   * 两列去「抵消」桌面端的 64px——那会把 .admin-main（grid-column:1）
+   * 塞进 220px 宽的第一列，整个后台只剩屏幕左边一条。
+   * 抽屉自身固定 220px 宽，与折叠无关。
+   */
+  body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
   .admin-sidebar,body.sidebar-collapsed .admin-sidebar { width:220px; transform:translateX(-100%); transition:transform .25s; }
   .admin-sidebar.open { transform:none; box-shadow:var(--tj-shadow); }
   .sidebar-collapse { display:none; }
