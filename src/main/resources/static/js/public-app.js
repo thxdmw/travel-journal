@@ -291,12 +291,95 @@
   const Journals = {
     components: { JournalCard },
     setup() {
-      const data = ref(null);
-      onMounted(async () => data.value = await api.journals());
-      return { data };
+      const route = VueRouter.useRoute(), router = VueRouter.useRouter();
+      const data = ref(null), tags = ref([]), loading = ref(false);
+      // 关键词和标签都放在 URL 里，这样搜索结果可以直接分享，前进后退也符合预期
+      const keyword = ref(route.query.q || '');
+      const activeTag = computed(() => route.query.tag || '');
+
+      async function load() {
+        loading.value = true;
+        try { data.value = await api.journals(1, 12, route.query.q || undefined, route.query.tag || undefined); }
+        catch (_) { data.value = { items: [] }; }
+        finally { loading.value = false; }
+      }
+      function search() {
+        const query = {};
+        if (keyword.value.trim()) query.q = keyword.value.trim();
+        if (activeTag.value) query.tag = activeTag.value;
+        router.push({ path: '/journals', query });
+      }
+      function pickTag(slug) {
+        const query = {};
+        if (keyword.value.trim()) query.q = keyword.value.trim();
+        if (slug !== activeTag.value) query.tag = slug;   // 再点一次同一个标签就是取消
+        router.push({ path: '/journals', query });
+      }
+      function reset() { keyword.value = ''; router.push({ path: '/journals' }); }
+
+      watch(() => route.query, load);
+      onMounted(async () => {
+        await load();
+        try { tags.value = await api.tags(); } catch (_) { tags.value = []; }
+      });
+      return { data, tags, loading, keyword, activeTag, search, pickTag, reset };
     },
     template: `<main class="page"><div class="page-title"><span class="eyebrow">STORIES ON THE ROAD</span><h1>旅行日记</h1><p>风景会远去，文字让当时的心情重新回来。</p></div>
-      <div v-if="data?.items?.length" class="card-grid"><journal-card v-for="item in data.items" :key="item.id" :item="item"/></div><div v-else class="empty">还没有公开日记。</div></main>`
+      <div class="journal-filters">
+        <div class="search-box"><input v-model="keyword" type="search" placeholder="搜索标题、摘要或正文…" @keyup.enter="search"><button type="button" @click="search">搜索</button></div>
+        <div v-if="tags.length" class="tag-cloud"><button v-for="t in tags" :key="t.slug" type="button" class="tag-chip" :class="{active:activeTag===t.slug}" @click="pickTag(t.slug)">{{t.name}}<i>{{t.journalCount}}</i></button></div>
+      </div>
+      <div v-if="loading" class="empty">正在查找…</div>
+      <div v-else-if="data?.items?.length" class="card-grid"><journal-card v-for="item in data.items" :key="item.id" :item="item"/></div>
+      <div v-else class="empty">没有找到匹配的日记。<button type="button" class="text-link-btn" @click="reset">清空筛选</button></div></main>`
+  };
+
+  /** 年度回顾：把一年的旅行聚合成几个数字，配一份城市清单。 */
+  const YearReview = {
+    setup() {
+      const route = VueRouter.useRoute(), router = VueRouter.useRouter();
+      const years = ref([]), data = ref(null), loading = ref(true);
+      const current = computed(() => Number(route.params.year) || years.value[0]);
+      async function load() {
+        if (!current.value) { loading.value = false; return; }
+        loading.value = true;
+        try { data.value = await api.yearReview(current.value); }
+        catch (_) { data.value = null; }
+        finally { loading.value = false; }
+      }
+      watch(() => route.params.year, load);
+      onMounted(async () => {
+        try { years.value = await api.years(); } catch (_) { years.value = []; }
+        // 没带年份时跳到最近有内容的一年
+        if (!route.params.year && years.value.length) {
+          router.replace('/years/' + years.value[0]);
+          return;
+        }
+        await load();
+      });
+      return { years, data, loading, current,
+        go: year => router.push('/years/' + year) };
+    },
+    template: `<main class="page year-review">
+      <div class="page-title"><span class="eyebrow">YEAR IN REVIEW</span><h1>{{current||''}} 年回顾</h1><p>这一年走过的路，和留下的文字。</p></div>
+      <div v-if="years.length>1" class="year-switch"><button v-for="y in years" :key="y" type="button" :class="{active:y===current}" @click="go(y)">{{y}}</button></div>
+      <div v-if="loading" class="empty">正在统计…</div>
+      <template v-else-if="data && data.journalCount">
+        <div class="review-grid">
+          <div class="review-stat"><strong>{{data.tripCount}}</strong><span>次旅行</span></div>
+          <div class="review-stat"><strong>{{data.cityCount}}</strong><span>座城市</span></div>
+          <div class="review-stat"><strong>{{data.countryCount}}</strong><span>个国家</span></div>
+          <div class="review-stat"><strong>{{data.distanceKm.toLocaleString()}}</strong><span>公里</span></div>
+          <div class="review-stat"><strong>{{data.journalCount}}</strong><span>篇日记</span></div>
+          <div class="review-stat"><strong>{{data.photoCount}}</strong><span>张照片</span></div>
+        </div>
+        <p v-if="data.farthestCity" class="review-note">今年走得最远的地方是 <strong>{{data.farthestCity}}</strong>，最长的一次旅行持续了 {{data.longestTripDays}} 天。</p>
+        <div v-if="data.trips.length" class="section"><h2 class="section-title">这一年的旅行</h2>
+          <ul class="review-trips"><li v-for="t in data.trips" :key="t.slug"><router-link :to="'/trips/'+t.slug">{{t.title}}</router-link><span>{{t.startDate}} — {{t.endDate}} · {{t.cityCount}} 座城市 · {{t.journalCount}} 篇日记</span></li></ul>
+        </div>
+      </template>
+      <div v-else class="empty">{{current||'这'}} 年还没有公开的日记。</div>
+    </main>`
   };
 
   const JournalDetail = {
@@ -378,6 +461,8 @@
     { path: '/trips/:slug', component: TripDetail },
     { path: '/journals', component: Journals },
     { path: '/journals/:slug', component: JournalDetail },
+    { path: '/years', component: YearReview },
+    { path: '/years/:year', component: YearReview },
     { path: '/map', component: FootprintMap }
   ];
   const router = VueRouter.createRouter({
@@ -406,7 +491,7 @@
       <div class="public-shell">
         <header class="public-header"><div class="header-inner"><router-link class="brand" to="/">远行手记</router-link>
           <button class="mobile-menu" type="button" :aria-expanded="menu" aria-label="打开前台导航" @click="menu=!menu">☰</button>
-          <nav class="public-nav" :class="{open:menu}"><router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link></nav>
+          <nav class="public-nav" :class="{open:menu}"><router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link><router-link to="/years">年度回顾</router-link></nav>
           <a class="admin-link" href="/admin/" :title="profile.displayName + ' · 管理后台'" aria-label="进入管理后台"><img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="管理员头像"><span v-else>旅</span></a>
         </div></header>
         <router-view></router-view>

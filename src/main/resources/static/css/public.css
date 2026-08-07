@@ -90,6 +90,35 @@ button, input, textarea { font: inherit; }
 .page-title h1 { margin:10px 0; color:var(--tj-primary); font:700 42px/1.35 var(--tj-serif); }
 .page-title p { max-width:720px; color:var(--tj-muted); line-height:1.8; }
 .filter-row { display:flex; gap:10px; margin-bottom:24px; }
+/* ——— 日记搜索与标签筛选 ——— */
+.journal-filters { display:grid; gap:14px; margin-bottom:26px; }
+.search-box { display:flex; gap:8px; max-width:520px; }
+.search-box input { flex:1; min-width:0; height:42px; padding:0 14px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); color:var(--tj-text); background:var(--tj-surface); font-size:14px; }
+.search-box input:focus { outline:none; border-color:var(--tj-accent); }
+.search-box button { padding:0 20px; border:0; border-radius:var(--tj-button-radius,8px); color:#fff; background:var(--tj-accent); cursor:pointer; }
+.search-box button:hover { background:var(--tj-accent-hover); }
+.tag-cloud { display:flex; flex-wrap:wrap; gap:8px; }
+.tag-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 13px; border:1px solid var(--tj-border); border-radius:999px; color:var(--tj-muted); background:var(--tj-surface); font-size:13px; cursor:pointer; transition:.18s; }
+.tag-chip:hover { border-color:var(--tj-accent); color:var(--tj-accent); }
+.tag-chip.active { border-color:var(--tj-accent); color:#fff; background:var(--tj-accent); }
+.tag-chip i { font-style:normal; opacity:.65; font-size:11px; }
+.text-link-btn { margin-left:8px; border:0; background:none; color:var(--tj-accent); cursor:pointer; font-size:inherit; }
+
+/* ——— 年度回顾 ——— */
+.year-switch { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:26px; }
+.year-switch button { padding:7px 16px; border:1px solid var(--tj-border); border-radius:999px; color:var(--tj-muted); background:var(--tj-surface); cursor:pointer; }
+.year-switch button.active { border-color:var(--tj-primary); color:#fff; background:var(--tj-primary); }
+.review-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; }
+.review-stat { padding:26px 14px; text-align:center; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); }
+.review-stat strong { display:block; color:var(--tj-primary); font:700 34px var(--tj-serif); }
+.review-stat span { color:var(--tj-muted); font-size:13px; }
+.review-note { margin:26px 0 0; color:var(--tj-muted); font-size:15px; line-height:1.9; }
+.review-note strong { color:var(--tj-primary); }
+.review-trips { margin:0; padding:0; list-style:none; display:grid; gap:12px; }
+.review-trips li { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; padding:14px 18px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); background:var(--tj-surface); }
+.review-trips a { color:var(--tj-primary); font:700 17px var(--tj-serif); }
+.review-trips span { color:var(--tj-muted); font-size:13px; }
+
 .chip { padding:8px 16px; border:1px solid var(--tj-border); border-radius:999px; background:var(--tj-surface); cursor:pointer; }
 .chip.active { background:var(--tj-primary); color:white; border-color:var(--tj-primary); }
 

@@ -131,10 +131,14 @@
   const slugRule = { pattern:/^[a-z0-9]+(?:-[a-z0-9]+)*$/, message:'只能使用小写字母、数字和短横线', trigger:'blur' };
 
   // 提交前统一走一次表单校验，未通过时给一句总的提示，具体错误由各字段自己显示
-  async function validateForm(formRef) {
+  /** @param quiet 校验失败时不弹提示（自动保存用，静默跳过即可） */
+  async function validateForm(formRef, quiet = false) {
     if (!formRef.value) return true;
     try { await formRef.value.validate(); return true; }
-    catch (_) { ElementPlus.ElMessage.warning('请先补全标记为必填的内容'); return false; }
+    catch (_) {
+      if (!quiet) ElementPlus.ElMessage.warning('请先补全标记为必填的内容');
+      return false;
+    }
   }
 
   // 用空白模板重置表单，再按模板声明的字段回填。
@@ -665,7 +669,7 @@
       const imageForm=reactive({items:[],mode:'single',size:'medium',align:'center',wrap:false,
         ratio:'',focus:'',frame:'',radius:'',tone:'',effect:'',caption:'',captionPos:'',cols:3,editRange:null});
       const formRef=ref(null);
-      const form=reactive({tripId:route.query.tripId?Number(route.query.tripId):null,tripStopId:null,title:'',slug:'',excerpt:'',contentMarkdown:'',occurredOn:'',coverMediaId:null,status:'DRAFT',themeKey:null,templateId:null,templateVersion:null,templateData:null,templateSnapshot:null,templateDetached:false});
+      const form=reactive({tripId:route.query.tripId?Number(route.query.tripId):null,tripStopId:null,title:'',slug:'',excerpt:'',contentMarkdown:'',occurredOn:'',coverMediaId:null,status:'DRAFT',themeKey:null,templateId:null,templateVersion:null,templateData:null,templateSnapshot:null,templateDetached:false,tags:[]});
       // 保存草稿时就校验，不用等到点「发布」才发现少填了东西
       const rules={
         title:[required('请填写日记标题')],
@@ -679,7 +683,9 @@
       async function load(){try{[trips.value,templates.value,themes.value]=await Promise.all([(await A.trips({page:1,pageSize:100})).items,A.templates(true),A.themes(true)]);if(id.value){Object.assign(form,await A.journal(id.value));media.value=await A.media(id.value);}if(form.tripId)stops.value=await A.stops(form.tripId);if(form.templateId){selectedTemplate.value=templates.value.find(x=>x.id===form.templateId)||{id:form.templateId,name:'日记所用模板',definitionJson:form.templateSnapshot};templateData.value=form.templateData||{};}dirty.value=false;}catch(e){fail(e);}}
       watch(()=>form.tripId,async value=>{if(value)stops.value=await A.stops(value);});
       watch(form,()=>dirty.value=true,{deep:true});
-      async function save(silent=false){if(!await validateForm(formRef))return false;saving.value=true;try{const body={tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,excerpt:form.excerpt,contentMarkdown:form.contentMarkdown,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,themeKey:form.themeKey,templateId:form.templateId,templateVersion:form.templateVersion,templateData:form.templateData,templateSnapshot:form.templateSnapshot,templateDetached:form.templateDetached};if(id.value)await A.updateJournal(id.value,body);else{const created=await A.createJournal(body);id.value=created.id;form.status=created.status;
+      // quiet=true 时连错误提示都不弹（自动保存用）：网络抖一下就弹红条会很烦，
+      // 失败状态在顶栏用文字体现，本地快照也还在，不会真丢内容
+      async function save(silent=false,quiet=false){if(!await validateForm(formRef,quiet))return false;saving.value=true;try{const body={tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,excerpt:form.excerpt,contentMarkdown:form.contentMarkdown,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,themeKey:form.themeKey,templateId:form.templateId,templateVersion:form.templateVersion,templateData:form.templateData,templateSnapshot:form.templateSnapshot,templateDetached:form.templateDetached,tags:form.tags||[]};if(id.value)await A.updateJournal(id.value,body);else{const created=await A.createJournal(body);id.value=created.id;form.status=created.status;
           // 换成正式 id 时要把 from 带上，否则保存后返回又会掉回概览
           router.replace({path:'/journals/'+created.id,query:route.query.from?{from:route.query.from}:{}});}dirty.value=false;if(!silent)message('草稿已保存');return true;}catch(e){fail(e);return false;}finally{saving.value=false;}}
       async function publish(){try{if(!await save(true))return;await A.publishJournal(id.value);form.status='PUBLISHED';message('日记已发布');}catch(e){fail(e);}}
@@ -883,7 +889,95 @@
         const tab=TAB_ORDER.includes(route.query.from)?route.query.from:'journals';
         router.push({path:'/trips/'+form.tripId,query:{tab}});
       }
-      function beforeUnload(e){if(dirty.value){e.preventDefault();e.returnValue='';}}
+      // ————————————————————————— 自动保存 —————————————————————————
+      // 分两层：定时静默存服务端 + 每次改动写 localStorage 兜底。
+      // 只靠 beforeunload 提示是不够的——浏览器崩溃、误关标签页、会话过期
+      // 都不会触发那个确认框，长文写到一半丢掉是不可逆的损失。
+      const AUTOSAVE_INTERVAL_MS = 30000;
+      const DRAFT_KEY_PREFIX = 'travel-journal-draft-';
+      const autoSaveState = ref('');          // '' | 'saving' | 'saved' | 'failed'
+      const lastAutoSavedAt = ref(null);
+      const recoverable = ref(null);          // 本地存有比服务端新的内容时提示恢复
+      let autoSaveTimer = null;
+
+      const draftKey = () => DRAFT_KEY_PREFIX + (id.value || 'new');
+
+      /** 顶栏那一行状态文字。没保存过就不显示，避免刚打开就出现一行灰字。 */
+      const autoSaveHint = computed(() => {
+        if (autoSaveState.value === 'saving') return '正在自动保存…';
+        if (autoSaveState.value === 'failed') return '自动保存失败，内容已存在本地';
+        if (autoSaveState.value === 'saved' && lastAutoSavedAt.value) {
+          return '已自动保存 ' + lastAutoSavedAt.value.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
+        }
+        return '';
+      });
+
+      // ————————————————————————— 标签 —————————————————————————
+      const tagInput = ref('');
+      function addTag() {
+        const name = tagInput.value.trim();
+        tagInput.value = '';
+        if (!name) return;
+        if (!Array.isArray(form.tags)) form.tags = [];
+        if (form.tags.includes(name)) return;   // 重复输入直接忽略，不打扰
+        if (form.tags.length >= 12) return ElementPlus.ElMessage.warning('单篇日记最多 12 个标签');
+        form.tags.push(name);
+      }
+      function removeTag(name) {
+        form.tags = (form.tags || []).filter(item => item !== name);
+      }
+
+      /** 本地快照。服务端存不上时这是最后一道防线，所以每次改动都写。 */
+      function saveLocalDraft() {
+        try {
+          localStorage.setItem(draftKey(), JSON.stringify({
+            savedAt: Date.now(),
+            form: { title:form.title, slug:form.slug, excerpt:form.excerpt,
+                    contentMarkdown:form.contentMarkdown, occurredOn:form.occurredOn,
+                    tripId:form.tripId, tripStopId:form.tripStopId }
+          }));
+        } catch (_) { /* 隐私模式或配额满，忽略即可，不影响正常保存 */ }
+      }
+      function clearLocalDraft() {
+        try { localStorage.removeItem(draftKey()); } catch (_) {}
+      }
+
+      /**
+       * 定时静默保存。几个刻意的选择：
+       *  - 不弹 message，写作时被打断很烦；状态只在顶栏用一行小字体现
+       *  - 校验不通过就不发请求，但本地快照照存，不然新建时标题没填就一直存不上
+       *  - 正在手动保存 / 发布时跳过，避免两个请求打架
+       */
+      async function autoSave() {
+        if (!dirty.value || saving.value) return;
+        saveLocalDraft();
+        if (!id.value && !(form.title && form.tripId && form.occurredOn)) return;
+        autoSaveState.value = 'saving';
+        const ok = await save(true, true);
+        autoSaveState.value = ok ? 'saved' : 'failed';
+        if (ok) { lastAutoSavedAt.value = new Date(); clearLocalDraft(); }
+      }
+
+      /** 打开日记时对比本地快照，比服务端新就提示恢复，不直接覆盖。 */
+      function checkRecoverable() {
+        try {
+          const raw = localStorage.getItem(draftKey());
+          if (!raw) return;
+          const snapshot = JSON.parse(raw);
+          // 内容和服务端一致说明是上次正常保存后的残留，直接清掉
+          if (snapshot.form?.contentMarkdown === form.contentMarkdown) { clearLocalDraft(); return; }
+          recoverable.value = snapshot;
+        } catch (_) { clearLocalDraft(); }
+      }
+      function restoreDraft() {
+        if (!recoverable.value) return;
+        Object.assign(form, recoverable.value.form);
+        recoverable.value = null;
+        message('已恢复本地未保存的内容，确认无误后请保存');
+      }
+      function discardDraft() { clearLocalDraft(); recoverable.value = null; }
+
+      function beforeUnload(e){if(dirty.value){saveLocalDraft();e.preventDefault();e.returnValue='';}}
       /*
        * 编辑区和预览区按滚动进度百分比联动。两边内容高度不同（Markdown 源码
        * 比渲染结果矮），所以同步的是「滚到了百分之几」而不是像素。
@@ -909,23 +1003,37 @@
       watch(html,()=>nextTick(()=>{JM.teardown(previewEl.value);JM.enhance(previewEl.value);}));
       // 版式面板的预览台同理，这样在面板里就能真的滑轮播、拖对比手柄
       watch(figurePreview,()=>nextTick(()=>JM.enhance(document.querySelector('.image-layout-dialog .figure-stage'))));
+      // 内容一变就写本地快照。用 contentMarkdown 而不是整个 form 做依赖，
+      // 是因为切换主题、改封面这类操作不值得刷快照。
+      watch(()=>form.contentMarkdown,()=>{if(dirty.value)saveLocalDraft();});
       onMounted(()=>{
-        load();window.addEventListener('beforeunload',beforeUnload);
+        load().then(checkRecoverable);
+        window.addEventListener('beforeunload',beforeUnload);
+        autoSaveTimer=setInterval(autoSave,AUTOSAVE_INTERVAL_MS);
+        // 切走标签页时立刻存一次，别等下一个定时周期
+        document.addEventListener('visibilitychange',onVisibilityChange);
         // el-input 的 textarea 要等渲染完才拿得到
         nextTick(()=>editorTextarea()?.addEventListener('scroll',onEditorScroll,{passive:true}));
       });
+      function onVisibilityChange(){if(document.hidden)autoSave();}
       onBeforeUnmount(()=>{
         JM.teardown(previewEl.value);
         editorTextarea()?.removeEventListener('scroll',onEditorScroll);
         window.removeEventListener('beforeunload',beforeUnload);
+        document.removeEventListener('visibilitychange',onVisibilityChange);
+        clearInterval(autoSaveTimer);
+        // 离开时若还有未保存改动，至少把本地快照留下
+        if(dirty.value)saveLocalDraft();
       });
-      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,mobileMetaCollapsed,toolbarGroups,scrollLocked,onPreviewScroll,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
+      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,mobileMetaCollapsed,toolbarGroups,scrollLocked,onPreviewScroll,autoSaveState,lastAutoSavedAt,recoverable,restoreDraft,discardDraft,autoSaveHint,tagInput,addTag,removeTag,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
     },
-    template: `<div class="editor-page"><div class="editor-top"><el-button link @click="backToTrip">← 返回</el-button><h2>编辑旅行日记</h2><span class="status">{{statusLabel(form.status)}}</span><span class="word-count">{{wordCount}} 字</span><div class="editor-actions"><el-button @click="openTemplate">{{form.templateId?'填写模板':'从模板开始'}}</el-button><el-button :loading="saving" @click="save()">保存草稿</el-button><el-button v-if="form.status==='PUBLISHED'" @click="unpublish">撤回</el-button><el-button type="primary" @click="publish">发布日记</el-button></div></div>
+    template: `<div class="editor-page"><div class="editor-top"><el-button link @click="backToTrip">← 返回</el-button><h2>编辑旅行日记</h2><span class="status">{{statusLabel(form.status)}}</span><span class="word-count">{{wordCount}} 字</span><span v-if="autoSaveHint" class="autosave-hint" :class="autoSaveState">{{autoSaveHint}}</span><div class="editor-actions"><el-button @click="openTemplate">{{form.templateId?'填写模板':'从模板开始'}}</el-button><el-button :loading="saving" @click="save()">保存草稿</el-button><el-button v-if="form.status==='PUBLISHED'" @click="unpublish">撤回</el-button><el-button type="primary" @click="publish">发布日记</el-button></div></div>
+      <div v-if="recoverable" class="draft-recover-bar"><span>检测到上次未保存的内容（{{new Date(recoverable.savedAt).toLocaleString()}}）</span><div><el-button size="small" type="primary" @click="restoreDraft">恢复</el-button><el-button size="small" @click="discardDraft">忽略</el-button></div></div>
       <button type="button" class="editor-meta-toggle" :aria-expanded="!mobileMetaCollapsed" @click="mobileMetaCollapsed=!mobileMetaCollapsed"><span>{{mobileMetaCollapsed?(form.title||'日记信息'):'收起日记信息'}}</span><span aria-hidden="true">{{mobileMetaCollapsed?'⌄':'⌃'}}</span></button>
       <el-form ref="formRef" :model="form" :rules="rules" class="editor-meta-group editor-meta-form" :class="{collapsed:mobileMetaCollapsed}">
       <div class="editor-meta"><el-form-item prop="title"><el-input v-model="form.title" placeholder="日记标题（必填）"/></el-form-item><el-form-item prop="tripId"><el-select v-model="form.tripId" placeholder="所属旅行（必填）"><el-option v-for="x in trips" :key="x.id" :label="x.title" :value="x.id"/></el-select></el-form-item><el-form-item><el-select v-model="form.tripStopId" clearable placeholder="城市"><el-option v-for="x in stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item><el-form-item prop="occurredOn"><el-date-picker v-model="form.occurredOn" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="发生日期（必填）"/></el-form-item></div>
       <div class="editor-meta editor-meta-secondary"><el-form-item prop="slug"><el-input v-model="form.slug" placeholder="slug（必填），例如 tokyo-spring"/></el-form-item><el-form-item><el-input v-model="form.excerpt" placeholder="摘要"/></el-form-item><el-form-item><el-select v-model="form.themeKey" clearable placeholder="继承旅行 / 全站主题"><el-option v-for="x in themes" :key="x.themeKey" :label="x.name" :value="x.themeKey"/></el-select></el-form-item></div>
+      <div class="editor-tags"><el-tag v-for="name in form.tags" :key="name" closable disable-transitions @close="removeTag(name)">{{name}}</el-tag><el-input v-model="tagInput" size="small" class="tag-input" placeholder="加标签，回车确认" @keyup.enter="addTag"/></div>
       <div v-if="form.templateId" class="template-state" :class="{detached:form.templateDetached}"><span>{{form.templateDetached?'正文已自由修改，不会自动覆盖':'正文仍与模板填写数据关联'}}</span><button type="button" @click="openTemplate">继续填写模板</button></div></el-form>
       <div class="editor-mobile-tabs"><button type="button" :class="{active:mobilePane==='write'}" @click="mobilePane='write'">写作</button><button type="button" :class="{active:mobilePane==='preview'}" @click="mobilePane='preview'">预览</button><button type="button" :class="{active:mobilePane==='media'}" @click="mobilePane='media'">图片</button></div>
       <div class="editor-grid"><section class="editor-column" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small>支持粘贴图片</small></div><div class="writing-toolbar"><template v-for="(group,gi) in toolbarGroups" :key="gi"><span v-if="gi" class="toolbar-sep" aria-hidden="true"></span><button v-for="item in group" :key="item.label" type="button" :title="item.title" @click="item.run()">{{item.label}}</button></template></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste"/></section>
@@ -1109,7 +1217,18 @@
         } catch (error) { fail(error); }
         finally { savingName.value = false; }
       }
-      return { session, avatarInput, avatarUrl, uploading, password, changingPassword, chooseAvatar, picked, changePassword,
+      // 备份体积可能很大，用 a[download] 让浏览器直接接管下载，
+      // 不经 axios 收进内存。会话 Cookie 会随普通导航一起带上。
+      function download(includePhotos) {
+        const link = document.createElement('a');
+        link.href = A.backupUrl(includePhotos);
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        message('已开始导出，文件较大时请稍候');
+      }
+      return { session, avatarInput, avatarUrl, uploading, password, changingPassword, download, chooseAvatar, picked, changePassword,
                editingName, nameDraft, savingName, startEditName, cancelEditName, saveName };
     },
     template: `
@@ -1133,6 +1252,14 @@
               <el-form-item label="确认新密码"><el-input v-model="password.confirmPassword" type="password" show-password autocomplete="new-password"/></el-form-item>
               <el-button type="primary" :loading="changingPassword" @click="changePassword">确认修改</el-button>
             </el-form>
+          </section>
+          <section class="panel panel-pad backup-card"><h3>备份导出</h3>
+            <p>把全部旅行、行程、预算和日记导出成一个 zip：每篇日记一个 Markdown 文件（带 YAML front matter），照片按日记分目录，另有一份 manifest.json 存结构化数据。</p>
+            <p class="backup-note">内容存在数据库和对象存储两处，导出是换服务器、换方案或哪天不想维护了的退路。建议定期存一份到本地。</p>
+            <div class="backup-actions">
+              <el-button type="primary" @click="download(true)">导出全部（含照片）</el-button>
+              <el-button @click="download(false)">仅导出文字</el-button>
+            </div>
           </section>
         </div>
       </div>`

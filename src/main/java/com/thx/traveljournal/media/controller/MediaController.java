@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -15,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 图片接口：后台的上传、排序、说明、封面和删除，以及所有人都会用到的图片访问地址。
@@ -55,13 +57,25 @@ public class MediaController {
     @DeleteMapping("/api/admin/journal-media/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id) { service.deleteRelation(id); return ApiResponse.ok(); }
 
+    /**
+     * 302 跳转到对象存储的预签名地址，图片流量不经过应用本身。
+     *
+     * <p>响应带 {@code Cache-Control}，让浏览器在一段时间内直接复用这次跳转结果。
+     * 不加缓存头的话，每翻一页、每回一次首页，页面上每张图都要重新打一次应用、
+     * 重新算一次预签名，图多的日记页尤其明显。</p>
+     *
+     * <p>缓存时长取预签名有效期打七折：跳转结果本身在 TTL 之后就失效了，
+     * 留出余量避免用户拿着快过期的地址去请求对象存储。用 {@code private} 是因为
+     * 这是带签名的个人化地址，不能被 CDN 或代理共享缓存。</p>
+     */
     @GetMapping("/api/media/{mediaId}/{variant}")
-    /** 302 跳转到对象存储的预签名地址，图片流量不经过应用本身。 */
     public ResponseEntity<Void> access(@PathVariable Long mediaId, @PathVariable String variant,
                                        Authentication authentication) {
         boolean admin = authentication != null && authentication.isAuthenticated()
                 && !(authentication instanceof AnonymousAuthenticationToken);
         URI location = service.access(mediaId, variant, admin);
-        return ResponseEntity.status(302).location(location).build();
+        return ResponseEntity.status(302)
+                .cacheControl(CacheControl.maxAge(service.redirectCacheSeconds(), TimeUnit.SECONDS).cachePrivate())
+                .location(location).build();
     }
 }

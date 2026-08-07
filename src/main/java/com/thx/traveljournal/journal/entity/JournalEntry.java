@@ -58,4 +58,11 @@ public class JournalEntry extends BaseEntity {
     private JsonNode templateSnapshot;
     /** 正文是否已脱离模板自由编辑，为真时不再被模板重新生成覆盖 */
     private Boolean templateDetached;
+
+    /**
+     * 标签名列表。存在关联表里，不是本表字段，所以标注 exist=false 让 MyBatis-Plus 跳过。
+     * 查询单篇日记时由 Service 回填，列表查询不填（避免 N+1）。
+     */
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private java.util.List<String> tags;
 }

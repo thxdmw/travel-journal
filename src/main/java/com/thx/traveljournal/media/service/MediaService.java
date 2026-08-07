@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.exif.ExifIFD0Directory;
+import com.drew.metadata.exif.ExifSubIFDDirectory;
+import com.drew.metadata.exif.GpsDirectory;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.config.AppProperties;
 import com.thx.traveljournal.journal.entity.JournalEntry;
@@ -31,10 +33,15 @@ import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.util.Collection;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.HexFormat;
+import java.util.TimeZone;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -224,6 +231,16 @@ public class MediaService {
     }
 
     /**
+     * 图片跳转响应可以被浏览器缓存多久（秒）。
+     *
+     * <p>取预签名有效期的 70%：跳转到的地址在 TTL 之后就失效了，留出余量避免
+     * 用户拿着快过期的地址去请求对象存储。至少给 60 秒，免得 TTL 配得极小时形同没有缓存。</p>
+     */
+    public long redirectCacheSeconds() {
+        return Math.max(60, properties.minio().presignedUrlTtlMinutes() * 60L * 7 / 10);
+    }
+
+    /**
      * 生成图片的对象存储预签名访问地址。
      *
      * @param admin 是否为已登录管理员；访客只能访问已公开引用的图片，且拿不到原图
@@ -316,6 +333,11 @@ public class MediaService {
             asset.setWidth(normalized.getWidth());
             asset.setHeight(normalized.getHeight());
             asset.setChecksumSha256(sha256(original));
+            // 拍摄时间和 GPS 从原始字节读，必须在 encode 之前——重新编码会丢掉 EXIF
+            CaptureInfo capture = readCaptureInfo(uploaded);
+            asset.setCapturedAt(capture.capturedAt());
+            asset.setGpsLatitude(capture.latitude());
+            asset.setGpsLongitude(capture.longitude());
             assetMapper.insert(asset);
             return asset;
         } catch (RuntimeException ex) {
@@ -439,6 +461,45 @@ public class MediaService {
             ExifIFD0Directory directory = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
             return directory == null ? 1 : directory.getInt(ExifIFD0Directory.TAG_ORIENTATION);
         } catch (Exception ignored) { return 1; }
+    }
+
+    /** 从 EXIF 读到的拍摄信息。任一项缺失都为 null，调用方不需要区分「没有 EXIF」和「没有这一项」。 */
+    private record CaptureInfo(OffsetDateTime capturedAt, BigDecimal latitude, BigDecimal longitude) {
+        static final CaptureInfo EMPTY = new CaptureInfo(null, null, null);
+    }
+
+    /**
+     * 读取拍摄时间和 GPS 坐标。
+     *
+     * <p>用途是上传后按拍摄时间排序、按坐标推荐城市，属于锦上添花，
+     * 所以任何解析失败都静默退回空值，绝不能因为 EXIF 有问题就让上传失败。</p>
+     *
+     * <p>注意 EXIF 的拍摄时间不带时区，这里按系统默认时区解释——个人项目里
+     * 照片基本来自本人设备，这个近似不会造成困扰。</p>
+     */
+    private CaptureInfo readCaptureInfo(byte[] bytes) {
+        try {
+            var metadata = ImageMetadataReader.readMetadata(new ByteArrayInputStream(bytes));
+            OffsetDateTime capturedAt = null;
+            var exif = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
+            if (exif != null) {
+                java.util.Date date = exif.getDateOriginal(TimeZone.getDefault());
+                if (date != null) capturedAt = date.toInstant().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+            }
+            BigDecimal latitude = null, longitude = null;
+            var gps = metadata.getFirstDirectoryOfType(GpsDirectory.class);
+            if (gps != null) {
+                var location = gps.getGeoLocation();
+                // (0,0) 是设备没定位到时的常见占位值，当作无效
+                if (location != null && !location.isZero()) {
+                    latitude = BigDecimal.valueOf(location.getLatitude()).setScale(6, RoundingMode.HALF_UP);
+                    longitude = BigDecimal.valueOf(location.getLongitude()).setScale(6, RoundingMode.HALF_UP);
+                }
+            }
+            return new CaptureInfo(capturedAt, latitude, longitude);
+        } catch (Exception ignored) {
+            return CaptureInfo.EMPTY;
+        }
     }
     /** 按 EXIF 方向把图片旋转/翻转到正确朝向，5~8 需要交换宽高。 */
     private BufferedImage orient(BufferedImage source, int orientation) {

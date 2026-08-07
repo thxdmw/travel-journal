@@ -33,7 +33,11 @@
       home: () => http.get('/public/home'),
       trips: () => http.get('/public/trips'),
       trip: slug => http.get('/public/trips/' + encodeURIComponent(slug)),
-      journals: (page = 1, pageSize = 12) => http.get('/public/journals', { params: { page, pageSize } }),
+      journals: (page = 1, pageSize = 12, keyword, tag) =>
+        http.get('/public/journals', { params: { page, pageSize, keyword, tag } }),
+      tags: () => http.get('/public/tags'),
+      years: () => http.get('/public/years'),
+      yearReview: year => http.get('/public/years/' + year),
       journal: slug => http.get('/public/journals/' + encodeURIComponent(slug)),
       cities: () => http.get('/public/map/cities'),
       profile: () => http.get('/public/profile', { params: { v: Date.now() } })
@@ -107,6 +111,8 @@
       updateTheme: (id, body) => http.put('/admin/themes/' + id, body),
       deleteTheme: id => http.delete('/admin/themes/' + id),
       duplicateTheme: id => http.post('/admin/themes/' + id + '/duplicate'),
+      // 备份走浏览器直接下载：文件可能很大，用 axios 收进内存再存盘没必要
+      backupUrl: (includePhotos = true) => '/api/admin/backup?includePhotos=' + includePhotos,
       // 上传主题首页封面图。不绑定具体主题，返回的 id 由前端填进 definitionJson.hero.mediaId
       uploadThemeHero: form => http.post('/admin/themes/hero', form, {
         headers: { 'Content-Type': 'multipart/form-data' }

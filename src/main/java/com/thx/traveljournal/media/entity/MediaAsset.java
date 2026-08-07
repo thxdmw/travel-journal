@@ -34,4 +34,10 @@ public class MediaAsset extends BaseEntity {
     private Integer height;
     /** 原图 SHA-256 校验和，用于排查重复和损坏 */
     private String checksumSha256;
+    /** 拍摄时间，来自 EXIF DateTimeOriginal；没有 EXIF 的图为空 */
+    private java.time.OffsetDateTime capturedAt;
+    /** 拍摄纬度，来自 EXIF GPS */
+    private java.math.BigDecimal gpsLatitude;
+    /** 拍摄经度，来自 EXIF GPS */
+    private java.math.BigDecimal gpsLongitude;
 }

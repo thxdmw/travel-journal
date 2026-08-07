@@ -9,6 +9,7 @@ import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.mapper.JournalMediaMapper;
+import com.thx.traveljournal.publicapi.mapper.PublicAggregateMapper;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
@@ -38,6 +39,7 @@ public class PublicContentService {
     private final MediaService mediaService;
     private final JournalMediaMapper journalMediaMapper;
     private final ThemePresetService themePresetService;
+    private final PublicAggregateMapper aggregateMapper;
 
     public record JournalCard(Long id, String title, String slug, String excerpt, LocalDate occurredOn,
                               String tripTitle, String tripSlug, String cityName, String coverUrl) {}
@@ -85,8 +87,9 @@ public class PublicContentService {
                 .map(trip -> tripCard(trip, journalCounts.getOrDefault(trip.getId(), 0L),
                         stopsByTrip.getOrDefault(trip.getId(), List.of()))).toList();
         List<CityMarker> cities = mapCities(published, tripMap, allStops);
-        long photos = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .in(JournalMedia::getJournalEntryId, published.stream().map(JournalEntry::getId).toList()));
+        // 照片数走 SQL 聚合。原先是把全部已发布日记的 id 拼进 in(...) 再 count，
+        // 日记多了会拼出一条几百个参数的语句
+        long photos = aggregateMapper.countPublishedPhotos();
         return new Home(journals, allTrips.stream().limit(3).toList(), cities,
                 allTrips.size(), cities.size(), published.size(), photos);
     }
@@ -116,10 +119,31 @@ public class PublicContentService {
                 themePresetService.effective(null, trip.getThemeKey()));
     }
 
-    public PageResponse<JournalCard> journals(long page, long pageSize) {
+    /**
+     * 前台日记列表，支持关键词搜索和标签筛选。
+     *
+     * <p>关键词走 {@code search_text} 生成列上的 ILIKE 子串匹配，配 pg_trgm 的 GIN 索引
+     * （见 V8 迁移）。选子串匹配而不是 {@code to_tsvector} 分词，是因为默认分词器不认中文，
+     * 「泡了温泉」会被当成一个整词，搜「温泉」反而匹配不到。</p>
+     *
+     * <p>关键词和标签都用参数占位符绑定，不做字符串拼接。</p>
+     */
+    public PageResponse<JournalCard> journals(long page, long pageSize, String keyword, String tagSlug) {
+        LambdaQueryWrapper<JournalEntry> query = new LambdaQueryWrapper<JournalEntry>()
+                .eq(JournalEntry::getStatus, "PUBLISHED");
+        if (StringUtils.hasText(keyword)) {
+            query.apply("search_text ilike {0}", "%" + keyword.trim() + "%");
+        }
+        if (StringUtils.hasText(tagSlug)) {
+            // apply 的 {0} 会走参数绑定，和上面的关键词一样，不拼字符串
+            query.apply("""
+                    exists (select 1 from journal_tag_relation r
+                              join journal_tag t on t.id = r.journal_tag_id
+                             where r.journal_entry_id = journal_entry.id and t.slug = {0})
+                    """, tagSlug.trim());
+        }
         Page<JournalEntry> result = journalMapper.selectPage(Page.of(page, pageSize),
-                new LambdaQueryWrapper<JournalEntry>().eq(JournalEntry::getStatus, "PUBLISHED")
-                        .orderByDesc(JournalEntry::getPublishedAt));
+                query.orderByDesc(JournalEntry::getPublishedAt));
         return PageResponse.of(result.getRecords().stream().map(this::card).toList(),
                 page, pageSize, result.getTotal());
     }
@@ -185,8 +209,21 @@ public class PublicContentService {
     }
 
     /** 所有已发布日记，按发生日期倒序。前台的一切内容都从这个集合派生。 */
+    /**
+     * 已发布日记的轻量投影，按发布时间倒序。
+     *
+     * <p>刻意不查 {@code content_markdown} 和两个模板 jsonb 字段：首页、旅行列表和地图
+     * 都只需要标题、日期和归属，正文一个字都用不到。不做这个投影的话，每渲染一次首页
+     * 就要把全站正文读一遍，日记攒到几百篇会非常明显。</p>
+     *
+     * <p>需要正文的地方（日记详情）另外按 slug 单查一条完整记录。</p>
+     */
     private List<JournalEntry> publishedJournals() {
         return journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
+                .select(JournalEntry::getId, JournalEntry::getTripId, JournalEntry::getTripStopId,
+                        JournalEntry::getTitle, JournalEntry::getSlug, JournalEntry::getExcerpt,
+                        JournalEntry::getOccurredOn, JournalEntry::getCoverMediaId,
+                        JournalEntry::getStatus, JournalEntry::getPublishedAt, JournalEntry::getThemeKey)
                 .eq(JournalEntry::getStatus, "PUBLISHED").orderByDesc(JournalEntry::getPublishedAt));
     }
 

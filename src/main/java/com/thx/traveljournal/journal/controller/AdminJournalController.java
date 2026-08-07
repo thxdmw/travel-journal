@@ -6,6 +6,7 @@ import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.service.JournalService;
+import com.thx.traveljournal.journal.service.JournalTagService;
 import com.thx.traveljournal.theme.service.ThemePresetService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -14,6 +15,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,6 +29,7 @@ import java.util.Map;
 public class AdminJournalController {
     private final JournalService service;
     private final ThemePresetService themePresetService;
+    private final JournalTagService tagService;
 
     /**
      * 日记新建和更新的请求体。
@@ -52,7 +55,9 @@ public class AdminJournalController {
                                  Integer templateVersion,
                                  JsonNode templateData,
                                  JsonNode templateSnapshot,
-                                 Boolean templateDetached) {}
+                                 Boolean templateDetached,
+                                 /** 标签名列表，传 null 表示不改动标签，传空列表表示清空 */
+                                 List<String> tags) {}
 
     @GetMapping
     public ApiResponse<PageResponse<JournalEntry>> list(@RequestParam(defaultValue="1") long page,
@@ -64,13 +69,23 @@ public class AdminJournalController {
     }
     @PostMapping
     public ApiResponse<JournalEntry> create(@Valid @RequestBody JournalRequest request) {
-        return ApiResponse.ok(service.create(toEntity(request)));
+        JournalEntry created = service.create(toEntity(request));
+        tagService.replaceTags(created.getId(), request.tags());
+        created.setTags(tagService.namesOf(created.getId()));
+        return ApiResponse.ok(created);
     }
     @GetMapping("/{id}")
-    public ApiResponse<JournalEntry> get(@PathVariable Long id) { return ApiResponse.ok(service.get(id)); }
+    public ApiResponse<JournalEntry> get(@PathVariable Long id) {
+        JournalEntry entry = service.get(id);
+        entry.setTags(tagService.namesOf(id));
+        return ApiResponse.ok(entry);
+    }
     @PutMapping("/{id}")
     public ApiResponse<JournalEntry> update(@PathVariable Long id, @Valid @RequestBody JournalRequest request) {
-        return ApiResponse.ok(service.update(id, toEntity(request)));
+        JournalEntry updated = service.update(id, toEntity(request));
+        tagService.replaceTags(id, request.tags());
+        updated.setTags(tagService.namesOf(id));
+        return ApiResponse.ok(updated);
     }
 
     /** 日记下的图片张数，前端删除前调用，用于在确认弹窗里说明会连带删除多少张图。 */
