@@ -90,6 +90,8 @@ button, input, textarea { font: inherit; }
 .page-title h1 { margin:10px 0; color:var(--tj-primary); font:700 42px/1.35 var(--tj-serif); }
 .page-title p { max-width:720px; color:var(--tj-muted); line-height:1.8; }
 .filter-row { display:flex; gap:10px; margin-bottom:24px; }
+.preview-banner { margin-bottom:20px; padding:11px 18px; border:1px dashed var(--tj-accent); border-radius:var(--tj-radius-small,8px); color:var(--tj-accent); background:color-mix(in srgb, var(--tj-accent) 7%, transparent); font-size:13px; text-align:center; }
+
 /* ——— 日记搜索与标签筛选 ——— */
 .journal-filters { display:grid; gap:14px; margin-bottom:26px; }
 .search-box { display:flex; gap:8px; max-width:520px; }

@@ -50,7 +50,8 @@ class MediaServiceTest {
                 new AppProperties.Upload(20, 50, 50_000_000),
                 new AppProperties.Minio("http://localhost:9000", "key", "secret", "travel-journal", 60));
         MediaService service = new MediaService(assetMapper, relationMapper, mock(MediaVisibilityMapper.class),
-                journalMapper, mock(TripMapper.class), minio, properties);
+                journalMapper, mock(TripMapper.class),
+                mock(com.thx.traveljournal.trip.mapper.TripStopMapper.class), minio, properties);
 
         BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -61,8 +62,10 @@ class MediaServiceTest {
 
         assertThat(view.id()).isEqualTo(9L);
         assertThat(view.displayUrl()).isEqualTo("/api/media/9/display");
+        assertThat(view.mediumUrl()).isEqualTo("/api/media/9/medium");
         assertThat(view.thumbnailUrl()).isEqualTo("/api/media/9/thumbnail");
         assertThat(stored.get().getOriginalObjectKey()).startsWith("trips/2/journals/3/");
-        verify(minio, times(3)).putObject(any());
+        // 原图 + 1280 展示图 + 768 中等图 + 480 缩略图，共四个对象
+        verify(minio, times(4)).putObject(any());
     }
 }

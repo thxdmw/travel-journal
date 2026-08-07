@@ -59,6 +59,17 @@ public class PublicContentController {
         return ApiResponse.ok(yearReviewService.review(year));
     }
 
+    /**
+     * 草稿预览。令牌由后台签发，48 小时有效。
+     *
+     * <p>放在 /api/public 下但不出现在任何列表接口里：没有令牌就找不到，
+     * 令牌过期即失效，草稿本身始终不进入公开索引。</p>
+     */
+    @GetMapping("/preview/{token}")
+    public ApiResponse<PublicContentService.JournalDetail> preview(@PathVariable String token) {
+        return ApiResponse.ok(service.previewByToken(token));
+    }
+
     @GetMapping("/map/cities")
     public ApiResponse<List<PublicContentService.CityMarker>> map() { return ApiResponse.ok(service.mapCities()); }
 }

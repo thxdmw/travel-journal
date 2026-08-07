@@ -22,6 +22,8 @@ public class MediaAsset extends BaseEntity {
     private String displayObjectKey;
     /** 缩略图对象键，最长边 480 的 webp */
     private String thumbnailObjectKey;
+    /** 768px 中等规格；存量图片为空，访问时回落到 display */
+    private String mediumObjectKey;
     /** 上传时的原始文件名，仅作展示用 */
     private String originalFilename;
     /** 由 Tika 嗅探出的真实 MIME 类型，不取客户端声明值 */

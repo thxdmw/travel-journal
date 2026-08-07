@@ -37,7 +37,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.HexFormat;
@@ -68,6 +72,7 @@ public class MediaService {
     private final MediaVisibilityMapper visibilityMapper;
     private final JournalMapper journalMapper;
     private final TripMapper tripMapper;
+    private final com.thx.traveljournal.trip.mapper.TripStopMapper tripStopMapper;
     private final MinioClient minioClient;
     private final AppProperties properties;
     private final Tika tika = new Tika();
@@ -80,7 +85,8 @@ public class MediaService {
      */
     public record MediaView(Long relationId, Long id, String filename, String contentType,
                             Integer width, Integer height, String caption, Integer sortOrder,
-                            String thumbnailUrl, String displayUrl) {}
+                            String thumbnailUrl, String mediumUrl, String displayUrl,
+                            OffsetDateTime capturedAt, BigDecimal gpsLatitude, BigDecimal gpsLongitude) {}
 
     /** 按排序号列出某篇日记的全部图片。 */
     public List<MediaView> list(Long journalId) {
@@ -111,6 +117,96 @@ public class MediaService {
         relation.setSortOrder((int) count);
         journalMediaMapper.insert(relation);
         return toView(relation);
+    }
+
+    /**
+     * 按拍摄时间重排某篇日记的图片。
+     *
+     * <p>手机相册多选上传时顺序常常是乱的，而照片本身带着 EXIF 拍摄时间，
+     * 按它排一次就能还原当天的时间线。没有 EXIF 的图片（截图、别人发的）
+     * 保持原有相对顺序并排在最后，不然会被塞到时间线中间莫名其妙的位置。</p>
+     *
+     * @return 参与排序的图片总数
+     */
+    @Transactional
+    public int sortByCaptureTime(Long journalId) {
+        requireJournal(journalId);
+        List<JournalMedia> relations = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId)
+                .orderByAsc(JournalMedia::getSortOrder, JournalMedia::getId));
+        if (relations.size() < 2) return relations.size();
+
+        Map<Long, OffsetDateTime> capturedAt = new HashMap<>();
+        for (JournalMedia relation : relations) {
+            MediaAsset asset = assetMapper.selectById(relation.getMediaAssetId());
+            if (asset != null && asset.getCapturedAt() != null) {
+                capturedAt.put(relation.getId(), asset.getCapturedAt());
+            }
+        }
+        if (capturedAt.isEmpty()) throw BusinessException.badRequest("这些图片都没有拍摄时间信息，无法按时间排序");
+
+        List<JournalMedia> sorted = new ArrayList<>(relations);
+        // 有时间的按时间升序排在前面；没有的整体沉底，内部保持原顺序（sort 是稳定的）
+        sorted.sort(Comparator.comparing(
+                (JournalMedia relation) -> capturedAt.get(relation.getId()),
+                Comparator.nullsLast(Comparator.naturalOrder())));
+        for (int i = 0; i < sorted.size(); i++) {
+            JournalMedia relation = sorted.get(i);
+            relation.setSortOrder(i);
+            journalMediaMapper.updateById(relation);
+        }
+        return sorted.size();
+    }
+
+    /**
+     * 根据图片的 GPS 坐标，在给定旅行的城市里找出最接近的一个。
+     *
+     * <p>用于在编辑器里提示「这些照片看起来是在 XX 拍的」，只做建议不自动改数据——
+     * EXIF 坐标可能来自后期补录或别人的设备，替用户做决定容易出错。</p>
+     *
+     * @return 匹配到的城市名和距离；没有任何图片带 GPS 或旅行没有城市时返回 null
+     */
+    public CitySuggestion suggestCity(Long journalId) {
+        JournalEntry journal = requireJournal(journalId);
+        List<MediaAsset> located = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                        .eq(JournalMedia::getJournalEntryId, journalId))
+                .stream().map(relation -> assetMapper.selectById(relation.getMediaAssetId()))
+                .filter(asset -> asset != null && asset.getGpsLatitude() != null && asset.getGpsLongitude() != null)
+                .toList();
+        if (located.isEmpty()) return null;
+
+        List<com.thx.traveljournal.trip.entity.TripStop> stops = tripStopMapper.selectList(
+                new LambdaQueryWrapper<com.thx.traveljournal.trip.entity.TripStop>()
+                        .eq(com.thx.traveljournal.trip.entity.TripStop::getTripId, journal.getTripId()));
+        if (stops.isEmpty()) return null;
+
+        // 用照片坐标的平均值代表「这批照片大致在哪」，比拿第一张更稳
+        double avgLat = located.stream().mapToDouble(a -> a.getGpsLatitude().doubleValue()).average().orElse(0);
+        double avgLon = located.stream().mapToDouble(a -> a.getGpsLongitude().doubleValue()).average().orElse(0);
+
+        com.thx.traveljournal.trip.entity.TripStop nearest = null;
+        double best = Double.MAX_VALUE;
+        for (var stop : stops) {
+            if (stop.getLatitude() == null || stop.getLongitude() == null) continue;
+            double distance = haversineKm(avgLat, avgLon,
+                    stop.getLatitude().doubleValue(), stop.getLongitude().doubleValue());
+            if (distance < best) { best = distance; nearest = stop; }
+        }
+        if (nearest == null) return null;
+        return new CitySuggestion(nearest.getId(), nearest.getCityName(),
+                Math.round(best), located.size());
+    }
+
+    /** GPS 推荐结果。distanceKm 是照片位置到该城市的距离，供前端提示可信度。 */
+    public record CitySuggestion(Long tripStopId, String cityName, long distanceKm, int photoCount) {}
+
+    /** Haversine 大圆距离，公里。与 YearReviewService 同一套算法，这里只需要标量版本。 */
+    private double haversineKm(double lat1, double lon1, double lat2, double lon2) {
+        double dLat = Math.toRadians(lat2 - lat1), dLon = Math.toRadians(lon2 - lon1);
+        double h = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(h)));
     }
 
     /** 修改图片说明。 */
@@ -252,6 +348,9 @@ public class MediaService {
         }
         String key = switch (variant) {
             case "thumbnail" -> asset.getThumbnailObjectKey();
+            // 存量图片没有 medium，回落到 display——不回落会 404，页面上直接裂图
+            case "medium" -> asset.getMediumObjectKey() == null
+                    ? asset.getDisplayObjectKey() : asset.getMediumObjectKey();
             case "display" -> asset.getDisplayObjectKey();
             case "original" -> {
                 if (!admin) throw new BusinessException("FORBIDDEN", "原图仅管理员可访问", HttpStatus.FORBIDDEN);
@@ -305,19 +404,24 @@ public class MediaService {
         };
         byte[] original = encode(normalized, originalFormat);
         byte[] display = resize(normalized, 1280);
+        // 768 这一档是给手机用的：视口撑死也就 400 逻辑像素，2 倍屏取 768 刚好，
+        // 不加这档的话手机也得下 1280 的图，白花一倍多流量
+        byte[] medium = resize(normalized, 768);
         byte[] thumbnail = resize(normalized, 480);
 
         String prefix = keyPrefix + UUID.randomUUID() + "/";
         String originalKey = prefix + "original." + originalFormat;
         String displayKey = prefix + "display.webp";
+        String mediumKey = prefix + "medium.webp";
         String thumbnailKey = prefix + "thumbnail.webp";
         String bucket = properties.minio().bucket();
         try {
             put(bucket, originalKey, original, mime);
             put(bucket, displayKey, display, "image/webp");
+            put(bucket, mediumKey, medium, "image/webp");
             put(bucket, thumbnailKey, thumbnail, "image/webp");
         } catch (Exception ex) {
-            cleanup(bucket, originalKey, displayKey, thumbnailKey);
+            cleanup(bucket, originalKey, displayKey, mediumKey, thumbnailKey);
             throw new BusinessException("STORAGE_ERROR", "图片上传到对象存储失败", HttpStatus.BAD_GATEWAY);
         }
 
@@ -327,6 +431,7 @@ public class MediaService {
             asset.setOriginalObjectKey(originalKey);
             asset.setDisplayObjectKey(displayKey);
             asset.setThumbnailObjectKey(thumbnailKey);
+            asset.setMediumObjectKey(mediumKey);
             asset.setOriginalFilename(safeFilename(file.getOriginalFilename()));
             asset.setContentType(mime);
             asset.setFileSize((long) original.length);
@@ -399,9 +504,11 @@ public class MediaService {
     }
 
     private MediaView toView(Long relationId, MediaAsset asset, String caption, Integer sortOrder) {
+        String base = "/api/media/" + asset.getId() + "/";
         return new MediaView(relationId, asset.getId(), asset.getOriginalFilename(), asset.getContentType(),
                 asset.getWidth(), asset.getHeight(), caption, sortOrder,
-                "/api/media/" + asset.getId() + "/thumbnail", "/api/media/" + asset.getId() + "/display");
+                base + "thumbnail", base + "medium", base + "display",
+                asset.getCapturedAt(), asset.getGpsLatitude(), asset.getGpsLongitude());
     }
 
     private JournalEntry requireJournal(Long id) {

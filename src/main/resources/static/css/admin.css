@@ -143,7 +143,13 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .editor-meta-form .el-form-item { margin-bottom:0; }
 .editor-meta-form .el-form-item__content { width:100%; }
 .editor-meta-form .el-select,.editor-meta-form .el-date-editor { width:100%; }
-.editor-meta-toggle { display:none; }
+/* 顶部信息区折叠开关。桌面端同样需要：那一块（标题/旅行/城市/日期/slug/摘要/主题/标签）
+   占掉近三分之一竖向空间，写长文时编辑区被压得很小。移动端断点里另有一套尺寸覆盖。 */
+.editor-meta-toggle { flex:0 0 34px; display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; margin-bottom:10px; padding:0 14px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); color:var(--tj-primary); background:var(--tj-surface); font-size:13px; cursor:pointer; }
+.editor-meta-toggle:hover { border-color:var(--tj-accent); }
+.editor-meta-toggle span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.editor-meta-toggle span:last-child { flex:0 0 auto; color:var(--tj-accent); font-size:15px; }
+.editor-meta-group.collapsed { display:none; }
 /* 中间那条 0 宽的列是锁定按钮的落点，正好压在编辑区和预览区的交界线上 */
 .editor-grid { position:relative; flex:1; min-height:0; display:grid; grid-template-columns:1fr 0 1fr 280px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); overflow:hidden; background:var(--tj-surface); }
 .editor-column { min-width:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--tj-border); }
@@ -154,7 +160,9 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .editor-label { flex:0 0 46px; height:46px; display:flex; align-items:center; gap:8px; padding:0 16px; border-bottom:1px solid var(--tj-border); color:var(--tj-primary); font-weight:700; font-size:13px; }
 .editor-label small { margin-left:auto; color:var(--tj-muted); font-weight:400; }
 /* 按钮多了之后横向滚动会让后面几个够不着，改成换行铺满 */
-.writing-toolbar { flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:8px 10px; border-bottom:1px solid var(--tj-border); background:var(--tj-surface-soft); }
+/* 工具栏挪到三栏之上，作为独立一条。
+   放在列内时左栏比右栏多一个工具栏高度，编辑区和预览区顶端永远错开。 */
+.writing-toolbar { flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-bottom:10px; padding:8px 10px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); background:var(--tj-surface-soft); }
 .writing-toolbar button { flex:0 0 auto; min-height:28px; padding:0 9px; border:1px solid var(--tj-border); border-radius:6px; color:var(--tj-primary); background:var(--tj-surface); font-size:13px; }
 .writing-toolbar button:hover { border-color:var(--tj-accent); color:var(--tj-accent); }
 .toolbar-sep { flex:0 0 1px; align-self:stretch; margin:2px 3px; background:var(--tj-border); }
@@ -179,6 +187,39 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .preview { flex:1; min-height:0; height:auto; overflow:auto; padding:20px; }
 .preview .journal-figure,.preview .journal-gallery { outline:1px dashed transparent; outline-offset:6px; transition:outline-color .15s ease; }
 .preview .journal-figure:hover,.preview .journal-gallery:hover { outline-color:var(--tj-accent); }
+
+/* ——— 图片管理栏折叠 ——— */
+.editor-grid { transition:grid-template-columns .22s ease; }
+.editor-grid.media-collapsed { grid-template-columns:1fr 0 1fr 42px; }
+.editor-grid.media-collapsed .media-column .media-side,
+.editor-grid.media-collapsed .media-column .editor-label small { display:none; }
+/* 折叠后标题竖排，只留一条窄边和展开按钮 */
+/* 折叠态：标题栏改为占满整列的竖向布局。
+   之前把 writing-mode 加在 .editor-label 这个 flex 容器上，
+   容器还是 46px 固定高，竖排文字塞不下就乱折成「理 管 片」，
+   按钮也跟着被转了。现在只让文字那个 span 竖排，容器改成纵向 flex 并撑满高度。 */
+.editor-grid.media-collapsed .media-column .editor-label {
+  flex:1; height:auto; flex-direction:column; justify-content:flex-start;
+  gap:12px; padding:12px 0; border-bottom:0;
+}
+.editor-grid.media-collapsed .media-column .label-text { writing-mode:vertical-rl; letter-spacing:.12em; white-space:nowrap; }
+.media-toggle { flex:0 0 auto; margin-left:auto; width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--tj-border); border-radius:5px; color:var(--tj-muted); background:var(--tj-surface); cursor:pointer; line-height:1; }
+.media-toggle:hover { border-color:var(--tj-accent); color:var(--tj-accent); }
+.editor-grid.media-collapsed .media-toggle { margin:0 auto; }
+
+/* ——— 真全屏 ——— */
+/* Fullscreen API 生效时浏览器会把元素铺满屏幕，这里只需要补背景和内边距；
+   :fullscreen 不支持时用 .is-fullscreen 类做降级（至少铺满视口）。 */
+.editor-page:fullscreen { padding:20px 24px; background:var(--tj-bg); }
+.editor-page.is-fullscreen { position:fixed; inset:0; z-index:3000; background:var(--tj-bg); }
+
+/* ——— EXIF 辅助与预览链接 ——— */
+.media-tools { margin-bottom:8px; text-align:right; }
+.city-suggestion { margin-bottom:10px; padding:9px 11px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); background:var(--tj-surface-soft); color:var(--tj-muted); font-size:12px; line-height:1.7; }
+.city-suggestion strong { color:var(--tj-primary); }
+.city-suggestion small { opacity:.8; }
+.preview-link-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; padding:10px 14px; border:1px solid var(--tj-accent); border-radius:var(--tj-radius-small,8px); background:color-mix(in srgb, var(--tj-accent) 7%, var(--tj-surface)); font-size:12px; }
+.preview-link-bar code { flex:1; min-width:0; overflow-wrap:anywhere; color:var(--tj-primary); }
 .media-side { flex:1; min-height:0; height:auto; overflow:auto; padding:14px; }
 .upload-box { display:grid; place-items:center; min-height:100px; border:1px dashed var(--tj-sand); border-radius:8px; color:var(--tj-muted); cursor:pointer; text-align:center; }
 .media-item { display:grid; grid-template-columns:20px 68px 1fr; align-items:start; gap:10px; margin-top:12px; padding:8px; border:1px solid var(--tj-border); border-radius:8px; background:var(--tj-surface); }
@@ -304,6 +345,10 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .theme-designer { height:min(72vh,760px); min-height:560px; display:grid; grid-template-columns:minmax(360px,430px) 1fr; gap:18px; }
 .theme-controls { min-height:0; overflow:auto; padding:2px 8px 18px 2px; scrollbar-width:thin; }
 .theme-history { position:sticky; top:0; z-index:2; padding:5px 0 10px; background:var(--tj-surface); }
+.tag-merge-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.tag-merge-bar span { color:var(--tj-muted); font-size:13px; }
+.tag-merge-bar .el-select { width:220px; }
+
 /* ——— 编辑器：自动保存状态与草稿恢复 ——— */
 .autosave-hint { margin-left:12px; color:var(--tj-muted); font-size:12px; }
 .autosave-hint.saving { opacity:.7; }
@@ -454,9 +499,9 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
   .editor-top h2 { font-size:20px; }
   .editor-actions { width:100%; margin-left:0; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
   .editor-actions .el-button { flex:0 0 auto; margin-left:0!important; }
-  .editor-meta-toggle { flex:0 0 40px; display:flex; align-items:center; justify-content:space-between; width:100%; margin-bottom:8px; padding:0 13px; border:1px solid var(--tj-border); border-radius:9px; color:var(--tj-primary); background:var(--tj-surface); font-weight:700; }
-  .editor-meta-toggle span:last-child { color:var(--tj-accent); font-size:16px; }
-  .editor-meta-group.collapsed { display:none; }
+  /* 移动端只调触摸目标尺寸，其余样式沿用上面的基础规则 */
+  .editor-meta-toggle { flex:0 0 40px; margin-bottom:8px; border-radius:9px; }
+  .editor-meta-toggle span:last-child { font-size:16px; }
   .editor-meta { grid-template-columns:1fr; }
   .template-state { min-height:32px; }
   .editor-mobile-tabs { flex:0 0 42px; display:grid; grid-template-columns:repeat(3,1fr); margin-bottom:8px; padding:3px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface-soft); }

@@ -6,6 +6,7 @@ import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
+import com.thx.traveljournal.journal.service.JournalPreviewService;
 import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.mapper.JournalMediaMapper;
@@ -40,6 +41,7 @@ public class PublicContentService {
     private final JournalMediaMapper journalMediaMapper;
     private final ThemePresetService themePresetService;
     private final PublicAggregateMapper aggregateMapper;
+    private final JournalPreviewService previewService;
 
     public record JournalCard(Long id, String title, String slug, String excerpt, LocalDate occurredOn,
                               String tripTitle, String tripSlug, String cityName, String coverUrl) {}
@@ -163,6 +165,21 @@ public class PublicContentService {
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return new JournalDetail(card(entry, trip, stop), entry.getContentMarkdown(), mediaService.list(entry.getId()),
                 previous, next, themePresetService.effective(entry.getThemeKey(), trip.getThemeKey()));
+    }
+
+    /**
+     * 按预览令牌取日记，用于草稿预览。
+     *
+     * <p>和正式详情页共用同一套渲染数据，这样预览看到的就是发布后的真实样子。
+     * 差别是不提供上一篇/下一篇——草稿不在任何序列里。</p>
+     */
+    public JournalDetail previewByToken(String token) {
+        JournalEntry entry = previewService.resolve(token);
+        Trip trip = tripMapper.selectById(entry.getTripId());
+        TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
+        return new JournalDetail(card(entry, trip, stop), entry.getContentMarkdown(),
+                mediaService.list(entry.getId()), null, null,
+                themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()));
     }
 
     public List<CityMarker> mapCities() {

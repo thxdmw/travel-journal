@@ -6,6 +6,7 @@ import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.service.JournalService;
+import com.thx.traveljournal.journal.service.JournalPreviewService;
 import com.thx.traveljournal.journal.service.JournalTagService;
 import com.thx.traveljournal.theme.service.ThemePresetService;
 import jakarta.validation.Valid;
@@ -30,6 +31,7 @@ public class AdminJournalController {
     private final JournalService service;
     private final ThemePresetService themePresetService;
     private final JournalTagService tagService;
+    private final JournalPreviewService previewService;
 
     /**
      * 日记新建和更新的请求体。
@@ -43,6 +45,8 @@ public class AdminJournalController {
      * @param contentMarkdown  Markdown 正文，草稿可以为空字符串但不能为 null
      * @param templateDetached 正文是否已脱离模板自由编辑，脱离后不再被模板生成覆盖
      */
+    public record TagNameRequest(@NotBlank @Size(max=40) String name) {}
+
     public record JournalRequest(@NotNull(message = "请选择所属旅行") Long tripId, Long tripStopId,
                                  @NotBlank(message = "请填写日记标题") @Size(max=200) String title,
                                  @NotBlank(message = "请填写 Slug") @Size(max=220) String slug,
@@ -99,6 +103,50 @@ public class AdminJournalController {
     public ApiResponse<Map<String, Object>> delete(@PathVariable Long id) {
         return ApiResponse.ok(Map.of("removedMedia", service.delete(id)));
     }
+    /** 标签列表（含草稿引用数），供标签管理页使用。 */
+    @GetMapping("/tags")
+    public ApiResponse<List<JournalTagService.TagView>> tags() {
+        return ApiResponse.ok(tagService.allTags());
+    }
+
+    /** 重命名标签；新名字已存在时自动合并过去。返回最终生效的标签 id。 */
+    @PutMapping("/tags/{tagId}")
+    public ApiResponse<Long> renameTag(@PathVariable Long tagId, @Valid @RequestBody TagNameRequest request) {
+        return ApiResponse.ok(tagService.rename(tagId, request.name()));
+    }
+
+    /** 把一个标签并入另一个。 */
+    @PostMapping("/tags/{sourceId}/merge-into/{targetId}")
+    public ApiResponse<Void> mergeTag(@PathVariable Long sourceId, @PathVariable Long targetId) {
+        tagService.merge(sourceId, targetId);
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/tags/{tagId}")
+    public ApiResponse<Void> deleteTag(@PathVariable Long tagId) {
+        tagService.delete(tagId);
+        return ApiResponse.ok();
+    }
+
+    /** 清理没有任何日记引用的标签，返回清理数量。 */
+    @PostMapping("/tags/purge-unused")
+    public ApiResponse<Integer> purgeUnusedTags() {
+        return ApiResponse.ok(tagService.purgeUnused());
+    }
+
+    /** 签发草稿预览链接，48 小时有效；重复调用会让上一个链接立刻失效。 */
+    @PostMapping("/{id}/preview-link")
+    public ApiResponse<JournalPreviewService.PreviewLink> previewLink(@PathVariable Long id) {
+        return ApiResponse.ok(previewService.issue(id));
+    }
+
+    /** 作废该日记的全部预览链接。 */
+    @DeleteMapping("/{id}/preview-link")
+    public ApiResponse<Void> revokePreview(@PathVariable Long id) {
+        previewService.revoke(id);
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/{id}/publish")
     public ApiResponse<JournalEntry> publish(@PathVariable Long id) { return ApiResponse.ok(service.publish(id)); }
     @PostMapping("/{id}/unpublish")

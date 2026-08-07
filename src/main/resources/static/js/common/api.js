@@ -39,6 +39,7 @@
       years: () => http.get('/public/years'),
       yearReview: year => http.get('/public/years/' + year),
       journal: slug => http.get('/public/journals/' + encodeURIComponent(slug)),
+      preview: token => http.get('/public/preview/' + encodeURIComponent(token)),
       cities: () => http.get('/public/map/cities'),
       profile: () => http.get('/public/profile', { params: { v: Date.now() } })
     },
@@ -94,6 +95,15 @@
       uploadMedia: (id, form) => http.post('/admin/journals/' + id + '/media', form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       }),
+      sortMediaByCaptureTime: journalId => http.put('/admin/journals/' + journalId + '/media/sort-by-capture-time'),
+      suggestCity: journalId => http.get('/admin/journals/' + journalId + '/media/suggest-city'),
+      createPreviewLink: journalId => http.post('/admin/journals/' + journalId + '/preview-link'),
+      revokePreviewLink: journalId => http.delete('/admin/journals/' + journalId + '/preview-link'),
+      journalTags: () => http.get('/admin/journals/tags'),
+      renameTag: (tagId, name) => http.put('/admin/journals/tags/' + tagId, { name }),
+      mergeTag: (sourceId, targetId) => http.post('/admin/journals/tags/' + sourceId + '/merge-into/' + targetId),
+      deleteTag: tagId => http.delete('/admin/journals/tags/' + tagId),
+      purgeUnusedTags: () => http.post('/admin/journals/tags/purge-unused'),
       setCover: (journalId, mediaId) => http.patch('/admin/journals/' + journalId + '/cover/' + mediaId),
       // orderedIds 传的是 journal_media 关系 id，且必须是该日记的全部图片，少一张后端就 400
       reorderMedia: (journalId, orderedIds) => http.put('/admin/journals/' + journalId + '/media/reorder', { orderedIds }),

@@ -103,6 +103,80 @@ public class JournalTagService {
         return result;
     }
 
+    /**
+     * 重命名标签。
+     *
+     * <p>如果新名字对应的 slug 已经属于另一个标签，就退化成「合并」——
+     * 用户输入一个已存在的名字，意图基本就是把两个标签并成一个。</p>
+     *
+     * @return 最终生效的标签 id（合并时是被并入的那个）
+     */
+    @Transactional
+    public Long rename(Long tagId, String newName) {
+        JournalTag tag = require(tagId);
+        if (!StringUtils.hasText(newName)) throw BusinessException.badRequest("标签名不能为空");
+        String name = newName.trim();
+        if (name.length() > MAX_NAME_LENGTH) throw BusinessException.badRequest("标签名不能超过 " + MAX_NAME_LENGTH + " 字");
+        String slug = slugOf(name);
+        JournalTag conflict = tagMapper.selectOne(new LambdaQueryWrapper<JournalTag>()
+                .eq(JournalTag::getSlug, slug).last("limit 1"));
+        if (conflict != null && !conflict.getId().equals(tagId)) {
+            merge(tagId, conflict.getId());
+            return conflict.getId();
+        }
+        tag.setName(name);
+        tag.setSlug(slug);
+        tagMapper.updateById(tag);
+        return tag.getId();
+    }
+
+    /**
+     * 把 source 标签并入 target：source 的日记关联全部转到 target，然后删掉 source。
+     *
+     * <p>转移前要先剔除那些两个标签都打了的日记，否则会撞上
+     * {@code uq_journal_tag_relation} 唯一约束。</p>
+     */
+    @Transactional
+    public void merge(Long sourceId, Long targetId) {
+        if (sourceId.equals(targetId)) throw BusinessException.badRequest("不能合并到自己");
+        require(sourceId);
+        require(targetId);
+        List<Long> alreadyTagged = relationMapper.selectList(new LambdaQueryWrapper<JournalTagRelation>()
+                        .eq(JournalTagRelation::getJournalTagId, targetId))
+                .stream().map(JournalTagRelation::getJournalEntryId).toList();
+        for (JournalTagRelation relation : relationMapper.selectList(new LambdaQueryWrapper<JournalTagRelation>()
+                .eq(JournalTagRelation::getJournalTagId, sourceId))) {
+            if (alreadyTagged.contains(relation.getJournalEntryId())) {
+                relationMapper.deleteById(relation.getId());   // 两边都有，直接丢掉重复的那条
+            } else {
+                relation.setJournalTagId(targetId);
+                relationMapper.updateById(relation);
+            }
+        }
+        tagMapper.deleteById(sourceId);
+    }
+
+    /** 删除标签，连带解除它在所有日记上的关联（外键 cascade 负责关联行）。 */
+    @Transactional
+    public void delete(Long tagId) {
+        require(tagId);
+        tagMapper.deleteById(tagId);
+    }
+
+    /** 清理没有任何日记引用的标签。日记删多了之后这类空标签会越积越多。 */
+    @Transactional
+    public int purgeUnused() {
+        List<TagView> unused = allTags().stream().filter(view -> view.journalCount() == 0).toList();
+        unused.forEach(view -> tagMapper.deleteById(view.id()));
+        return unused.size();
+    }
+
+    private JournalTag require(Long tagId) {
+        JournalTag tag = tagMapper.selectById(tagId);
+        if (tag == null) throw BusinessException.notFound("标签不存在");
+        return tag;
+    }
+
     private JournalTag findOrCreate(String name) {
         String slug = slugOf(name);
         JournalTag existing = tagMapper.selectOne(new LambdaQueryWrapper<JournalTag>()

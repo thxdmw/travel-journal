@@ -46,6 +46,18 @@ public class MediaController {
     public ApiResponse<Void> reorder(@PathVariable Long journalId, @Valid @RequestBody ReorderRequest request) {
         service.reorder(journalId, request.orderedIds()); return ApiResponse.ok();
     }
+    /** 按 EXIF 拍摄时间重排图片。手机相册多选上传后顺序常常是乱的。 */
+    @PutMapping("/api/admin/journals/{journalId}/media/sort-by-capture-time")
+    public ApiResponse<Integer> sortByCaptureTime(@PathVariable Long journalId) {
+        return ApiResponse.ok(service.sortByCaptureTime(journalId));
+    }
+
+    /** 按图片 GPS 推荐城市。只做建议，前端提示后由用户决定是否采纳。 */
+    @GetMapping("/api/admin/journals/{journalId}/media/suggest-city")
+    public ApiResponse<MediaService.CitySuggestion> suggestCity(@PathVariable Long journalId) {
+        return ApiResponse.ok(service.suggestCity(journalId));
+    }
+
     @PatchMapping("/api/admin/journals/{journalId}/cover/{mediaId}")
     public ApiResponse<Void> cover(@PathVariable Long journalId, @PathVariable Long mediaId) {
         service.setCover(journalId, mediaId); return ApiResponse.ok();

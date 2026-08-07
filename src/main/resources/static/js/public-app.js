@@ -9,11 +9,26 @@
   function clearScopedTheme(){scopedTheme=null;applyTheme(siteTheme);}
   applyTheme(siteTheme);
 
+  /**
+   * 由 /api/media/{id}/display 推出 srcset。
+   *
+   * 放在这里而不是写进模板：模板字符串是反引号包起来的，里面的正则字面量会被
+   * JS 先做一次转义解析，`\/` 变成 `/`，`/\/display$/` 就成了行注释，
+   * 整个模板从那里断掉。复杂表达式一律留在 JS 侧。
+   */
+  function coverSrcset(url) {
+    if (!url) return null;
+    const base = url.replace(/\/display$/, '');
+    if (base === url) return null;          // 不是预期格式就不生成，交给 src 兜底
+    return base + '/thumbnail 480w, ' + base + '/medium 768w, ' + url + ' 1280w';
+  }
+
   const JournalCard = {
     props: ['item'],
+    setup() { return { coverSrcset }; },
     template: `
       <router-link class="journal-card" :to="'/journals/' + item.slug">
-        <img v-if="item.coverUrl" class="card-photo" :src="item.coverUrl" :alt="item.title">
+        <img v-if="item.coverUrl" class="card-photo" :src="item.coverUrl" :srcset="coverSrcset(item.coverUrl)" sizes="(max-width: 700px) 92vw, (max-width: 1100px) 46vw, 31vw" loading="lazy" :alt="item.title">
         <div v-else class="card-photo placeholder">远行手记</div>
         <div class="card-body">
           <h3>{{ item.title }}</h3>
@@ -383,9 +398,13 @@
   };
 
   const JournalDetail = {
-    setup() {
+    // preview=true 时按令牌取内容，用于草稿预览。除数据来源外与正式详情页完全一致，
+    // 这样预览看到的就是发布后的真实样子（同一套主题、外壳和图片版式）。
+    props: { preview: { type: Boolean, default: false } },
+    setup(props) {
       const route = VueRouter.useRoute();
       const data = ref(null);
+      const previewFailed = ref(false);
       const article = ref(null);
       const lightbox = ref(null);
       const progress = ref(0);
@@ -414,13 +433,14 @@
       function updateProgress(){const height=document.documentElement.scrollHeight-window.innerHeight;progress.value=height>0?Math.min(100,Math.max(0,window.scrollY/height*100)):0;}
       // 正文是 v-html 塞进来的，轮播和前后对比的结构只能在渲染之后补
       watch(html, () => nextTick(() => { window.JournalMedia.teardown(article.value); window.JournalMedia.enhance(article.value); }));
-      onMounted(async () => { data.value = await api.journal(route.params.slug);setScopedTheme(data.value.theme); window.addEventListener('keydown', onKeydown);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(()=>{updateProgress();window.JournalMedia.enhance(article.value);}); });
+      onMounted(async () => { try { data.value = props.preview ? await api.preview(route.params.token) : await api.journal(route.params.slug); } catch (e) { previewFailed.value = true; throw e; } setScopedTheme(data.value.theme); window.addEventListener('keydown', onKeydown);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(()=>{updateProgress();window.JournalMedia.enhance(article.value);}); });
       onBeforeUnmount(() => {window.JournalMedia.teardown(article.value);window.removeEventListener('keydown', onKeydown);window.removeEventListener('scroll',updateProgress);clearScopedTheme();});
-      return { data, article, html, lightbox, current, progress, readingMinutes, openLightbox, openArticleImage, stepLightbox };
+      return { data, article, html, lightbox, current, progress, readingMinutes, preview: props.preview, previewFailed, openLightbox, openArticleImage, stepLightbox };
     },
     template: `
       <main v-if="data" class="page article">
         <div class="reading-progress" aria-hidden="true"><span :style="{width:progress+'%'}"></span></div>
+        <div v-if="preview" class="preview-banner">草稿预览 · 这篇日记尚未发布，链接会过期</div>
         <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div></header>
         <article ref="article" class="markdown-body" v-html="html" @click="openArticleImage"></article>
         <nav class="article-nav"><router-link v-if="data.previousSlug" :to="'/journals/'+data.previousSlug">← 上一篇</router-link><span v-else></span><router-link v-if="data.nextSlug" :to="'/journals/'+data.nextSlug">下一篇 →</router-link></nav>
@@ -431,7 +451,9 @@
           <figure @click.stop><img :src="current.src" :alt="current.caption || '旅行照片'"><figcaption v-if="current.caption">{{current.caption}}</figcaption></figure>
           <span v-if="lightbox.items.length>1" class="lightbox-count">{{lightbox.index+1}} / {{lightbox.items.length}}</span>
         </div></teleport>
-      </main><div v-else class="loading">正在展开日记…</div>`
+      </main>
+      <div v-else-if="previewFailed" class="loading">预览链接无效或已过期。</div>
+      <div v-else class="loading">正在展开日记…</div>`
   };
 
   const FootprintMap = {
@@ -461,6 +483,7 @@
     { path: '/trips/:slug', component: TripDetail },
     { path: '/journals', component: Journals },
     { path: '/journals/:slug', component: JournalDetail },
+    { path: '/preview/:token', component: JournalDetail, props: { preview: true } },
     { path: '/years', component: YearReview },
     { path: '/years/:year', component: YearReview },
     { path: '/map', component: FootprintMap }
