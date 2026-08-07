@@ -1,0 +1,477 @@
+/* ============================================================================
+   主题 token 的视觉实现层
+   ----------------------------------------------------------------------------
+   后端 ThemePresetService.SCHEMA 是可调项的唯一真相来源，theme.js 按统一约定
+   把它铺成 CSS 变量和 <html> 上的 data-* 属性：
+
+     数值  ->  --tj-{section}-{key}   例：--tj-card-opacity、--tj-gallery-gap
+     枚举  ->  data-{section}-{key}   例：data-card-style="glass"
+     布尔  ->  data-{section}-{key}="on|off"
+
+   本文件只负责「属性 -> 样式」这一层，不含任何硬编码的主题配色。
+   新增一个可调项：SCHEMA 加一行 -> 这里加一段选择器，前端 JS 不用动。
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- 派生变量 */
+:root {
+  --tj-card-opacity: 1;
+  --tj-card-blur: 0px;
+  --tj-shape-border-width: 1px;
+  --tj-layout-section-gap: 1;
+  --tj-background-intensity: .4;
+  --tj-typography-heading-weight: 700;
+  --tj-typography-letter-spacing: 0em;
+  --tj-typography-paragraph-spacing: 1.2em;
+  --tj-image-max-height: 75vh;
+  --tj-gallery-gap: 10px;
+  --tj-gallery-columns: 3;
+  --tj-map-route-width: 3px;
+  /* 卡片底色：把不透明度并进颜色，玻璃/胶片风格才能透出背景 */
+  --tj-card-bg: color-mix(in srgb, var(--tj-surface) calc(var(--tj-card-opacity) * 100%), transparent);
+}
+
+/* ================================================================ 明暗基调 */
+/* 暗色下大量元素原本写死了浅色，这里统一回正。写在 token 层而不是各组件里，
+   是为了让任何一套暗色主题都自动受益，不用逐个改组件。 */
+[data-scheme="dark"] .stat { background: var(--tj-surface-soft); }
+[data-scheme="dark"] .public-header { border-bottom-color: var(--tj-border); }
+[data-scheme="dark"] .map-box { background: #1b1f24; }
+[data-scheme="dark"] .map-load-message { background: color-mix(in srgb, var(--tj-bg) 94%, transparent); }
+[data-scheme="dark"] .map-box .leaflet-bar,
+[data-scheme="dark"] .map-box .leaflet-control-layers,
+[data-scheme="dark"] .map-box .leaflet-control-layers-toggle,
+[data-scheme="dark"] .map-box .leaflet-control-zoom a { background: var(--tj-surface) !important; color: var(--tj-text); }
+[data-scheme="dark"] .hero-photo::after { background: linear-gradient(90deg, color-mix(in srgb, var(--tj-bg) 45%, transparent), transparent 32%); }
+/* 暗色下把图片稍微压暗，避免整页发闷时图片刺眼 */
+[data-scheme="dark"] .markdown-body img,
+[data-scheme="dark"] .card-photo { filter: brightness(.92); }
+
+/* ================================================================ 页面背景 */
+[data-background-style="gradient"] body {
+  background: linear-gradient(160deg,
+    var(--tj-gradient-from, var(--tj-bg)),
+    var(--tj-gradient-to, var(--tj-surface-soft)));
+  background-attachment: fixed;
+}
+[data-background-style="image"] body {
+  background-image: var(--tj-bg-image);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+/* 背景图上直接放正文会读不清，垫一层跟随主题的半透明底 */
+[data-background-style="image"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--tj-bg) calc((1 - var(--tj-background-intensity)) * 100%), transparent);
+}
+
+/* 纹理层。统一用一个伪元素承载，强度由 --tj-background-intensity 控制 */
+[data-background-texture]:not([data-background-texture="none"]) body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--tj-background-intensity);
+}
+[data-background-texture="paper"] body::after {
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 2px, color-mix(in srgb, var(--tj-primary) 4%, transparent) 2px 3px),
+    repeating-linear-gradient(90deg, transparent 0 3px, color-mix(in srgb, var(--tj-primary) 3%, transparent) 3px 4px);
+}
+[data-background-texture="grain"] body::after,
+[data-background-texture="noise"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
+}
+[data-background-texture="dots"] body::after {
+  background-image: radial-gradient(color-mix(in srgb, var(--tj-primary) 22%, transparent) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+[data-background-texture="grid"] body::after {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--tj-primary) 14%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--tj-primary) 14%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+[data-background-texture="topo"] body::after {
+  background-image:
+    repeating-radial-gradient(circle at 20% 30%, transparent 0 22px, color-mix(in srgb, var(--tj-primary) 8%, transparent) 22px 23px),
+    repeating-radial-gradient(circle at 78% 68%, transparent 0 28px, color-mix(in srgb, var(--tj-primary) 7%, transparent) 28px 29px);
+}
+/* 纹理是 fixed 的，内容必须抬到它上面，否则整页被盖住 */
+[data-background-texture]:not([data-background-texture="none"]) .public-shell,
+[data-background-texture]:not([data-background-texture="none"]) .public-header { position: relative; z-index: 1; }
+
+/* ================================================================ 卡片风格 */
+/* 站内所有「面板类」元素共用一组变量，切换风格时一起变 */
+.journal-card,
+.map-panel,
+.stats-panel,
+.map-filter-bar,
+.chip,
+.trip-banner,
+.stat {
+  border-width: var(--tj-shape-border-width);
+  background: var(--tj-card-bg);
+}
+
+[data-card-style="flat"] .journal-card,
+[data-card-style="flat"] .map-panel,
+[data-card-style="flat"] .stats-panel,
+[data-card-style="flat"] .stat { border-color: transparent; box-shadow: none; }
+
+[data-card-style="shadow"] .journal-card,
+[data-card-style="shadow"] .map-panel,
+[data-card-style="shadow"] .stats-panel,
+[data-card-style="shadow"] .stat { border-color: transparent; box-shadow: var(--tj-shadow); }
+
+[data-card-style="glass"] .journal-card,
+[data-card-style="glass"] .map-panel,
+[data-card-style="glass"] .stats-panel,
+[data-card-style="glass"] .stat {
+  border-color: color-mix(in srgb, var(--tj-surface) 60%, transparent);
+  background: color-mix(in srgb, var(--tj-surface) calc(var(--tj-card-opacity) * 100%), transparent);
+  backdrop-filter: blur(max(var(--tj-card-blur), 10px)) saturate(1.3);
+  box-shadow: var(--tj-shadow-soft);
+}
+
+[data-card-style="paper"] .journal-card,
+[data-card-style="paper"] .map-panel,
+[data-card-style="paper"] .stats-panel {
+  border-color: var(--tj-border);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--tj-primary) 12%, transparent);
+}
+
+[data-card-style="polaroid"] .journal-card {
+  padding: 10px 10px 0;
+  border-color: transparent;
+  background: color-mix(in srgb, white 88%, var(--tj-surface));
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--tj-primary) 22%, transparent);
+}
+[data-card-style="polaroid"] .journal-card .card-photo { border-radius: 2px; }
+[data-card-style="polaroid"] .journal-card .card-body { padding: 16px 10px 22px; }
+
+[data-card-style="film"] .journal-card {
+  border-color: transparent;
+  background: #17181a;
+  box-shadow: var(--tj-shadow);
+}
+[data-card-style="film"] .journal-card .card-body h3 { color: #f3efe6; }
+[data-card-style="film"] .journal-card .card-body p,
+[data-card-style="film"] .journal-card .card-meta { color: #a9a49a; }
+/* 胶片卡片上下留出齿孔 */
+[data-card-style="film"] .journal-card .card-photo {
+  border-radius: 0;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  background-image:
+    repeating-linear-gradient(90deg, #2a2b2d 0 5px, transparent 5px 12px);
+  background-position: top, bottom;
+  background-repeat: repeat-x;
+  background-size: 12px 7px;
+  background-origin: border-box;
+  background-clip: border-box;
+}
+
+/* ============================================================ 字体与排版 */
+body { letter-spacing: var(--tj-typography-letter-spacing); }
+.section-title,
+.card-body h3,
+.page-title h1,
+.hero h1,
+.markdown-body h2,
+.markdown-body h3 { font-weight: var(--tj-typography-heading-weight); }
+.markdown-body p { margin-bottom: var(--tj-typography-paragraph-spacing); }
+
+[data-typography-heading-style="underline"] .section-title,
+[data-typography-heading-style="underline"] .markdown-body h2 {
+  padding-bottom: .3em;
+  border-bottom: 2px solid var(--tj-accent);
+}
+[data-typography-heading-style="underline"] .section-title::before { display: none; }
+[data-typography-heading-style="bar"] .markdown-body h2 {
+  padding-left: .6em;
+  border-left: 4px solid var(--tj-accent);
+}
+[data-typography-heading-style="serif-caps"] .section-title,
+[data-typography-heading-style="serif-caps"] .page-title h1,
+[data-typography-heading-style="serif-caps"] .hero h1 {
+  letter-spacing: .12em;
+  font-variant-caps: small-caps;
+}
+[data-typography-heading-style="outline"] .hero h1,
+[data-typography-heading-style="outline"] .page-title h1 {
+  color: transparent;
+  -webkit-text-stroke: 1px var(--tj-primary);
+  paint-order: stroke fill;
+}
+[data-typography-heading-style="plain"] .section-title::before { display: none; }
+
+/* ================================================================ 页面布局 */
+.section { margin-top: calc(58px * var(--tj-layout-section-gap)); }
+
+/* 首页文章区的排布方式 */
+[data-layout-home-layout="bento"] .card-grid {
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: minmax(150px, auto);
+}
+[data-layout-home-layout="bento"] .card-grid > :nth-child(1) { grid-column: span 2; grid-row: span 2; }
+[data-layout-home-layout="bento"] .card-grid > :nth-child(4) { grid-column: span 2; }
+[data-layout-home-layout="bento"] .card-grid > :nth-child(1) .card-photo { aspect-ratio: 4/3; height: auto; }
+
+[data-layout-home-layout="magazine"] .card-grid { grid-template-columns: repeat(6, 1fr); }
+[data-layout-home-layout="magazine"] .card-grid > * { grid-column: span 2; }
+[data-layout-home-layout="magazine"] .card-grid > :nth-child(1) { grid-column: span 4; }
+[data-layout-home-layout="magazine"] .card-grid > :nth-child(2) { grid-column: span 2; }
+
+[data-layout-home-layout="masonry"] .card-grid {
+  display: block;
+  columns: var(--tj-gallery-columns, 3);
+  column-gap: 22px;
+}
+[data-layout-home-layout="masonry"] .card-grid > * {
+  margin-bottom: 22px;
+  break-inside: avoid;
+}
+
+/* 时间轴：左侧一条竖线，卡片挂在上面 */
+[data-layout-home-layout="timeline"] .card-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 26px;
+  padding-left: 34px;
+}
+[data-layout-home-layout="timeline"] .card-grid::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: color-mix(in srgb, var(--tj-accent) 45%, transparent);
+}
+[data-layout-home-layout="timeline"] .card-grid > * { position: relative; }
+[data-layout-home-layout="timeline"] .card-grid > *::before {
+  content: "";
+  position: absolute;
+  left: -30px;
+  top: 26px;
+  width: 12px;
+  height: 12px;
+  border: 3px solid var(--tj-surface);
+  border-radius: 50%;
+  background: var(--tj-accent);
+}
+
+/* 日记正文的宽度策略 */
+[data-layout-journal-layout="wide"] .article { width: min(var(--tj-content-width, 1200px), calc(100% - 40px)); }
+[data-layout-journal-layout="immersive"] .article-head { min-height: 62vh; display: flex; flex-direction: column; justify-content: flex-end; }
+[data-layout-journal-layout="immersive"] .markdown-body { width: min(var(--tj-article-width, 760px), 100%); margin: 0 auto; }
+[data-layout-journal-layout="scrapbook"] .markdown-body { font-family: var(--tj-serif); }
+[data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(odd) { transform: rotate(-1.1deg); }
+[data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(even) { transform: rotate(.9deg); }
+
+/* ======================================================== 图片：主题级默认值 */
+/* 关键约定：只在 figure 自己没写对应修饰类时才生效。
+   逐张选过的版式永远优先，主题只负责「没选过的那些」。
+   这也是「图片过大导致排版失控」的正解——给一个合理的全局默认高度上限。 */
+.markdown-body { --figure-max-h: min(var(--tj-image-max-height, 75vh), 100%); }
+
+[data-image-width="small"]  .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 42%; }
+[data-image-width="medium"] .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 68%; }
+[data-image-width="large"]  .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 90%; }
+[data-image-width="full"]   .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 100%; }
+
+[data-image-frame="line"] .journal-figure:not([class*="--frame-"]) img {
+  padding: 0; border: 1px solid var(--tj-border); background: none; box-shadow: none;
+}
+[data-image-frame="paper"] .journal-figure:not([class*="--frame-"]) img {
+  padding: 8px; border: 1px solid var(--tj-border); background: var(--tj-surface); box-shadow: var(--tj-shadow-soft);
+}
+[data-image-frame="float"] .journal-figure:not([class*="--frame-"]) img {
+  padding: 0; border: 0; box-shadow: var(--tj-shadow);
+}
+[data-image-frame="polaroid"] .journal-figure:not([class*="--frame-"]) img {
+  padding: 11px 11px 38px; border: 0; border-radius: 3px;
+  background: #fffdf7; box-shadow: 0 10px 26px rgba(28,40,34,.18);
+}
+[data-image-frame="polaroid"] .journal-figure:not([class*="--frame-"]) figcaption {
+  margin-top: -32px; margin-bottom: 14px; color: #7b7367; font-family: var(--tj-serif);
+}
+[data-image-frame="film"] .journal-figure:not([class*="--frame-"]) img {
+  padding: 10px 8px; border: 0; border-radius: 2px;
+  background: #17181a
+    repeating-linear-gradient(90deg, #2a2b2d 0 5px, transparent 5px 12px) top/12px 7px repeat-x,
+    #17181a;
+  box-shadow: 0 8px 22px rgba(10,10,12,.4);
+}
+[data-image-frame="postcard"] .journal-figure:not([class*="--frame-"]) img {
+  padding: 6px; border: 1px solid color-mix(in srgb, var(--tj-primary) 25%, transparent);
+  border-radius: 2px; background: var(--tj-surface);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--tj-primary) 14%, transparent);
+}
+
+[data-image-tone="warm"] .journal-figure:not([class*="--tone-"]) img,
+[data-image-tone="warm"] .journal-gallery:not([class*="--tone-"]) img { filter: saturate(1.06) sepia(.12) hue-rotate(-6deg); }
+[data-image-tone="vintage"] .journal-figure:not([class*="--tone-"]) img,
+[data-image-tone="vintage"] .journal-gallery:not([class*="--tone-"]) img { filter: sepia(.28) saturate(.88) contrast(.94) brightness(1.03); }
+[data-image-tone="mono"] .journal-figure:not([class*="--tone-"]) img,
+[data-image-tone="mono"] .journal-gallery:not([class*="--tone-"]) img { filter: grayscale(1) contrast(1.04); }
+
+/* ============================================================ 多图默认布局 */
+.journal-gallery { --figure-gap: var(--tj-gallery-gap, 10px); }
+.journal-gallery:not([class*="--cols-"]) { --gallery-cols: var(--tj-gallery-columns, 3); }
+
+[data-gallery-layout="grid"] .journal-gallery:not([class*="journal-gallery--"]) {
+  display: grid; grid-template-columns: repeat(var(--gallery-cols, 3), 1fr); gap: var(--figure-gap);
+}
+[data-gallery-layout="grid"] .journal-gallery:not([class*="journal-gallery--"]) img { aspect-ratio: var(--gallery-ratio, 1); object-fit: cover; }
+[data-gallery-layout="masonry"] .journal-gallery:not([class*="journal-gallery--"]) {
+  columns: var(--gallery-cols, 3); column-gap: var(--figure-gap);
+}
+[data-gallery-layout="masonry"] .journal-gallery:not([class*="journal-gallery--"]) img { margin-bottom: var(--figure-gap); break-inside: avoid; }
+[data-gallery-layout="row"] .journal-gallery:not([class*="journal-gallery--"]) {
+  display: flex; flex-wrap: wrap; gap: var(--figure-gap);
+}
+[data-gallery-layout="row"] .journal-gallery:not([class*="journal-gallery--"]) img { flex: 1 1 0; min-width: 0; aspect-ratio: var(--gallery-ratio, 1); object-fit: cover; }
+
+/* ================================================================ 动效系统 */
+:root { --tj-motion-scale: 1; --tj-motion-time: 220ms; }
+[data-motion-level="none"]     { --tj-motion-scale: 0;   --tj-motion-time: 0ms; }
+[data-motion-level="subtle"]   { --tj-motion-scale: .55; --tj-motion-time: 200ms; }
+[data-motion-level="standard"] { --tj-motion-scale: 1;   --tj-motion-time: 300ms; }
+[data-motion-level="strong"]   { --tj-motion-scale: 1.8; --tj-motion-time: 420ms; }
+
+[data-motion-level="none"] * { animation: none !important; transition: none !important; }
+
+/* 悬停反馈。位移量乘以强度系数，关掉动效时自然归零 */
+[data-motion-hover="lift"] .journal-card:hover { transform: translateY(calc(-6px * var(--tj-motion-scale))); box-shadow: var(--tj-shadow); }
+[data-motion-hover="zoom"] .journal-card { overflow: hidden; }
+[data-motion-hover="zoom"] .journal-card:hover .card-photo { transform: scale(calc(1 + .05 * var(--tj-motion-scale))); }
+[data-motion-hover="zoom"] .card-photo { transition: transform var(--tj-motion-time) ease; }
+[data-motion-hover="tilt"] .journal-card { transition: transform var(--tj-motion-time) ease; }
+[data-motion-hover="tilt"] .journal-card:hover { transform: rotate(calc(-1deg * var(--tj-motion-scale))) translateY(calc(-3px * var(--tj-motion-scale))); }
+[data-motion-hover="none"] .journal-card:hover { transform: none; box-shadow: var(--tj-shadow-soft); }
+
+/* 进入动画 */
+@keyframes tj-fade-up {
+  from { opacity: 0; transform: translateY(calc(14px * var(--tj-motion-scale))); }
+  to   { opacity: 1; transform: none; }
+}
+[data-motion-entrance="on"] .page > * { animation: tj-fade-up var(--tj-motion-time) ease both; }
+[data-motion-entrance="on"] .card-grid > * { animation: tj-fade-up var(--tj-motion-time) ease both; }
+/* 错峰，避免整屏一起跳 */
+[data-motion-entrance="on"] .card-grid > :nth-child(2) { animation-delay: 60ms; }
+[data-motion-entrance="on"] .card-grid > :nth-child(3) { animation-delay: 120ms; }
+[data-motion-entrance="on"] .card-grid > :nth-child(4) { animation-delay: 180ms; }
+[data-motion-entrance="on"] .card-grid > :nth-child(5) { animation-delay: 240ms; }
+[data-motion-entrance="on"] .card-grid > :nth-child(n+6) { animation-delay: 300ms; }
+
+/* 滚动揭示：JS 打上 .tj-revealed，未命中时保持可见，保证无 JS 也能读 */
+[data-motion-scroll-reveal="on"] .tj-reveal {
+  opacity: 0;
+  transform: translateY(calc(20px * var(--tj-motion-scale)));
+  transition: opacity var(--tj-motion-time) ease, transform var(--tj-motion-time) ease;
+}
+[data-motion-scroll-reveal="on"] .tj-reveal.tj-revealed { opacity: 1; transform: none; }
+
+/* 系统级「减少动态效果」永远优先于主题设置 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --tj-motion-scale: 0; --tj-motion-time: 0ms; }
+  .tj-reveal { opacity: 1 !important; transform: none !important; }
+}
+
+/* ================================================================ 页面特效 */
+/* 全部默认关闭，叠在最上层且不吃鼠标事件 */
+.tj-effect-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  pointer-events: none;
+}
+[data-effects-grain="on"] .tj-effect-layer::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  opacity: .09;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+  animation: tj-grain 700ms steps(3) infinite;
+}
+@keyframes tj-grain {
+  0%   { transform: translate(0, 0); }
+  33%  { transform: translate(-3%, 2%); }
+  66%  { transform: translate(2%, -3%); }
+  100% { transform: translate(0, 0); }
+}
+[data-effects-light-leak="on"] .tj-effect-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: screen;
+  opacity: .22;
+  background:
+    radial-gradient(60% 40% at 88% 6%, color-mix(in srgb, var(--tj-accent) 70%, transparent), transparent 70%),
+    radial-gradient(40% 30% at 4% 92%, color-mix(in srgb, var(--tj-sand) 60%, transparent), transparent 70%);
+}
+[data-effects-vignette="on"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2999;
+  pointer-events: none;
+  box-shadow: inset 0 0 180px 40px color-mix(in srgb, black 34%, transparent);
+}
+
+/* ================================================================ 地图视觉 */
+/* 瓦片本身是位图，只能靠滤镜整体调色 */
+[data-map-style="dark"] .map-box .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+[data-map-style="vintage"] .map-box .leaflet-tile-pane { filter: sepia(.55) saturate(.7) contrast(1.05) brightness(1.02); }
+[data-map-style="terrain"] .map-box .leaflet-tile-pane { filter: saturate(1.25) contrast(1.08); }
+[data-map-style="light"] .map-box .leaflet-tile-pane { filter: saturate(.85) brightness(1.04); }
+/* auto：跟随明暗基调 */
+[data-map-style="auto"][data-scheme="dark"] .map-box .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+
+.city-marker,
+.route-marker { background: var(--tj-route-color, var(--tj-accent)); }
+
+[data-map-marker-style="pin"] .city-marker {
+  width: 16px; height: 16px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+}
+[data-map-marker-style="ring"] .city-marker {
+  background: transparent;
+  border: 4px solid var(--tj-route-color, var(--tj-accent));
+  box-shadow: 0 0 0 2px color-mix(in srgb, white 70%, transparent);
+}
+[data-map-marker-style="photo"] .city-marker {
+  width: 30px; height: 30px;
+  border: 3px solid white;
+  box-shadow: 0 3px 12px rgba(0,0,0,.3);
+}
+
+/* 路线描边动画。dasharray 由 JS 按实际长度设置 */
+[data-map-animate-route="on"] .leaflet-overlay-pane path { animation: tj-draw-route 1.8s ease forwards; }
+@keyframes tj-draw-route { from { stroke-dashoffset: var(--tj-route-length, 1000); } to { stroke-dashoffset: 0; } }
+
+/* ================================================================ 响应式 */
+@media (max-width: 900px) {
+  [data-layout-home-layout="bento"] .card-grid,
+  [data-layout-home-layout="magazine"] .card-grid { grid-template-columns: repeat(2, 1fr); }
+  [data-layout-home-layout="bento"] .card-grid > :nth-child(1),
+  [data-layout-home-layout="bento"] .card-grid > :nth-child(4),
+  [data-layout-home-layout="magazine"] .card-grid > * { grid-column: span 2; grid-row: auto; }
+  [data-layout-home-layout="masonry"] .card-grid { columns: 2; }
+}
+@media (max-width: 700px) {
+  [data-layout-home-layout="bento"] .card-grid,
+  [data-layout-home-layout="magazine"] .card-grid { grid-template-columns: 1fr; }
+  [data-layout-home-layout="bento"] .card-grid > *,
+  [data-layout-home-layout="magazine"] .card-grid > * { grid-column: span 1; }
+  [data-layout-home-layout="masonry"] .card-grid { columns: 1; }
+  [data-layout-home-layout="timeline"] .card-grid { padding-left: 26px; }
+}

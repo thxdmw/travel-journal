@@ -2,6 +2,7 @@ package com.thx.traveljournal.theme.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.thx.traveljournal.common.api.ApiResponse;
+import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.theme.service.ThemePresetService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -9,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -18,6 +20,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AdminThemePresetController {
     private final ThemePresetService service;
+    private final MediaService mediaService;
 
     public record ThemeRequest(@NotBlank @Size(max = 100) String name,
                                @Size(max = 500) String description,
@@ -43,6 +46,15 @@ public class AdminThemePresetController {
                                                              @Valid @RequestBody ThemeRequest request) {
         return ApiResponse.ok(service.update(id, request.name(), request.description(), request.baseThemeKey(),
                 request.previewImageUrl(), request.definitionJson(), request.enabled()));
+    }
+
+    /**
+     * 上传首页封面图。返回的 id 由前端填进主题配置的 hero.mediaId，随主题一起保存。
+     * 不挂在具体主题下，因为设计器里可能正在新建一个尚未保存的主题。
+     */
+    @PostMapping("/hero")
+    public ApiResponse<MediaService.MediaView> uploadHero(@RequestPart("file") MultipartFile file) {
+        return ApiResponse.ok(mediaService.uploadThemeHero(file));
     }
 
     @PostMapping("/{id}/duplicate")

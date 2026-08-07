@@ -106,7 +106,11 @@
       createTheme: body => http.post('/admin/themes', body),
       updateTheme: (id, body) => http.put('/admin/themes/' + id, body),
       deleteTheme: id => http.delete('/admin/themes/' + id),
-      duplicateTheme: id => http.post('/admin/themes/' + id + '/duplicate')
+      duplicateTheme: id => http.post('/admin/themes/' + id + '/duplicate'),
+      // 上传主题首页封面图。不绑定具体主题，返回的 id 由前端填进 definitionJson.hero.mediaId
+      uploadThemeHero: form => http.post('/admin/themes/hero', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
     }
   };
 })();

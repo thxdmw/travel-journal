@@ -209,6 +209,21 @@ public class MediaService {
     }
 
     /**
+     * 上传一张主题首页封面图，返回图片信息供前端把 id 填进主题配置。
+     *
+     * <p>不绑定具体主题：设计器里可能正在新建一个还没保存的主题，此时没有主题 id 可用。
+     * 图片先落库，等主题保存时把 id 写进 {@code definition_json.hero.mediaId} 建立引用。</p>
+     *
+     * <p>换图后的旧图不会自动清理——真要清理得让主题模块反向依赖媒体模块，
+     * 为这点存储收益不划算。已被主题引用的图片则受 {@code countThemeHeroReferences} 保护，
+     * 不会在删日记、删旅行时被当成孤儿误删。</p>
+     */
+    @Transactional
+    public MediaView uploadThemeHero(MultipartFile file) {
+        return toView(null, storeImage(file, "themes/hero/"), null, null);
+    }
+
+    /**
      * 生成图片的对象存储预签名访问地址。
      *
      * @param admin 是否为已登录管理员；访客只能访问已公开引用的图片，且拿不到原图
@@ -335,7 +350,9 @@ public class MediaService {
             long journalRefs = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
                     .eq(JournalMedia::getMediaAssetId, assetId));
             long tripRefs = tripMapper.selectCount(new LambdaQueryWrapper<Trip>().eq(Trip::getCoverMediaId, assetId));
-            if (journalRefs > 0 || tripRefs > 0) continue;
+            // 主题封面存在 definition_json 里，不是外键，容易漏判——漏了就会把还在用的封面删掉
+            long themeRefs = visibilityMapper.countThemeHeroReferences(assetId);
+            if (journalRefs > 0 || tripRefs > 0 || themeRefs > 0) continue;
             MediaAsset asset = assetMapper.selectById(assetId);
             if (asset == null) continue;
             removeObjectQuietly(asset.getBucketName(), asset.getOriginalObjectKey());

@@ -68,6 +68,9 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .admin-trip-card p { min-height:42px; color:var(--tj-muted); font-size:13px; line-height:1.6; }
 .admin-trip-card footer { display:flex; justify-content:space-between; color:#8c887f; font-size:12px; }
 .trip-card-cover { display:block; width:100%; height:132px; margin-bottom:12px; border-radius:calc(var(--tj-radius) - 4px); object-fit:cover; }
+/* 没有封面的卡片也要占住同样的高度，否则一行里有图和无图的卡片会错位 */
+.trip-card-cover-empty { display:grid; place-items:center; border:1px dashed var(--tj-border); background:var(--tj-surface-soft); }
+.trip-card-cover-empty span { color:var(--tj-muted); font-size:12px; }
 
 /* 概览和预算的加载容器：数据还没回来时也要有实体高度，否则转圈没地方显示 */
 .tab-loading-host { min-height:200px; }
@@ -301,7 +304,23 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .theme-designer { height:min(72vh,760px); min-height:560px; display:grid; grid-template-columns:minmax(360px,430px) 1fr; gap:18px; }
 .theme-controls { min-height:0; overflow:auto; padding:2px 8px 18px 2px; scrollbar-width:thin; }
 .theme-history { position:sticky; top:0; z-index:2; padding:5px 0 10px; background:var(--tj-surface); }
+/* 预设一键套用行 */
+.preset-row { margin-bottom:14px; padding-bottom:14px; border-bottom:1px dashed var(--tj-border); }
+.preset-row-label { display:block; margin-bottom:8px; color:var(--tj-primary); font-size:12px; font-weight:700; }
+.preset-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.preset-chip { display:flex; align-items:center; gap:7px; padding:5px 11px 5px 6px; border:1px solid var(--tj-border); border-radius:999px; background:var(--tj-surface); color:var(--tj-text); font-size:12px; cursor:pointer; transition:.18s; }
+.preset-chip:hover { border-color:var(--tj-accent); transform:translateY(-1px); }
+.preset-chip i { width:26px; height:14px; border-radius:3px; }
+/* 分组说明：解释这组设置的边界，避免用户误以为会覆盖单张图片的设置 */
+.group-hint { margin:2px 0 10px; color:var(--tj-muted); font-size:11px; line-height:1.6; }
+.scheme-toggle { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; color:var(--tj-primary); font-size:12px; font-weight:700; }
 .theme-basic { display:grid; gap:12px; }
+/* 首页封面图选择器 */
+.hero-picker { display:grid; gap:8px; font-weight:400; }
+.hero-preview { height:112px; border:1px solid var(--tj-border); border-radius:calc(var(--tj-radius) - 4px); background-position:center; background-size:cover; }
+.hero-preview.empty { display:grid; place-items:center; border-style:dashed; color:var(--tj-muted); background:var(--tj-surface-soft); font-size:12px; }
+.hero-actions { display:flex; gap:8px; align-items:center; }
+.hero-picker small { color:var(--tj-muted); font-size:11px; line-height:1.5; }
 .theme-basic label,.theme-setting-grid label { display:grid; gap:6px; color:var(--tj-primary); font-size:12px; font-weight:700; }
 .theme-controls details { margin-top:13px; padding:0 13px 13px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface); }
 .theme-controls summary { padding:12px 0; color:var(--tj-primary); cursor:pointer; font-weight:700; }

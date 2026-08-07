@@ -36,9 +36,11 @@ class AdminProfileServiceTest {
 
     @Test
     void shouldUpdateSupportedTheme() {
-        AdminUser updated = service.updateTheme("admin", "sanya-breeze");
+        user.setThemeKey("something-else");
 
-        assertThat(updated.getThemeKey()).isEqualTo("sanya-breeze");
+        AdminUser updated = service.updateTheme("admin", "travel-classic");
+
+        assertThat(updated.getThemeKey()).isEqualTo("travel-classic");
         verify(mapper).updateById(user);
     }
 

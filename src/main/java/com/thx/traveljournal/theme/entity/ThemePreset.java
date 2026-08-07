@@ -23,7 +23,7 @@ public class ThemePreset extends BaseEntity {
     private String name;
     /** 主题说明 */
     private String description;
-    /** 基础视觉，取值 travel-classic 或 sanya-breeze，负责封面版式和 CSS 兜底 */
+    /** 基础视觉，目前仅 travel-classic，负责封面版式和 CSS 兜底 */
     private String baseThemeKey;
     /** 主题预览图地址 */
     private String previewImageUrl;

@@ -41,6 +41,8 @@
   --el-text-color-primary: #2A2D2B;
 }
 
+/* 自定义主题上传了封面图时，theme.js 会写入 --tj-hero-image 覆盖掉默认图；
+   没上传（含系统预设本身）就用这张京都默认图。 */
 [data-theme="travel-classic"] .home-hero-photo {
-  background-image: url('/img/home-hero-kyoto.png');
+  background-image: var(--tj-hero-image, url('/img/home-hero-kyoto.png'));
 }

@@ -37,7 +37,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AdminProfileService {
     public static final String DEFAULT_THEME = "travel-classic";
-    public static final List<String> THEMES = List.of(DEFAULT_THEME, "sanya-breeze");
+    /** 没有注入 ThemePresetService 时的兜底白名单（仅单元测试会走到），正常运行按数据库里的主题校验 */
+    public static final List<String> THEMES = List.of(DEFAULT_THEME);
     private static final List<String> ALLOWED_IMAGE_TYPES = List.of("image/jpeg", "image/png", "image/webp");
 
     private final AdminUserMapper mapper;

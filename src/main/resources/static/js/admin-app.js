@@ -283,6 +283,7 @@
       <div class="panel"><div class="toolbar"><el-input v-model="keyword" clearable placeholder="搜索旅行" style="max-width:280px" @keyup.enter="load"/><el-button @click="load">查询</el-button></div>
       <div class="panel-pad"><div v-loading="loading" class="trip-list"><article v-for="item in data" :key="item.id" class="admin-trip-card" @click="$router.push('/trips/'+item.id)">
         <img v-if="item.coverMediaId" class="trip-card-cover" :src="'/api/media/'+item.coverMediaId+'/thumbnail'" :alt="item.title">
+        <div v-else class="trip-card-cover trip-card-cover-empty" aria-hidden="true"><span>还没有封面</span></div>
         <span class="status">{{statusLabel(item.status)}}</span><h3>{{item.title}}</h3><p>{{item.summary||'还没有旅行简介'}}</p><footer><span>{{item.startDate}} — {{item.endDate}}</span><el-button link @click.stop="open(item)">编辑</el-button></footer>
       </article></div><el-empty v-if="!data.length&&!loading" description="还没有旅行"/></div></div>
       <el-dialog v-model="dialog" :title="editing?'编辑旅行':'新建旅行'" width="min(680px,92vw)" @closed="resetCover">
@@ -1175,8 +1176,96 @@
         previewBox.stageWidth=viewport.width*scale;
         previewBox.stageHeight=frameHeight*scale;
       }
-      const colorFields=[['background','页面背景'],['surface','内容背景'],['surfaceSoft','柔和背景'],['primary','主要文字'],['primarySoft','次级主色'],['accent','强调操作'],['accentHover','强调悬停'],['sand','装饰沙色'],['text','正文颜色'],['muted','弱化文字'],['border','边框颜色'],['danger','危险提示']];
-      const defaultDefinition={colors:{background:'#F7F2E8',surface:'#FFFCF6',surfaceSoft:'#F1E7D7',primary:'#264A3D',primarySoft:'#42685A',accent:'#C76D4B',accentHover:'#B65B3B',sand:'#DFC9A8',text:'#2A2D2B',muted:'#77736B',border:'#E6DAC8',danger:'#B7483E'},typography:{headingFamily:'serif',bodyFamily:'sans',bodySize:16,lineHeight:1.8},shape:{cardRadius:12,imageRadius:8,buttonRadius:8},layout:{contentWidth:1200,articleWidth:760,density:'comfortable',homeLayout:'editorial'},image:{style:'natural',shadow:'soft',defaultRatio:'16:9'},motion:{level:'subtle'}};
+      const colorFields=[['background','页面背景'],['surface','内容背景'],['surfaceSoft','柔和背景'],['primary','主要文字'],['primarySoft','次级主色'],['secondary','辅助色'],['accent','强调操作'],['accentHover','强调悬停'],['sand','装饰沙色'],['text','正文颜色'],['muted','弱化文字'],['border','边框颜色'],['danger','危险提示'],['gradientFrom','渐变起色'],['gradientTo','渐变止色']];
+      // 必须和后端 ThemePresetService.SCHEMA 的默认值保持一致：
+      // completeDefinition 用它补齐缺失区块，缺了哪个区块对应的控件就会报错。
+      const defaultDefinition={
+        colors:{background:'#F7F2E8',surface:'#FFFCF6',surfaceSoft:'#F1E7D7',primary:'#264A3D',primarySoft:'#42685A',secondary:'#7A8B7F',accent:'#C76D4B',accentHover:'#B65B3B',sand:'#DFC9A8',text:'#2A2D2B',muted:'#77736B',border:'#E6DAC8',danger:'#B7483E',gradientFrom:'#F7F2E8',gradientTo:'#F1E7D7',scheme:'light'},
+        typography:{headingFamily:'serif',bodyFamily:'sans',bodySize:16,lineHeight:1.8,letterSpacing:0,headingWeight:700,paragraphSpacing:1.2,headingStyle:'plain'},
+        shape:{cardRadius:12,imageRadius:8,buttonRadius:8,borderWidth:1},
+        layout:{contentWidth:1200,articleWidth:760,sectionGap:1,density:'comfortable',homeLayout:'editorial',journalLayout:'single'},
+        card:{style:'border',opacity:1,blur:0},
+        background:{style:'solid',texture:'none',intensity:0.4,mediaId:null},
+        image:{style:'natural',shadow:'soft',defaultRatio:'16:9',frame:'none',tone:'none',width:'medium',maxHeight:75},
+        gallery:{layout:'grid',columns:3,gap:10},
+        motion:{level:'subtle',hover:'lift',entrance:true,scrollReveal:false},
+        effects:{particles:'none',grain:false,lightLeak:false,vignette:false},
+        map:{style:'auto',routeColor:'#C76D4B',routeWidth:3,markerStyle:'dot',animateRoute:false},
+        hero:{mediaId:null}};
+
+      /**
+       * 高级自定义的控件表。一个 token 一行，模板用 v-for 渲染，
+       * 新增可调项时后端 SCHEMA 加一行、这里加一行即可，不用改模板结构。
+       */
+      const settingGroups=[
+        {key:'typography',label:'字体与排版',fields:[
+          {key:'headingFamily',label:'标题字体',type:'select',options:[['serif','杂志衬线'],['sans','现代无衬线'],['rounded','圆润黑体'],['mono','等宽字体']]},
+          {key:'bodyFamily',label:'正文字体',type:'select',options:[['sans','清晰无衬线'],['serif','沉浸衬线'],['rounded','圆润黑体'],['mono','等宽字体']]},
+          {key:'headingStyle',label:'标题装饰',type:'select',options:[['plain','无装饰'],['underline','下划线'],['bar','左侧竖条'],['serif-caps','小型大写'],['outline','描边空心']]},
+          {key:'bodySize',label:'正文字号',type:'number',min:14,max:22,step:1},
+          {key:'lineHeight',label:'正文行高',type:'number',min:1.4,max:2.4,step:0.05},
+          {key:'letterSpacing',label:'字间距 (em)',type:'number',min:-0.02,max:0.24,step:0.01},
+          {key:'headingWeight',label:'标题字重',type:'number',min:400,max:900,step:50},
+          {key:'paragraphSpacing',label:'段间距 (em)',type:'number',min:0.6,max:2.4,step:0.05}
+        ]},
+        {key:'shape',label:'圆角与描边',fields:[
+          {key:'cardRadius',label:'卡片圆角',type:'number',min:0,max:32,step:1},
+          {key:'imageRadius',label:'图片圆角',type:'number',min:0,max:32,step:1},
+          {key:'buttonRadius',label:'按钮圆角',type:'number',min:0,max:32,step:1},
+          {key:'borderWidth',label:'描边粗细',type:'number',min:0,max:4,step:1}
+        ]},
+        {key:'layout',label:'页面布局',fields:[
+          {key:'homeLayout',label:'首页布局',type:'select',options:[['editorial','旅行杂志'],['classic','整齐卡片'],['bento','Bento 格'],['magazine','杂志栅格'],['timeline','时间轴'],['masonry','瀑布流']]},
+          {key:'journalLayout',label:'日记布局',type:'select',options:[['single','标准单栏'],['wide','宽栏'],['immersive','沉浸式'],['scrapbook','手账式']]},
+          {key:'density',label:'内容密度',type:'select',options:[['compact','紧凑'],['comfortable','舒适'],['relaxed','宽松']]},
+          {key:'contentWidth',label:'内容宽度',type:'number',min:960,max:1600,step:20},
+          {key:'articleWidth',label:'文章宽度',type:'number',min:600,max:1000,step:20},
+          {key:'sectionGap',label:'区块间距倍数',type:'number',min:0.6,max:2.2,step:0.05}
+        ]},
+        {key:'card',label:'卡片风格',fields:[
+          {key:'style',label:'卡片外观',type:'select',options:[['flat','无边无影'],['border','描边'],['shadow','投影'],['glass','玻璃拟态'],['paper','纸片'],['polaroid','拍立得'],['film','胶片']]},
+          {key:'opacity',label:'卡片不透明度',type:'number',min:0.4,max:1,step:0.02},
+          {key:'blur',label:'毛玻璃模糊',type:'number',min:0,max:24,step:1}
+        ]},
+        {key:'background',label:'页面背景',fields:[
+          {key:'style',label:'背景类型',type:'select',options:[['solid','纯色'],['gradient','渐变'],['image','图片']]},
+          {key:'texture',label:'叠加纹理',type:'select',options:[['none','无'],['paper','纸纹'],['grain','胶片颗粒'],['noise','噪点'],['dots','圆点'],['grid','网格'],['topo','等高线']]},
+          {key:'intensity',label:'纹理强度',type:'number',min:0,max:1,step:0.05}
+        ]},
+        {key:'image',label:'图片默认版式',hint:'日记里逐张选过的版式优先，这里只影响没单独设置过的图片',fields:[
+          {key:'width',label:'默认宽度',type:'select',options:[['small','小图 42%'],['medium','中图 68%'],['large','大图 90%'],['full','通栏 100%']]},
+          {key:'maxHeight',label:'最大高度 (vh)',type:'number',min:30,max:100,step:5},
+          {key:'defaultRatio',label:'默认比例',type:'select',options:[['natural','原始比例'],['16:9','16:9'],['4:3','4:3'],['1:1','1:1'],['3:4','3:4']]},
+          {key:'frame',label:'相框风格',type:'select',options:[['none','无'],['line','细线'],['paper','相纸'],['float','悬浮'],['polaroid','拍立得'],['film','胶片'],['postcard','明信片']]},
+          {key:'tone',label:'滤镜',type:'select',options:[['none','原色'],['warm','暖调'],['vintage','复古'],['mono','黑白']]},
+          {key:'shadow',label:'图片阴影',type:'select',options:[['none','无'],['soft','轻柔'],['floating','悬浮']]},
+          {key:'style',label:'图片风格',type:'select',options:[['natural','自然'],['rounded','柔和圆角'],['paper','相纸']]}
+        ]},
+        {key:'gallery',label:'多图布局',fields:[
+          {key:'layout',label:'默认排布',type:'select',options:[['grid','网格'],['masonry','瀑布流'],['row','等高一行'],['mosaic','马赛克'],['magazine','杂志'],['carousel','轮播'],['filmstrip','胶片条']]},
+          {key:'columns',label:'列数',type:'number',min:2,max:4,step:1},
+          {key:'gap',label:'图片间距',type:'number',min:0,max:32,step:2}
+        ]},
+        {key:'motion',label:'动效',fields:[
+          {key:'level',label:'动效强度',type:'select',options:[['none','关闭'],['subtle','轻微'],['standard','标准'],['strong','强烈']]},
+          {key:'hover',label:'悬停反馈',type:'select',options:[['none','无'],['lift','浮起'],['zoom','放大'],['tilt','倾斜']]},
+          {key:'entrance',label:'进入动画',type:'switch'},
+          {key:'scrollReveal',label:'滚动揭示',type:'switch'}
+        ]},
+        {key:'effects',label:'页面特效',hint:'默认全关，开启后会常驻运行；系统开启「减少动态效果」时自动失效',fields:[
+          {key:'particles',label:'粒子效果',type:'select',options:[['none','关闭'],['snow','雪'],['sakura','樱花'],['leaves','落叶'],['stars','星空'],['dust','浮尘']]},
+          {key:'grain',label:'胶片颗粒',type:'switch'},
+          {key:'lightLeak',label:'漏光',type:'switch'},
+          {key:'vignette',label:'暗角',type:'switch'}
+        ]},
+        {key:'map',label:'地图视觉',fields:[
+          {key:'style',label:'地图色调',type:'select',options:[['auto','跟随明暗'],['light','明亮'],['dark','暗色'],['vintage','复古'],['terrain','地形增强']]},
+          {key:'markerStyle',label:'标记样式',type:'select',options:[['dot','圆点'],['pin','水滴'],['ring','圆环'],['photo','大圆点']]},
+          {key:'routeColor',label:'路线颜色',type:'color'},
+          {key:'routeWidth',label:'路线粗细',type:'number',min:1,max:8,step:1},
+          {key:'animateRoute',label:'路线绘制动画',type:'switch'}
+        ]}
+      ];
       const form=reactive({name:'',description:'',baseThemeKey:'travel-classic',previewImageUrl:'',enabled:true,definitionJson:JSON.parse(JSON.stringify(defaultDefinition))});
       const contrast=computed(()=>{const ratio=contrastRatio(form.definitionJson.colors.text,form.definitionJson.colors.background);return{ratio:ratio.toFixed(2),ok:ratio>=4.5};});
       const canUndo=computed(()=>historyIndex.value>0),canRedo=computed(()=>historyIndex.value<history.value.length-1);
@@ -1217,6 +1306,45 @@
       function exportTheme(item){const payload={schemaVersion:1,name:item.name,description:item.description,baseThemeKey:item.baseThemeKey,previewImageUrl:item.previewImageUrl,definitionJson:item.definitionJson};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=item.themeKey+'.json';link.click();URL.revokeObjectURL(link.href);}
       function chooseImport(){importInput.value.click();}
       async function imported(event){const file=event.target.files[0];event.target.value='';if(!file)return;try{const data=JSON.parse(await file.text());if(!data.definitionJson)throw new Error('文件中缺少 definitionJson');assignSnapshot({name:(data.name||'导入的主题')+' · 导入',description:data.description||'',baseThemeKey:data.baseThemeKey||'travel-classic',previewImageUrl:data.previewImageUrl||'',enabled:true,definitionJson:data.definitionJson});editing.value=null;editor.value=true;nextTick(()=>{seedHistory();postPreview();});}catch(e){fail(new Error('导入失败：'+e.message));}}
+      // ——— 预设 ———
+      // 预设就是 builtin 的主题记录，套用时只替换视觉配置，保留用户已填的名称和说明，
+      // 这样「先起名 → 挑个预设打底 → 再微调」这条路走得通。
+      const builtinThemes=computed(()=>themes.value.filter(item=>item.builtin));
+      function applyPreset(item){
+        form.definitionJson=completeDefinition(item.definitionJson);
+        message('已套用「'+item.name+'」，可以继续微调');
+      }
+      /** 预设色卡：用背景 / 主色 / 强调色三段拼一个小色条 */
+      function presetSwatch(item){
+        const c=item.definitionJson?.colors||{};
+        return {background:'linear-gradient(90deg,'+(c.background||'#eee')+' 0 34%,'+(c.primary||'#666')+' 34% 67%,'+(c.accent||'#c76d4b')+' 67% 100%)'};
+      }
+
+      // ——— 首页封面图 ———
+      // 只在配置里存 media id，展示地址前端自己拼。上传后立刻推给预览，
+      // 但要等主题保存才真正生效（definitionJson 随主题一起提交）。
+      const heroInput=ref(null),heroUploading=ref(false);
+      const heroUrl=computed(()=>{
+        const id=form.definitionJson.hero?.mediaId;
+        return id?'/api/media/'+id+'/display':'';
+      });
+      function chooseHero(){heroInput.value?.click();}
+      async function heroPicked(event){
+        const file=event.target.files?.[0];
+        event.target.value='';
+        if(!file)return;
+        heroUploading.value=true;
+        try{
+          const body=new FormData();
+          body.append('file',file);
+          const asset=await A.uploadThemeHero(body);
+          if(!form.definitionJson.hero)form.definitionJson.hero={mediaId:null};
+          form.definitionJson.hero.mediaId=asset.id;
+          message('封面已上传，保存主题后生效');
+        }catch(e){fail(e);}
+        finally{heroUploading.value=false;}
+      }
+      function clearHero(){if(form.definitionJson.hero)form.definitionJson.hero.mediaId=null;}
       function luminance(hex){const values=String(hex).replace('#','').match(/.{2}/g)?.map(x=>parseInt(x,16)/255)||[0,0,0];return values.map(x=>x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4)).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);}
       function contrastRatio(a,b){const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
       watch(form,()=>{postPreview();if(restoring||!editor.value)return;clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,280);},{deep:true});
@@ -1231,7 +1359,7 @@
       watch(previewMode,()=>nextTick(measurePreview));
       onMounted(load);
       onBeforeUnmount(()=>{clearTimeout(historyTimer);previewObserver?.disconnect();});
-      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,contrast,canUndo,canRedo,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor};
+      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor};
     },
     template: `<div><div class="page-head"><div><h2>主题外观</h2><p>选择预设，或设计自己的色彩、字体、布局与图片风格；公开网站会同步更新。</p></div><div class="theme-page-actions"><input ref="importInput" type="file" accept="application/json" hidden @change="imported"><el-button @click="chooseImport">导入 JSON</el-button><el-button type="primary" @click="openEditor(null,true)">新建设计</el-button></div></div>
       <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey" class="panel theme-preview" :class="{selected:session.user?.themeKey===item.themeKey}">
@@ -1240,11 +1368,33 @@
       </article></div>
       <el-dialog v-model="editor" class="theme-designer-dialog" :title="editing?'设计主题':'新建主题'" width="min(1240px,97vw)" destroy-on-close>
         <div class="theme-designer"><section class="theme-controls"><div class="theme-history"><el-button size="small" :disabled="!canUndo" @click="undo">撤销</el-button><el-button size="small" :disabled="!canRedo" @click="redo">重做</el-button><el-button size="small" @click="resetEditor">恢复打开时状态</el-button></div>
-          <div class="theme-basic"><label>主题名称<el-input v-model="form.name" maxlength="100"/></label><label>主题说明<el-input v-model="form.description" type="textarea" :rows="2" maxlength="500"/></label><label>基础视觉<el-select v-model="form.baseThemeKey"><el-option label="远行手记" value="travel-classic"/><el-option label="三亚海风" value="sanya-breeze"/></el-select></label></div>
-          <details open><summary>色彩</summary><div class="theme-color-grid"><label v-for="item in colorFields" :key="item[0]"><span>{{item[1]}}</span><el-color-picker v-model="form.definitionJson.colors[item[0]]"/><code>{{form.definitionJson.colors[item[0]]}}</code></label></div><div class="contrast-note" :class="{warn:!contrast.ok}">正文与背景对比度 {{contrast.ratio}}:1 · {{contrast.ok?'阅读对比度良好':'建议达到 4.5:1 以上'}}</div></details>
-          <details><summary>字体与阅读</summary><div class="theme-setting-grid"><label>标题字体<el-select v-model="form.definitionJson.typography.headingFamily"><el-option label="旅行杂志衬线" value="serif"/><el-option label="现代无衬线" value="sans"/></el-select></label><label>正文字体<el-select v-model="form.definitionJson.typography.bodyFamily"><el-option label="清晰无衬线" value="sans"/><el-option label="沉浸衬线" value="serif"/></el-select></label><label>正文字号<el-input-number v-model="form.definitionJson.typography.bodySize" :min="14" :max="22"/></label><label>正文行高<el-input-number v-model="form.definitionJson.typography.lineHeight" :min="1.4" :max="2.2" :step="0.1"/></label></div></details>
-          <details><summary>形状与布局</summary><div class="theme-setting-grid"><label>卡片圆角<el-input-number v-model="form.definitionJson.shape.cardRadius" :min="0" :max="32"/></label><label>图片圆角<el-input-number v-model="form.definitionJson.shape.imageRadius" :min="0" :max="32"/></label><label>按钮圆角<el-input-number v-model="form.definitionJson.shape.buttonRadius" :min="0" :max="32"/></label><label>内容宽度<el-input-number v-model="form.definitionJson.layout.contentWidth" :min="960" :max="1600" :step="20"/></label><label>文章宽度<el-input-number v-model="form.definitionJson.layout.articleWidth" :min="600" :max="1000" :step="20"/></label><label>内容密度<el-select v-model="form.definitionJson.layout.density"><el-option label="紧凑" value="compact"/><el-option label="舒适" value="comfortable"/><el-option label="宽松" value="relaxed"/></el-select></label><label>首页布局<el-select v-model="form.definitionJson.layout.homeLayout"><el-option label="旅行杂志" value="editorial"/><el-option label="整齐卡片" value="classic"/></el-select></label></div></details>
-          <details><summary>图片与动效</summary><div class="theme-setting-grid"><label>图片风格<el-select v-model="form.definitionJson.image.style"><el-option label="自然" value="natural"/><el-option label="柔和圆角" value="rounded"/><el-option label="相纸" value="paper"/></el-select></label><label>图片阴影<el-select v-model="form.definitionJson.image.shadow"><el-option label="无" value="none"/><el-option label="轻柔" value="soft"/><el-option label="悬浮" value="floating"/></el-select></label><label>卡片图片比例<el-select v-model="form.definitionJson.image.defaultRatio"><el-option label="原始比例" value="natural"/><el-option label="16:9" value="16:9"/><el-option label="4:3" value="4:3"/><el-option label="1:1" value="1:1"/></el-select></label><label>页面动效<el-select v-model="form.definitionJson.motion.level"><el-option label="细微" value="subtle"/><el-option label="关闭" value="none"/></el-select></label></div></details>
+          <div class="theme-basic"><label>主题名称<el-input v-model="form.name" maxlength="100"/></label><label>主题说明<el-input v-model="form.description" type="textarea" :rows="2" maxlength="500"/></label>
+            <label>首页封面图
+              <div class="hero-picker">
+                <div class="hero-preview" :class="{empty:!heroUrl}" :style="heroUrl?{backgroundImage:'url('+heroUrl+')'}:null"><span v-if="!heroUrl">使用默认封面</span></div>
+                <div class="hero-actions"><el-button size="small" :loading="heroUploading" @click="chooseHero">{{heroUrl?'更换封面':'上传封面'}}</el-button><el-button v-if="heroUrl" size="small" link type="danger" @click="clearHero">恢复默认</el-button></div>
+                <input ref="heroInput" hidden type="file" accept="image/jpeg,image/png,image/webp" @change="heroPicked">
+                <small>显示在前台首页首屏右侧，建议横图；保存主题后生效。</small>
+              </div>
+            </label>
+          </div>
+          <div class="preset-row"><span class="preset-row-label">从预设开始</span><div class="preset-chips"><button v-for="item in builtinThemes" :key="item.themeKey" type="button" class="preset-chip" @click="applyPreset(item)"><i :style="presetSwatch(item)"></i><span>{{item.name}}</span></button></div></div>
+          <details open><summary>色彩</summary>
+            <label class="scheme-toggle">明暗基调<el-radio-group v-model="form.definitionJson.colors.scheme" size="small"><el-radio-button value="light">亮色</el-radio-button><el-radio-button value="dark">暗色</el-radio-button></el-radio-group></label>
+            <div class="theme-color-grid"><label v-for="item in colorFields" :key="item[0]"><span>{{item[1]}}</span><el-color-picker v-model="form.definitionJson.colors[item[0]]"/><code>{{form.definitionJson.colors[item[0]]}}</code></label></div>
+            <div class="contrast-note" :class="{warn:!contrast.ok}">正文与背景对比度 {{contrast.ratio}}:1 · {{contrast.ok?'阅读对比度良好':'建议达到 4.5:1 以上'}}</div>
+          </details>
+          <details v-for="group in settingGroups" :key="group.key"><summary>{{group.label}}</summary>
+            <p v-if="group.hint" class="group-hint">{{group.hint}}</p>
+            <div class="theme-setting-grid">
+              <label v-for="field in group.fields" :key="field.key">{{field.label}}
+                <el-select v-if="field.type==='select'" v-model="form.definitionJson[group.key][field.key]"><el-option v-for="opt in field.options" :key="opt[0]" :label="opt[1]" :value="opt[0]"/></el-select>
+                <el-input-number v-else-if="field.type==='number'" v-model="form.definitionJson[group.key][field.key]" :min="field.min" :max="field.max" :step="field.step" controls-position="right"/>
+                <el-switch v-else-if="field.type==='switch'" v-model="form.definitionJson[group.key][field.key]"/>
+                <el-color-picker v-else-if="field.type==='color'" v-model="form.definitionJson[group.key][field.key]"/>
+              </label>
+            </div>
+          </details>
         </section><section class="theme-live"><header><strong>网站实时预览</strong><div><button type="button" :class="{active:previewMode==='desktop'}" @click="previewMode='desktop'">桌面</button><button type="button" :class="{active:previewMode==='mobile'}" @click="previewMode='mobile'">手机</button></div></header><div ref="previewWrap" class="theme-frame-wrap" :class="previewMode"><div class="preview-stage" :style="stageStyle"><iframe ref="previewFrame" :style="frameStyle" src="/?theme-preview=1" title="主题实时预览" @load="postPreview"></iframe></div></div></section></div>
         <template #footer><el-button @click="editor=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveTheme">保存主题</el-button></template>
       </el-dialog>
