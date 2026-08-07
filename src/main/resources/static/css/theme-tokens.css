@@ -107,16 +107,23 @@
 
 /* ================================================================ 卡片风格 */
 /* 站内所有「面板类」元素共用一组变量，切换风格时一起变 */
+/*
+ * 注意：.trip-banner 不在这一组里。
+ * 它是深色的 hero 区块，文字是白的（见 public.css）；一旦套上浅色的
+ * --tj-card-bg，就变成浅底白字——标题整个隐形，页面顶部看起来像空了一大块。
+ * banner 的配色由 public.css 单独负责。
+ */
 .journal-card,
 .map-panel,
 .stats-panel,
 .map-filter-bar,
 .chip,
-.trip-banner,
 .stat {
   border-width: var(--tj-shape-border-width);
   background: var(--tj-card-bg);
 }
+/* 圆角、边框这些形状 token 仍然要跟随主题，只是不改背景 */
+.trip-banner { border-width: var(--tj-shape-border-width); }
 
 [data-card-style="flat"] .journal-card,
 [data-card-style="flat"] .map-panel,

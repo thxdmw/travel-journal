@@ -308,7 +308,7 @@
             </div>
           </el-form-item>
           <el-form-item label="简介"><el-input v-model="form.summary" type="textarea" :rows="3" maxlength="1000" show-word-limit/></el-form-item>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="开始日期" prop="startDate"><el-date-picker v-model="form.startDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择开始日期"/></el-form-item><el-form-item label="结束日期" prop="endDate"><el-date-picker v-model="form.endDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择结束日期"/></el-form-item></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="开始日期" prop="startDate"><el-date-picker :editable="$allowTextInput" v-model="form.startDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择开始日期"/></el-form-item><el-form-item label="结束日期" prop="endDate"><el-date-picker :editable="$allowTextInput" v-model="form.endDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择结束日期"/></el-form-item></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="状态" prop="status"><el-select v-model="form.status"><el-option v-for="x in tripStatusOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item><el-form-item label="币种" prop="defaultCurrency"><el-input v-model="form.defaultCurrency" maxlength="3" placeholder="CNY"/></el-form-item></div>
           <el-form-item label="旅行专属主题"><el-select v-model="form.themeKey" clearable placeholder="继承全站主题"><el-option v-for="x in themes" :key="x.themeKey" :label="x.name" :value="x.themeKey"/></el-select></el-form-item>
           <el-form-item label="内部备注"><el-input v-model="form.internalNote" type="textarea" :rows="2" placeholder="只有后台能看到"/></el-form-item>
@@ -404,6 +404,7 @@
             locationLoading = ref(false), stopMapEl = ref(null);
       const tabOrder = TAB_ORDER;
       let tabSwipeStart = null;
+      let suppressTabClick = false;
       let pickerMap = null, pickerMarker = null;
 
       const stopForm = reactive(blankStop()), itemForm = reactive(blankItem()), expenseForm = reactive(blankExpense());
@@ -576,25 +577,38 @@
         }catch(e){if(e!=='cancel'&&e!=='close')fail(e);}
       }
 
-      // ------------------------------------------------------------------ 移动端 tab 手势
+      /*
+       * ------------------------------------------------------------------ 移动端 tab 栏
+       * 这里只做一件事：横滑 tab 栏时别把它当成点击。
+       *
+       * 原来还有两个行为，都去掉了：
+       *  - 横滑切换 tab：滑动的意图是「看看后面还有哪些 tab」，不是换页；
+       *    滑一下内容就整个换掉很意外，点哪个才该是哪个。
+       *  - 切 tab 后 scrollIntoView 居中：配合 CSS 的 scroll-snap-align:center，
+       *    滑到末尾会被拽回去，手感像橡皮筋。现在滑到哪停哪。
+       */
       function beginTabSwipe(event){
-        if(!window.matchMedia('(max-width:760px)').matches||!event.target.closest('.el-tabs__header'))return;
-        const touch=event.touches[0];tabSwipeStart={x:touch.clientX,y:touch.clientY};
+        if(!event.target.closest('.el-tabs__header'))return;
+        const touch=event.touches[0];tabSwipeStart={x:touch.clientX,y:touch.clientY,moved:false};
       }
-      function endTabSwipe(event){
+      function moveTabSwipe(event){
         if(!tabSwipeStart)return;
-        const touch=event.changedTouches[0],dx=touch.clientX-tabSwipeStart.x,dy=touch.clientY-tabSwipeStart.y;tabSwipeStart=null;
-        if(Math.abs(dx)<48||Math.abs(dx)<=Math.abs(dy)*1.2)return;
-        const current=tabOrder.indexOf(active.value),next=Math.max(0,Math.min(tabOrder.length-1,current+(dx<0?1:-1)));
-        if(next!==current)active.value=tabOrder[next];
+        const touch=event.touches[0];
+        if(Math.abs(touch.clientX-tabSwipeStart.x)>6)tabSwipeStart.moved=true;
       }
-      function centerActiveTab(){
-        if(!window.matchMedia('(max-width:760px)').matches)return;
-        nextTick(()=>document.querySelector('.workspace-tabs .el-tabs__item.is-active')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'}));
+      function endTabSwipe(){
+        // 真的滑动过就吃掉紧随其后的 click，否则手指抬起时落在哪个 tab 上就会切到哪个
+        if(tabSwipeStart&&tabSwipeStart.moved)suppressTabClick=true;
+        tabSwipeStart=null;
+      }
+      function onTabHeaderClick(event){
+        if(!suppressTabClick)return;
+        suppressTabClick=false;
+        event.preventDefault();event.stopPropagation();
       }
       // 切 tab 时补齐这个 tab 需要、且已经过期的数据块
-      watch(active,tab=>{ensure(tabBlocks[tab]||[]);centerActiveTab();});
-      onMounted(()=>{ensure(['trip',...tabBlocks[active.value]]);centerActiveTab();});
+      watch(active,tab=>ensure(tabBlocks[tab]||[]));
+      onMounted(()=>ensure(['trip',...tabBlocks[active.value]]));
 
       return {data,stale,isLoading,ready,active,
               stopDialog,itemDialog,expenseDialog,editingStop,editingItem,editingExpense,
@@ -603,17 +617,17 @@
               mapStatus,locationKeyword,locationResults,locationLoading,stopMapEl,
               openStop,closeStop,searchLocations,applyLocation,saveStop,
               openItem,saveItem,toggleCompleted,openExpense,saveExpense,saveCategory,
-              remove,removeJournal,beginTabSwipe,endTabSwipe,router,
+              remove,removeJournal,beginTabSwipe,moveTabSwipe,endTabSwipe,onTabHeaderClick,router,
               itineraryTypeOptions,statusLabel,itineraryTypeLabel,timeRange};
     },
     template: `<div v-if="ready"><div class="workspace-head"><span class="back" @click="router.push('/trips')">← 返回</span><div><h2>{{data.trip.title}}</h2><div class="workspace-meta">{{data.trip.startDate}} — {{data.trip.endDate}} · {{statusLabel(data.trip.status)}}</div></div></div>
-      <el-tabs v-model="active" class="workspace-tabs" @touchstart.passive="beginTabSwipe" @touchend.passive="endTabSwipe">
+      <el-tabs v-model="active" class="workspace-tabs" @touchstart.passive="beginTabSwipe" @touchmove.passive="moveTabSwipe" @touchend.passive="endTabSwipe" @click.capture="onTabHeaderClick">
         <el-tab-pane label="概览" name="overview"><div v-loading="isLoading('trip','dashboard')" class="tab-loading-host"><div class="dashboard-grid"><div class="metric"><span>城市</span><strong>{{data.dashboard?.stopCount ?? '—'}}</strong></div><div class="metric"><span>行程</span><strong>{{data.dashboard?.itineraryCount ?? '—'}}</strong></div><div class="metric"><span>草稿</span><strong>{{data.dashboard?.draftCount ?? '—'}}</strong></div><div class="metric"><span>已发布</span><strong>{{data.dashboard?.publishedCount ?? '—'}}</strong></div></div><p>{{data.trip.summary||'还没有旅行简介。'}}</p></div></el-tab-pane>
-        <el-tab-pane label="城市" name="stops"><div class="tab-actions"><el-button type="primary" @click="openStop()">添加城市</el-button></div><el-table v-loading="isLoading('stops')" :data="data.stops" max-height="calc(100vh - 360px)"><el-table-column prop="cityName" label="城市"/><el-table-column prop="countryName" label="国家"/><el-table-column prop="arrivalDate" label="到达"/><el-table-column prop="departureDate" label="离开"/><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openStop(row)">编辑</el-button><el-button link type="danger" @click="remove('stop',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="行程" name="itinerary"><div class="tab-actions"><el-button type="primary" @click="openItem()">添加行程</el-button></div><el-table v-loading="isLoading('itinerary')" :data="data.itinerary" max-height="calc(100vh - 360px)"><el-table-column prop="itemDate" label="日期" width="120"/><el-table-column label="时间" width="140"><template #default="{row}">{{timeRange(row.startTime,row.endTime)}}</template></el-table-column><el-table-column label="类型" width="110"><template #default="{row}">{{itineraryTypeLabel(row.type)}}</template></el-table-column><el-table-column prop="title" label="行程"/><el-table-column label="完成" width="80"><template #default="{row}"><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></template></el-table-column><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openItem(row)">编辑</el-button><el-button link type="danger" @click="remove('item',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="城市" name="stops"><div class="tab-actions"><el-button type="primary" @click="openStop()">添加城市</el-button></div><el-table v-loading="isLoading('stops')" :data="data.stops" max-height="calc(100vh - 360px)"><el-table-column prop="cityName" label="城市"/><el-table-column prop="countryName" label="国家"/><el-table-column prop="arrivalDate" label="到达"/><el-table-column prop="departureDate" label="离开"/><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openStop(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('stop',row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="行程" name="itinerary"><div class="tab-actions"><el-button type="primary" @click="openItem()">添加行程</el-button></div><el-table v-loading="isLoading('itinerary')" :data="data.itinerary" max-height="calc(100vh - 360px)"><el-table-column prop="itemDate" label="日期" width="120"/><el-table-column label="时间" width="140"><template #default="{row}">{{timeRange(row.startTime,row.endTime)}}</template></el-table-column><el-table-column label="类型" width="110"><template #default="{row}">{{itineraryTypeLabel(row.type)}}</template></el-table-column><el-table-column prop="title" label="行程"/><el-table-column label="完成" width="80"><template #default="{row}"><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></template></el-table-column><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openItem(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('item',row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
         <el-tab-pane label="预算" name="budget"><div v-loading="isLoading('budget')" class="tab-loading-host"><div class="budget-summary"><div class="item"><span>总预算</span><strong>{{data.budget?.currency}} {{data.budget?.plannedTotal ?? '—'}}</strong></div><div class="item"><span>已支出</span><strong>{{data.budget?.currency}} {{data.budget?.actualTotal ?? '—'}}</strong></div><div class="item"><span>剩余</span><strong :class="{over:data.budget?.remaining<0}">{{data.budget?.currency}} {{data.budget?.remaining ?? '—'}}</strong></div></div><el-table :data="data.budget?.categories||[]" max-height="calc(100vh - 430px)"><el-table-column prop="name" label="分类"/><el-table-column label="计划金额" min-width="180"><template #default="{row}"><el-input-number class="budget-amount-input" v-model="row.planned" :min="0" :precision="2"/></template></el-table-column><el-table-column prop="actual" label="实际支出"/><el-table-column prop="remaining" label="剩余"/><el-table-column width="90"><template #default="{row}"><el-button link @click="saveCategory(row)">保存</el-button></template></el-table-column></el-table></div></el-tab-pane>
-        <el-tab-pane label="支出" name="expenses"><div class="tab-actions"><el-button type="primary" @click="openExpense()">记录支出</el-button></div><el-table v-loading="isLoading('expenses')" :data="data.expenses" max-height="calc(100vh - 360px)"><el-table-column prop="expenseDate" label="日期"/><el-table-column prop="description" label="说明"/><el-table-column prop="merchant" label="商户"/><el-table-column prop="amount" label="金额"/><el-table-column label="操作" width="140"><template #default="{row}"><el-button link @click="openExpense(row)">编辑</el-button><el-button link type="danger" @click="remove('expense',row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="日记" name="journals"><div class="tab-actions"><el-button type="primary" @click="router.push('/journals/new?tripId='+data.trip.id+'&from=journals')">新建日记</el-button></div><el-table v-loading="isLoading('journals')" :data="data.journals" max-height="calc(100vh - 360px)"><el-table-column prop="title" label="标题"/><el-table-column prop="occurredOn" label="日期"/><el-table-column label="状态"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="{row}"><el-button link @click="router.push('/journals/'+row.id+'?from=journals')">编辑</el-button><el-button link type="danger" @click="removeJournal(row)">删除</el-button></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="支出" name="expenses"><div class="tab-actions"><el-button type="primary" @click="openExpense()">记录支出</el-button></div><el-table v-loading="isLoading('expenses')" :data="data.expenses" max-height="calc(100vh - 360px)"><el-table-column prop="expenseDate" label="日期"/><el-table-column prop="description" label="说明"/><el-table-column prop="merchant" label="商户"/><el-table-column prop="amount" label="金额"/><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openExpense(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('expense',row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="日记" name="journals"><div class="tab-actions"><el-button type="primary" @click="router.push('/journals/new?tripId='+data.trip.id+'&from=journals')">新建日记</el-button></div><el-table v-loading="isLoading('journals')" :data="data.journals" max-height="calc(100vh - 360px)"><el-table-column prop="title" label="标题"/><el-table-column prop="occurredOn" label="日期"/><el-table-column label="状态"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="router.push('/journals/'+row.id+'?from=journals')">编辑</el-button><el-button size="small" type="danger" plain @click="removeJournal(row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
         <el-tab-pane label="设置" name="settings"><el-descriptions border :column="1"><el-descriptions-item label="Slug">{{data.trip.slug}}</el-descriptions-item><el-descriptions-item label="默认币种">{{data.trip.defaultCurrency}}</el-descriptions-item><el-descriptions-item label="封面"><img v-if="data.trip.coverMediaId" class="settings-cover" :src="'/api/media/'+data.trip.coverMediaId+'/thumbnail'" alt="旅行封面"><span v-else>还没有设置封面，可在旅行管理里编辑</span></el-descriptions-item><el-descriptions-item label="内部备注">{{data.trip.internalNote||'无'}}</el-descriptions-item></el-descriptions><el-button style="margin-top:18px" @click="router.push('/themes')">查看主题外观</el-button></el-tab-pane>
       </el-tabs>
 
@@ -626,7 +640,7 @@
           <div class="form-grid form-grid-2"><el-form-item label="城市 / 地点名称" prop="cityName"><el-input v-model="stopForm.cityName"/></el-form-item><el-form-item label="省份 / 区域"><el-input v-model="stopForm.regionName"/></el-form-item></div>
           <el-form-item label="格式化地址"><el-input v-model="stopForm.formattedAddress" placeholder="选择搜索结果后自动填写"/></el-form-item>
           <el-form-item prop="latitude" class="coordinate-status"><template #label>地点坐标 <small>必填，搜索结果或地图选点会自动填入</small></template><span v-if="stopForm.latitude!==null&&stopForm.longitude!==null" class="coordinate-value">{{stopForm.latitude}}, {{stopForm.longitude}}</span><span v-else class="coordinate-empty">尚未选点</span></el-form-item>
-          <div class="form-grid form-grid-2"><el-form-item label="到达日期"><el-date-picker v-model="stopForm.arrivalDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择到达日期"/></el-form-item><el-form-item label="离开日期" prop="departureDate"><el-date-picker v-model="stopForm.departureDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择离开日期"/></el-form-item></div>
+          <div class="form-grid form-grid-2"><el-form-item label="到达日期"><el-date-picker :editable="$allowTextInput" v-model="stopForm.arrivalDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择到达日期"/></el-form-item><el-form-item label="离开日期" prop="departureDate"><el-date-picker :editable="$allowTextInput" v-model="stopForm.departureDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择离开日期"/></el-form-item></div>
           <details class="advanced-location"><summary>高级地点信息</summary><div class="form-grid form-grid-2"><el-form-item label="国家" prop="countryName"><el-input v-model="stopForm.countryName"/></el-form-item><el-form-item label="国家代码"><el-input v-model="stopForm.countryCode" maxlength="2"/></el-form-item></div><div class="form-grid form-grid-2"><el-form-item label="纬度"><el-input-number v-model="stopForm.latitude" :precision="6" :controls="false"/></el-form-item><el-form-item label="经度"><el-input-number v-model="stopForm.longitude" :precision="6" :controls="false"/></el-form-item></div><div class="form-grid form-grid-2"><el-form-item label="行政区代码"><el-input v-model="stopForm.adcode"/></el-form-item><el-form-item label="坐标系"><el-select v-model="stopForm.coordinateSystem"><el-option label="高德 GCJ-02" value="GCJ02"/><el-option label="WGS84" value="WGS84"/></el-select></el-form-item></div></details>
           <el-form-item label="备注"><el-input v-model="stopForm.note" type="textarea" :rows="2"/></el-form-item>
         </el-form>
@@ -636,8 +650,8 @@
       <el-dialog v-model="itemDialog" :title="editingItem?'编辑行程':'添加行程'" width="min(650px,92vw)" destroy-on-close @closed="editingItem=null">
         <el-form ref="itemFormRef" :model="itemForm" :rules="itemRules" label-position="top">
           <el-form-item label="标题" prop="title"><el-input v-model="itemForm.title" placeholder="例如：清水寺"/></el-form-item>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="日期" prop="itemDate"><el-date-picker v-model="itemForm.itemDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择日期"/></el-form-item><el-form-item label="类型" prop="type"><el-select v-model="itemForm.type"><el-option v-for="x in itineraryTypeOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="开始"><el-time-picker v-model="itemForm.startTime" format="HH时mm分" value-format="HH:mm:ss" placeholder="开始时间"/></el-form-item><el-form-item label="结束" prop="endTime"><el-time-picker v-model="itemForm.endTime" format="HH时mm分" value-format="HH:mm:ss" placeholder="结束时间"/></el-form-item></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="日期" prop="itemDate"><el-date-picker :editable="$allowTextInput" v-model="itemForm.itemDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择日期"/></el-form-item><el-form-item label="类型" prop="type"><el-select v-model="itemForm.type"><el-option v-for="x in itineraryTypeOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="开始"><el-time-picker :editable="$allowTextInput" v-model="itemForm.startTime" format="HH时mm分" value-format="HH:mm:ss" placeholder="开始时间"/></el-form-item><el-form-item label="结束" prop="endTime"><el-time-picker :editable="$allowTextInput" v-model="itemForm.endTime" format="HH时mm分" value-format="HH:mm:ss" placeholder="结束时间"/></el-form-item></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="所属城市"><el-select v-model="itemForm.tripStopId" clearable placeholder="不指定"><el-option v-for="x in data.stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item><el-form-item prop="plannedCost"><template #label>预计花费<small class="form-hint">这一项打算花多少钱，{{data.trip?.defaultCurrency||'CNY'}}</small></template><el-input-number v-model="itemForm.plannedCost" :min="0" :precision="2" controls-position="right"/></el-form-item></div>
           <el-form-item label="地址"><el-input v-model="itemForm.address"/></el-form-item>
           <el-form-item label="备注"><el-input v-model="itemForm.note" type="textarea"/></el-form-item>
@@ -649,7 +663,7 @@
       <el-dialog v-model="expenseDialog" :title="editingExpense?'编辑支出':'记录支出'" width="min(600px,92vw)" destroy-on-close @closed="editingExpense=null">
         <el-form ref="expenseFormRef" :model="expenseForm" :rules="expenseRules" label-position="top">
           <el-form-item label="说明" prop="description"><el-input v-model="expenseForm.description" placeholder="例如：新干线车票"/></el-form-item>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="日期" prop="expenseDate"><el-date-picker v-model="expenseForm.expenseDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择日期"/></el-form-item><el-form-item label="金额" prop="amount"><el-input-number v-model="expenseForm.amount" :min="0.01" :precision="2"/></el-form-item></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="日期" prop="expenseDate"><el-date-picker :editable="$allowTextInput" v-model="expenseForm.expenseDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择日期"/></el-form-item><el-form-item label="金额" prop="amount"><el-input-number v-model="expenseForm.amount" :min="0.01" :precision="2"/></el-form-item></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="分类" prop="budgetCategoryId"><el-select v-model="expenseForm.budgetCategoryId" placeholder="选择预算分类"><el-option v-for="x in (data.budget?data.budget.categories:[])" :key="x.id" :label="x.name" :value="x.id"/></el-select></el-form-item><el-form-item label="所属城市"><el-select v-model="expenseForm.tripStopId" clearable placeholder="不指定"><el-option v-for="x in data.stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item></div>
           <el-form-item label="商户"><el-input v-model="expenseForm.merchant"/></el-form-item>
           <el-form-item label="备注"><el-input v-model="expenseForm.note" type="textarea"/></el-form-item>
@@ -759,6 +773,7 @@
         // 竖图默认小一点，免得一张照片吃掉整屏
         imageForm.size=items.length===1&&items[0].height>items[0].width?'small':'medium';
         imageForm.caption=items.length===1?(items[0].caption||''):'';
+        layoutTab.value=items.length>1?'mode':'layout';
         imageDialog.value=true;
       }
       function insertImage(item){openImageDialog([item]);}
@@ -811,22 +826,80 @@
         const body=selected.split('\n').map((line,index)=>(ordered?(index+1)+'. ':prefix)+line).join('\n');
         insertAtCursor('\n'+body+'\n');
       }
+      /*
+       * 编辑器快捷插入。
+       *
+       * 全部输出普通 Markdown，不引入新的 HTML class 契约——图片版式那套
+       * 受控 HTML 已经要在前端、CSS 和后端模板三处同步，文字片段没必要再来一遍。
+       * 好处是插进去之后作者可以随手改：评分想从三星改四星，直接改字符就行。
+       *
+       * 去掉了代码块：旅行日记里几乎用不到，位置留给更常用的旅行片段。
+       */
+      const today=()=>new Date().toISOString().slice(0,10);
       const toolbarGroups=[
-        [{label:'H2',title:'二级标题',run:()=>insertFormat('\n## ','\n','小标题')},
-         {label:'H3',title:'三级标题',run:()=>insertFormat('\n### ','\n','小节标题')}],
-        [{label:'粗体',title:'粗体',run:()=>insertFormat('**','**','重点文字')},
-         {label:'斜体',title:'斜体',run:()=>insertFormat('*','*','强调文字')},
-         {label:'删除线',title:'删除线',run:()=>insertFormat('~~','~~','划掉的话')},
-         {label:'高亮',title:'行内代码',run:()=>insertFormat('`','`','关键词')}],
-        [{label:'无序',title:'无序列表',run:()=>insertLinePrefix('- ','清单内容')},
-         {label:'有序',title:'有序列表',run:()=>insertLinePrefix('','第一步',true)},
-         {label:'待办',title:'待办清单',run:()=>insertLinePrefix('- [ ] ','要做的事')},
-         {label:'引用',title:'引用',run:()=>insertLinePrefix('> ','此刻想说的话')}],
-        [{label:'链接',title:'链接',run:()=>insertFormat('[','](https://)','链接文字')},
-         {label:'代码块',title:'代码块',run:()=>insertFormat('\n```\n','\n```\n','粘贴代码')},
-         {label:'表格',title:'插入表格',run:()=>insertAtCursor('\n| 时间 | 地点 | 花费 |\n| --- | --- | --- |\n|  |  |  |\n')},
-         {label:'分隔线',title:'分隔线',run:()=>insertAtCursor('\n---\n')}]
+        {name:'标题',items:[
+          {label:'H2',title:'二级标题',run:()=>insertFormat('\n## ','\n','小标题')},
+          {label:'H3',title:'三级标题',run:()=>insertFormat('\n### ','\n','小节标题')}]},
+        {name:'强调',items:[
+          {label:'粗体',title:'粗体',run:()=>insertFormat('**','**','重点文字')},
+          {label:'斜体',title:'斜体',run:()=>insertFormat('*','*','强调文字')},
+          {label:'删除线',title:'删除线',run:()=>insertFormat('~~','~~','划掉的话')},
+          {label:'高亮',title:'行内高亮',run:()=>insertFormat('`','`','关键词')}]},
+        {name:'列表',items:[
+          {label:'无序',title:'无序列表',run:()=>insertLinePrefix('- ','清单内容')},
+          {label:'有序',title:'有序列表',run:()=>insertLinePrefix('','第一步',true)},
+          {label:'待办',title:'待办清单',run:()=>insertLinePrefix('- [ ] ','要做的事')},
+          {label:'引用',title:'引用',run:()=>insertLinePrefix('> ','此刻想说的话')}]},
+        {name:'旅行片段',items:[
+          {label:'评分',title:'五星评分',run:()=>insertAtCursor('\n★★★★☆（4/5）\n')},
+          {label:'天气',title:'当天天气',run:()=>insertAtCursor('\n> ☀️ 晴 · 24℃ · 微风\n')},
+          {label:'花费',title:'花费记录',run:()=>insertFormat('\n**花费**：CNY ','\n','168')},
+          {label:'时间点',title:'时间轴条目',run:()=>insertLinePrefix('- 09:20 ','从成都东站出发')},
+          {label:'地点',title:'地点标注',run:()=>insertFormat('\n**📍 ','**\n','青城山 · 老君阁')},
+          {label:'交通',title:'交通方式',run:()=>insertFormat('\n**🚄 ','**\n','高铁 成都东 → 青城山，26 分钟')},
+          {label:'小贴士',title:'旅行小贴士',run:()=>insertLinePrefix('> 💡 ','索道排队要半小时，建议赶早')},
+          {label:'一句话',title:'一句话总结',run:()=>insertFormat('\n> **一句话**：','\n','雾散开的那一刻，整条山脊都露出来了')}]},
+        {name:'其他',items:[
+          {label:'链接',title:'链接',run:()=>insertFormat('[','](https://)','链接文字')},
+          {label:'表格',title:'插入表格',run:()=>insertAtCursor('\n| 时间 | 地点 | 花费 |\n| --- | --- | --- |\n|  |  |  |\n')},
+          {label:'日期',title:'插入今天日期',run:()=>insertAtCursor(today())},
+          {label:'分隔线',title:'分隔线',run:()=>insertAtCursor('\n---\n')}]}
       ];
+      /*
+       * 手机上工具栏铺开要占三四行，把编辑区挤得只剩一小条。
+       * 改成双击正文任意位置弹出插入面板：光标已经落在双击的位置上，
+       * 选完直接插在那儿，比先点工具栏再回来找位置顺手。
+       */
+      /*
+       * 版式设置分段。选项已经多到一页放不下——手机上一路往下滑，
+       * 滑到底部改个图注，还得再滑回顶部才看得见预览效果。
+       * 分成几段之后每段都很短，预览始终留在视野里。
+       */
+      const layoutTab=ref('layout');
+      const insertSheet=ref(false);
+      function openInsertSheet(){ if(window.matchMedia('(max-width:760px)').matches) insertSheet.value=true; }
+      function runInsert(item){ insertSheet.value=false; nextTick(()=>item.run()); }
+      /*
+       * 触摸设备上不能指望 dblclick：
+       * 移动端浏览器的双击优先被当成「双击缩放」，textarea 上这个事件常常根本不派发，
+       * 派发了也可能延迟到 300ms 之后。所以自己按两次 touchend 的间隔和落点来判定。
+       * 判定通过后要 preventDefault，免得系统再补一次缩放。
+       */
+      let lastTap=0,lastTapX=0,lastTapY=0;
+      function onEditorTouchEnd(event){
+        if(!window.matchMedia('(max-width:760px)').matches)return;
+        const touch=event.changedTouches&&event.changedTouches[0];
+        if(!touch)return;
+        const now=Date.now();
+        const near=Math.abs(touch.clientX-lastTapX)<28&&Math.abs(touch.clientY-lastTapY)<28;
+        if(now-lastTap<320&&near){
+          lastTap=0;
+          event.preventDefault();
+          insertSheet.value=true;
+          return;
+        }
+        lastTap=now;lastTapX=touch.clientX;lastTapY=touch.clientY;
+      }
       async function setCover(item){try{await A.setCover(id.value,item.id);form.coverMediaId=item.id;message('已设为封面');}catch(e){fail(e);}}
       function toggleSelect(item){
         const index=selectedMedia.value.indexOf(item.id);
@@ -1126,20 +1199,20 @@
         // 离开时若还有未保存改动，至少把本地快照留下
         if(dirty.value)saveLocalDraft();
       });
-      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,metaCollapsed,toolbarGroups,scrollLocked,onPreviewScroll,location,pageLoading,isFullscreen,toggleFullscreen,mediaCollapsed,sortByCaptureTime,citySuggestion,applyCitySuggestion,previewLink,makePreviewLink,copyPreviewLink,autoSaveState,lastAutoSavedAt,recoverable,restoreDraft,discardDraft,autoSaveHint,tagInput,addTag,removeTag,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,removeSelected,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
+      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,metaCollapsed,toolbarGroups,insertSheet,openInsertSheet,runInsert,onEditorTouchEnd,layoutTab,scrollLocked,onPreviewScroll,location,pageLoading,isFullscreen,toggleFullscreen,mediaCollapsed,sortByCaptureTime,citySuggestion,applyCitySuggestion,previewLink,makePreviewLink,copyPreviewLink,autoSaveState,lastAutoSavedAt,recoverable,restoreDraft,discardDraft,autoSaveHint,tagInput,addTag,removeTag,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,removeSelected,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
     },
     template: `<div class="editor-page" :class="{'is-fullscreen':isFullscreen}" v-loading="pageLoading" element-loading-text="正在打开日记…"><div class="editor-top"><el-button link @click="backToTrip">← 返回</el-button><h2>编辑旅行日记</h2><span class="status">{{statusLabel(form.status)}}</span><span class="word-count">{{wordCount}} 字</span><span v-if="autoSaveHint" class="autosave-hint" :class="autoSaveState">{{autoSaveHint}}</span><div class="editor-actions"><el-button :title="isFullscreen?'退出全屏':'全屏写作'" @click="toggleFullscreen">{{isFullscreen?'退出全屏':'全屏'}}</el-button><el-button @click="openTemplate">{{form.templateId?'填写模板':'从模板开始'}}</el-button><el-button :loading="saving" @click="save()">保存草稿</el-button><el-button v-if="form.status==='DRAFT'" :disabled="!id" title="生成 48 小时有效的预览链接" @click="makePreviewLink">预览链接</el-button><el-button v-if="form.status==='PUBLISHED'" @click="unpublish">撤回</el-button><el-button type="primary" @click="publish">发布日记</el-button></div></div>
       <div v-if="recoverable" class="draft-recover-bar"><span>检测到上次未保存的内容（{{new Date(recoverable.savedAt).toLocaleString()}}）</span><div><el-button size="small" type="primary" @click="restoreDraft">恢复</el-button><el-button size="small" @click="discardDraft">忽略</el-button></div></div>
-      <button type="button" class="editor-meta-toggle" :aria-expanded="!metaCollapsed" @click="metaCollapsed=!metaCollapsed"><span>{{metaCollapsed?(form.title||'日记信息'):'收起日记信息'}}</span><span aria-hidden="true">{{metaCollapsed?'⌄':'⌃'}}</span></button>
-      <el-form ref="formRef" :model="form" :rules="rules" class="editor-meta-group editor-meta-form" :class="{collapsed:metaCollapsed}">
-      <div class="editor-meta"><el-form-item prop="title"><el-input v-model="form.title" placeholder="日记标题（必填）"/></el-form-item><el-form-item prop="tripId"><el-select v-model="form.tripId" placeholder="所属旅行（必填）"><el-option v-for="x in trips" :key="x.id" :label="x.title" :value="x.id"/></el-select></el-form-item><el-form-item><el-select v-model="form.tripStopId" clearable placeholder="城市"><el-option v-for="x in stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item><el-form-item prop="occurredOn"><el-date-picker v-model="form.occurredOn" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="发生日期（必填）"/></el-form-item></div>
+      <button type="button" class="editor-meta-toggle" :aria-expanded="!metaCollapsed" @click="metaCollapsed=!metaCollapsed"><span>{{metaCollapsed?(form.title||'日记信息'):'收起日记信息'}}</span><i class="editor-meta-toggle__chev" aria-hidden="true"></i></button>
+      <el-form ref="formRef" :model="form" :rules="rules" class="editor-meta-group editor-meta-form" :class="{collapsed:metaCollapsed}"><div class="editor-meta-inner">
+      <div class="editor-meta"><el-form-item prop="title"><el-input v-model="form.title" placeholder="日记标题（必填）"/></el-form-item><el-form-item prop="tripId"><el-select v-model="form.tripId" placeholder="所属旅行（必填）"><el-option v-for="x in trips" :key="x.id" :label="x.title" :value="x.id"/></el-select></el-form-item><el-form-item><el-select v-model="form.tripStopId" clearable placeholder="城市"><el-option v-for="x in stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item><el-form-item prop="occurredOn"><el-date-picker :editable="$allowTextInput" v-model="form.occurredOn" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="发生日期（必填）"/></el-form-item></div>
       <div class="editor-meta editor-meta-secondary"><el-form-item prop="slug"><el-input v-model="form.slug" placeholder="slug（必填），例如 tokyo-spring"/></el-form-item><el-form-item><el-input v-model="form.excerpt" placeholder="摘要"/></el-form-item><el-form-item><el-select v-model="form.themeKey" clearable placeholder="继承旅行 / 全站主题"><el-option v-for="x in themes" :key="x.themeKey" :label="x.name" :value="x.themeKey"/></el-select></el-form-item></div>
       <div class="editor-tags"><el-tag v-for="name in form.tags" :key="name" closable disable-transitions @close="removeTag(name)">{{name}}</el-tag><el-input v-model="tagInput" size="small" class="tag-input" placeholder="加标签，回车确认" @keyup.enter="addTag"/></div>
       <div v-if="previewLink" class="preview-link-bar"><span>预览链接（48 小时有效）：</span><code>{{location.origin+previewLink.url}}</code><el-button link type="primary" size="small" @click="copyPreviewLink">复制</el-button></div>
-      <div v-if="form.templateId" class="template-state" :class="{detached:form.templateDetached}"><span>{{form.templateDetached?'正文已自由修改，不会自动覆盖':'正文仍与模板填写数据关联'}}</span><button type="button" @click="openTemplate">继续填写模板</button></div></el-form>
+      <div v-if="form.templateId" class="template-state" :class="{detached:form.templateDetached}"><span>{{form.templateDetached?'正文已自由修改，不会自动覆盖':'正文仍与模板填写数据关联'}}</span><button type="button" @click="openTemplate">继续填写模板</button></div></div></el-form>
       <div class="editor-mobile-tabs"><button type="button" :class="{active:mobilePane==='write'}" @click="mobilePane='write'">写作</button><button type="button" :class="{active:mobilePane==='preview'}" @click="mobilePane='preview'">预览</button><button type="button" :class="{active:mobilePane==='media'}" @click="mobilePane='media'">图片</button></div>
-      <div class="writing-toolbar" :class="{'mobile-hidden':mobilePane!=='write'}"><template v-for="(group,gi) in toolbarGroups" :key="gi"><span v-if="gi" class="toolbar-sep" aria-hidden="true"></span><button v-for="item in group" :key="item.label" type="button" :title="item.title" @click="item.run()">{{item.label}}</button></template></div>
-      <div class="editor-grid" :class="{'media-collapsed':mediaCollapsed}"><section class="editor-column" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small>支持粘贴图片</small></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste"/></section>
+      <div class="writing-toolbar" :class="{'mobile-hidden':mobilePane!=='write'}"><template v-for="(group,gi) in toolbarGroups" :key="group.name"><span v-if="gi" class="toolbar-sep" aria-hidden="true"></span><button v-for="item in group.items" :key="item.label" type="button" :title="item.title" @click="item.run()">{{item.label}}</button></template></div>
+      <div class="editor-grid" :class="{'media-collapsed':mediaCollapsed}"><section class="editor-column" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small class="hide-on-mobile">支持粘贴图片</small><small class="show-on-mobile">双击正文插入</small></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste" @dblclick="openInsertSheet" @touchend="onEditorTouchEnd"/></section>
         <button type="button" class="scroll-lock" :class="{locked:scrollLocked}" :aria-pressed="scrollLocked" :title="scrollLocked?'已锁定：编辑与预览同步滚动':'已解锁：两侧各自滚动'" :aria-label="scrollLocked?'解锁滚动同步':'锁定滚动同步'" @click="scrollLocked=!scrollLocked">{{scrollLocked?'🔒':'🔓'}}</button>
         <section class="editor-column" :class="{'mobile-active':mobilePane==='preview'}"><div class="editor-label">实时预览 <small>点图片可改版式</small></div><article ref="previewEl" class="preview markdown-body" v-html="html" @click="editFigureAt" @scroll.passive="onPreviewScroll"></article></section>
         <aside class="editor-column media-column" :class="{'mobile-active':mobilePane==='media'}"><div class="editor-label"><span class="label-text">图片管理</span><button type="button" class="media-toggle" :title="mediaCollapsed?'展开图片管理':'收起图片管理'" @click="mediaCollapsed=!mediaCollapsed">{{mediaCollapsed?'‹':'›'}}</button></div><div class="media-side"><div class="upload-box" @click="choose" @drop.prevent="dropped" @dragover.prevent><span v-if="!uploading">选择、拖拽或粘贴图片<br><small>可多选，JPEG / PNG / WebP</small></span><span v-else>正在上传…</span></div><input ref="fileInput" hidden type="file" multiple accept="image/jpeg,image/png,image/webp" @change="picked">
@@ -1154,23 +1227,29 @@
             <div><el-input class="media-item__caption" v-model="item.caption" placeholder="图注（留空则不显示）" @change="saveCaption(item)"/>
               <div><el-button link size="small" @click="insertImage(item)">插入</el-button><el-button link size="small" @click="setCover(item)">{{form.coverMediaId===item.id?'当前封面':'设封面'}}</el-button><el-button link type="danger" size="small" @click="removeMedia(item)">删除</el-button></div></div></div>
         </div></aside></div>
+      <el-drawer v-model="insertSheet" direction="btt" size="auto" class="insert-sheet" title="插入内容">
+        <div v-for="group in toolbarGroups" :key="group.name" class="insert-sheet__group">
+          <div class="insert-sheet__title">{{group.name}}</div>
+          <div class="insert-sheet__items"><button v-for="item in group.items" :key="item.label" type="button" :title="item.title" @click="runInsert(item)">{{item.label}}</button></div>
+        </div>
+      </el-drawer>
       <el-dialog v-model="imageDialog" :title="imageForm.editRange?'修改图片版式':'设置图片版式'" width="min(1500px,96vw)" class="image-layout-dialog">
         <div class="image-layout-body">
           <div class="figure-stage"><div class="figure-stage__label">按正文宽度预览</div><div class="figure-stage__page markdown-body" v-html="figurePreview"></div></div>
-          <div class="image-layout-controls"><el-form label-position="top">
-            <template v-if="isGallery">
-              <div class="image-layout-group-title">展示模式</div>
+          <div class="image-layout-controls"><el-form label-position="top"><el-tabs v-model="layoutTab" class="image-layout-tabs">
+            <el-tab-pane v-if="isGallery" label="模式" name="mode">
               <el-form-item><el-radio-group v-model="imageForm.mode"><el-radio-button v-for="m in galleryModes" :key="m.value" :value="m.value">{{m.label}}</el-radio-button></el-radio-group>
                 <div v-if="modeHint" class="image-layout-hint">{{modeHint}}</div>
                 <div v-if="imageForm.mode==='compare'&&imageForm.items.length!==2" class="image-layout-hint">前后对比只支持恰好两张图片，当前选了 {{imageForm.items.length}} 张，会退回竖向排列。</div></el-form-item>
               <el-form-item v-if="['grid','masonry'].includes(imageForm.mode)" label="列数"><el-radio-group v-model="imageForm.cols"><el-radio-button :value="2">2 列</el-radio-button><el-radio-button :value="3">3 列</el-radio-button><el-radio-button :value="4">4 列</el-radio-button></el-radio-group></el-form-item>
-            </template>
-            <div class="image-layout-group-title">大小与对齐</div>
+            </el-tab-pane>
+            <el-tab-pane label="版式" name="layout">
             <el-form-item label="展示大小"><el-radio-group v-model="imageForm.size"><el-radio-button value="small">小</el-radio-button><el-radio-button value="medium">中</el-radio-button><el-radio-button value="large">大</el-radio-button><el-radio-button value="full">满宽</el-radio-button><el-radio-button value="bleed">通栏出血</el-radio-button></el-radio-group></el-form-item>
             <el-form-item label="对齐方式"><el-radio-group v-model="imageForm.align"><el-radio-button value="left">居左</el-radio-button><el-radio-button value="center">居中</el-radio-button><el-radio-button value="right">居右</el-radio-button></el-radio-group></el-form-item>
             <el-form-item><el-checkbox v-model="imageForm.wrap" :disabled="imageForm.align==='center'||['full','bleed'].includes(imageForm.size)">让正文文字环绕图片</el-checkbox>
               <div class="image-layout-hint">需要先设为居左或居右，且不是满宽/通栏。窄屏会自动取消环绕。</div></el-form-item>
-            <div class="image-layout-group-title">裁剪</div>
+            </el-tab-pane>
+            <el-tab-pane label="裁剪" name="crop">
             <template v-if="keepsOriginalRatio">
               <div class="image-layout-hint">这个排布方式保持每张照片的原始比例，不做裁剪，因此没有比例和焦点设置。</div>
             </template>
@@ -1179,20 +1258,24 @@
                 <div class="image-layout-hint">{{isGallery?'原始比例下用这个排布方式自带的比例；选了比例则整组统一按它裁剪。':'原始比例下卡片会贴合照片本身；选了比例则按比例裁剪填满。'}}</div></el-form-item>
               <el-form-item v-if="imageForm.ratio||isGallery" label="裁剪焦点"><el-radio-group v-model="imageForm.focus"><el-radio-button value="">居中</el-radio-button><el-radio-button value="top">偏上</el-radio-button><el-radio-button value="bottom">偏下</el-radio-button></el-radio-group></el-form-item>
             </template>
-            <div class="image-layout-group-title">外观</div>
+            </el-tab-pane>
+            <el-tab-pane label="外观" name="look">
             <el-form-item label="画框"><el-radio-group v-model="imageForm.frame"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">无框</el-radio-button><el-radio-button value="line">细描边</el-radio-button><el-radio-button value="paper">相纸白边</el-radio-button><el-radio-button value="float">浮起阴影</el-radio-button><el-radio-button value="polaroid">宝丽来</el-radio-button><el-radio-button value="tape">手账胶带</el-radio-button><el-radio-button value="film">胶片边框</el-radio-button><el-radio-button value="postcard">旅行明信片</el-radio-button></el-radio-group>
               <div v-if="imageForm.frame==='tape'&&isGallery" class="image-layout-hint">图组里胶带贴在整组顶部，不会每张一条互相压住。</div>
               <div v-if="imageForm.frame==='postcard'" class="image-layout-hint">底部留白是明信片的留言区，没有图注时也会保留。</div></el-form-item>
             <el-form-item label="圆角"><el-radio-group v-model="imageForm.radius"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">直角</el-radio-button><el-radio-button value="soft">小圆角</el-radio-button><el-radio-button value="round">大圆角</el-radio-button></el-radio-group></el-form-item>
             <el-form-item label="色调"><el-radio-group v-model="imageForm.tone"><el-radio-button value="">跟随原图</el-radio-button><el-radio-button value="warm">暖色</el-radio-button><el-radio-button value="vintage">复古</el-radio-button><el-radio-button value="mono">黑白</el-radio-button></el-radio-group>
               <div class="image-layout-hint">只影响正文里的显示，点开灯箱看到的仍是原图。</div></el-form-item>
-            <div class="image-layout-group-title">交互动效</div>
+            </el-tab-pane>
+            <el-tab-pane label="动效" name="effect">
             <el-form-item label="鼠标悬停"><el-radio-group v-model="imageForm.effect"><el-radio-button value="">无动效</el-radio-button><el-radio-button value="lift">悬停浮起</el-radio-button><el-radio-button value="zoom">缓慢放大</el-radio-button><el-radio-button value="tilt">轻微倾斜</el-radio-button></el-radio-group>
               <div class="image-layout-hint">触摸设备不显示倾斜；读者若在系统里开启了「减少动态效果」，动效会自动关闭。</div></el-form-item>
-            <div class="image-layout-group-title">图注</div>
+            </el-tab-pane>
+            <el-tab-pane label="图注" name="caption">
             <el-form-item label="图注文字"><el-input v-model="imageForm.caption" placeholder="这张照片背后的故事，留空则不显示"/></el-form-item>
             <el-form-item label="图注位置"><el-radio-group v-model="imageForm.captionPos"><el-radio-button value="">下方居中</el-radio-button><el-radio-button value="left">下方居左</el-radio-button><el-radio-button v-if="!isGallery" value="overlay">悬浮图上</el-radio-button><el-radio-button v-if="!isGallery" value="side">右侧</el-radio-button><el-radio-button value="none">隐藏</el-radio-button></el-radio-group></el-form-item>
-          </el-form></div>
+            </el-tab-pane>
+          </el-tabs></el-form></div>
         </div>
         <template #footer><el-button v-if="imageForm.editRange" type="danger" link @click="removeFigure">从正文移除</el-button><el-button @click="imageDialog=false">取消</el-button><el-button type="primary" @click="confirmImage">{{imageForm.editRange?'保存修改':'插入正文'}}</el-button></template></el-dialog>
       <el-dialog v-model="templateDialog" title="用模板开始写作" width="min(980px,96vw)" class="template-writing-dialog"><div class="template-writing"><aside class="template-choices"><button v-for="item in templates" :key="item.id" type="button" :class="{active:selectedTemplate?.id===item.id}" @click="selectTemplate(item)"><strong>{{item.name}}</strong><span>{{item.description}}</span><small>{{item.builtin?'系统模板':'我的模板'}}</small></button></aside><section v-if="selectedTemplate" class="template-fields"><header><h3>{{selectedTemplate.name}}</h3><p>旅行、路线、行程和支出会自动读取；你只需写下只有自己知道的感受。</p></header><div v-for="block in templateBlocks" :key="block.id" class="template-field"><template v-if="block.type==='trip-info'"><label>{{block.title}}</label><div class="form-grid form-grid-2"><el-input v-model="templateData[block.id].weather" placeholder="天气，例如 晴 / 海风"/><el-input v-model="templateData[block.id].mood" placeholder="心情，例如 松弛 / 惊喜"/></div></template><template v-else-if="['text','textarea','quote'].includes(block.type)"><label>{{block.title}} <em v-if="block.required">必填</em></label><el-input v-model="templateData[block.id].value" :type="block.type==='text'?'text':'textarea'" :rows="block.type==='text'?1:4" :placeholder="block.config?.placeholder||'写下这一段'"/></template><template v-else-if="block.type==='rating'"><label>{{block.title}}</label><el-rate v-model="templateData[block.id].value" :max="block.config?.max||5" show-text/></template><template v-else-if="block.type==='image'"><label>{{block.title}}</label><el-select v-model="templateData[block.id].mediaIds" clearable placeholder="选择一张已上传图片"><el-option v-for="item in media" :key="item.id" :label="item.caption||item.filename" :value="item.id"/></el-select><small v-if="!media.length">先保存草稿并上传图片，之后可回来补充。</small></template><template v-else-if="block.type==='gallery'"><label>{{block.title}}</label><el-select v-model="templateData[block.id].mediaIds" multiple collapse-tags placeholder="选择已上传图片"><el-option v-for="item in media" :key="item.id" :label="item.caption||item.filename" :value="item.id"/></el-select><small v-if="!media.length">先保存草稿并上传图片，之后可回来补充。</small></template><div v-else class="template-auto-block"><strong>{{block.title}}</strong><span>将从当前旅行数据自动整理</span></div></div></section></div><template #footer><el-button @click="templateDialog=false">取消</el-button><el-button type="primary" :loading="generating" @click="generateFromTemplate">生成日记正文</el-button></template></el-dialog>
@@ -1706,9 +1789,11 @@
         </template></el-table-column>
         <el-table-column prop="slug" label="标识" min-width="180"/>
         <el-table-column prop="journalCount" label="日记数" width="100"/>
-        <el-table-column label="操作" width="150"><template #default="{row}">
-          <el-button v-if="renaming!==row.id" link type="primary" size="small" @click="startRename(row)">改名</el-button>
-          <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
+        <el-table-column label="操作" width="160"><template #default="{row}">
+          <div class="table-actions">
+            <el-button v-if="renaming!==row.id" size="small" @click="startRename(row)">改名</el-button>
+            <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
+          </div>
         </template></el-table-column>
       </el-table></div>
       <el-empty v-if="!items.length&&!loading" description="还没有标签，写日记时输入标签名即可创建"/>
@@ -1754,8 +1839,20 @@
     </div>`
   };
 
-  createApp(App)
-    .use(router)
+  const app = createApp(App);
+  /*
+   * 触摸设备上日期/时间选择器不允许手输。
+   *
+   * Element Plus 的日期框默认可以手打，于是手指一点先弹出系统键盘，
+   * 键盘又正好把下面的日历面板顶掉——想选个日期得先收键盘。
+   * 关掉 editable 后输入框变成只读，点它只弹面板不弹键盘。
+   * 桌面端保留手输，敲日期比点日历快。
+   *
+   * el-select 不用管：非 filterable 时 Element Plus 自己就把输入框设成只读了；
+   * filterable 的下拉本来就要打字搜索，弹键盘是对的。
+   */
+  app.config.globalProperties.$allowTextInput = !window.matchMedia('(pointer: coarse)').matches;
+  app.use(router)
     .use(ElementPlus, { locale: window.ElementPlusLocaleZhCn })
     .mount('#admin-app');
 })();

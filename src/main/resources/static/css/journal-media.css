@@ -22,7 +22,18 @@
  * 只有字号是两边合理的差异，走 --body-size 变量。
  * 注意：不要在这里加会替作者往正文里塞内容的装饰（编号、首字下沉等）。
  */
-.markdown-body { font:var(--body-size,15px)/1.9 var(--tj-serif); color:#343633; }
+/*
+ * 行高走变量，且要接上主题的「正文行高」设置。
+ *
+ * 之前这里写死 var(--body-leading, 1.9)，完全没引用主题写入的
+ * --tj-body-line-height（theme.js 从 typography.lineHeight 设置），
+ * 于是主题外观里那个 1.4~2.4 的行高滑块怎么调都没反应，正文永远是 1.9。
+ * 优先级：窄屏覆盖 > 主题设置 > 兜底。
+ *
+ * 同样注意 font 简写会把 line-height 一起写死，外部再单独写 line-height
+ * 会被本文件覆盖（本文件在 public.css 之后加载）。
+ */
+.markdown-body { font:var(--body-size,15px)/var(--body-leading,var(--tj-body-line-height,1.75)) var(--tj-serif); color:#343633; }
 .markdown-body h2,
 .markdown-body h3 { color:var(--tj-primary); margin-top:2em; }
 .markdown-body blockquote { margin:28px 0; padding:14px 22px; border-left:3px solid var(--tj-accent); background:var(--tj-surface-soft); color:#65625c; }
@@ -415,38 +426,20 @@
   .journal-figure--caption-side { grid-template-columns:1fr; gap:10px; }
   .journal-figure--caption-side figcaption { text-align:center; }
   .journal-figure img { max-height:70vh; }
-  .journal-gallery--grid,
-  .journal-gallery--masonry { --gallery-cols:2; }
-  .journal-gallery--row img { flex:1 1 calc(50% - var(--figure-gap,10px)); }
-  .journal-gallery--mosaic { grid-template-columns:1fr 1fr; }
-  .journal-gallery--mosaic img:first-of-type { grid-row:1; grid-column:1/-1; height:auto; aspect-ratio:var(--gallery-ratio,3/2); }
   /*
-   * 杂志退化成「主图通栏 + 其余两列」。
-   * 注意底盘仍然是 12 列，不能改成 repeat(2,1fr)：桌面端首图的
-   * grid-column:span 12 特异性是 (0,3,1)，比 img:first-of-type 的 (0,2,1) 高，
-   * 覆盖不掉；一个要 12 列的项目落进 2 列网格，会凭空长出 10 个 0 宽隐式列，
-   * 后面几张图就被挤成 0 宽。所以这里保持 12 列，只按同等特异性改 span。
+   * 多图排版在窄屏「不换结构，只缩尺寸」。
+   *
+   * 早先这里把 grid 压成 2 列、row 折行、mosaic / magazine 换骨架、
+   * story 和 staggered 一律拉成 100% 单列。结果是作者在电脑上精心排的版式，
+   * 一到手机全被抹平成千篇一律的一列——而且版式面板的预览台同样吃这套
+   * 媒体查询，于是在手机上「预览」和「线上」也对不上。
+   *
+   * 现在只把间距收小一点让图片占得多些，列数、跨行、左右交替这些
+   * 决定「长什么样」的规则全部保留。图会小，但格式还在。
    */
-  .journal-gallery--magazine img,
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(2) ~ img,
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(3) ~ img,
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(4) ~ img,
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(5) ~ img,
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(n+6) ~ img { grid-column:span 6; }
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(2),
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(3),
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(4),
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(5),
-  .journal-gallery--magazine img:first-of-type:nth-last-of-type(n+6) { grid-column:span 12; grid-row:auto; height:auto; aspect-ratio:var(--gallery-ratio,16/9); }
-  /* 故事流和错落画廊在窄屏都退化成普通单列，交替留白已经没有意义 */
-  .journal-gallery--story { gap:28px; }
-  .journal-gallery--story img,
-  .journal-gallery--story img:nth-of-type(even),
-  .journal-gallery--staggered img,
-  .journal-gallery--staggered img:nth-of-type(4n+1),
-  .journal-gallery--staggered img:nth-of-type(4n+2),
-  .journal-gallery--staggered img:nth-of-type(4n+3),
-  .journal-gallery--staggered img:nth-of-type(4n+4) { width:100%; margin-left:0; margin-right:0; }
+  .journal-gallery { --figure-gap:6px; }
+  .journal-gallery--story { gap:26px; }
+  .journal-gallery--staggered { gap:14px; }
   /* 胶带在窄屏缩短一点，靠左右对齐时也回到中间，免得贴到图外 */
   .journal-figure--frame-tape::before,
   .journal-figure--frame-tape.journal-figure--left::before,

@@ -431,17 +431,34 @@
         else if (event.key === 'ArrowRight') stepLightbox(1);
       }
       function updateProgress(){const height=document.documentElement.scrollHeight-window.innerHeight;progress.value=height>0?Math.min(100,Math.max(0,window.scrollY/height*100)):0;}
+      /*
+       * 阅读字号档位。手机上字号直接决定一屏能读到多少，交给读者自己定最实在。
+       * 只改 --reading-scale 这一个变量，正文、图注和标题都跟着走。
+       */
+      const SCALES=[0.88,1,1.14,1.3];
+      const scaleIndex=ref(Math.min(SCALES.length-1,Math.max(0,Number(localStorage.getItem('travel-journal.reading-scale'))||1)));
+      const scaleLabel=computed(()=>['小','标准','大','特大'][scaleIndex.value]);
+      function applyScale(){document.documentElement.style.setProperty('--reading-scale',SCALES[scaleIndex.value]);}
+      function stepScale(delta){
+        scaleIndex.value=Math.min(SCALES.length-1,Math.max(0,scaleIndex.value+delta));
+        localStorage.setItem('travel-journal.reading-scale',String(scaleIndex.value));
+        applyScale();
+      }
+      applyScale();
       // 正文是 v-html 塞进来的，轮播和前后对比的结构只能在渲染之后补
       watch(html, () => nextTick(() => { window.JournalMedia.teardown(article.value); window.JournalMedia.enhance(article.value); }));
       onMounted(async () => { try { data.value = props.preview ? await api.preview(route.params.token) : await api.journal(route.params.slug); } catch (e) { previewFailed.value = true; throw e; } setScopedTheme(data.value.theme); window.addEventListener('keydown', onKeydown);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(()=>{updateProgress();window.JournalMedia.enhance(article.value);}); });
       onBeforeUnmount(() => {window.JournalMedia.teardown(article.value);window.removeEventListener('keydown', onKeydown);window.removeEventListener('scroll',updateProgress);clearScopedTheme();});
-      return { data, article, html, lightbox, current, progress, readingMinutes, preview: props.preview, previewFailed, openLightbox, openArticleImage, stepLightbox };
+      return { data, article, html, lightbox, current, progress, readingMinutes, preview: props.preview, previewFailed,
+               scaleIndex, scaleLabel, scaleMax: SCALES.length - 1, stepScale,
+               openLightbox, openArticleImage, stepLightbox };
     },
     template: `
       <main v-if="data" class="page article">
         <div class="reading-progress" aria-hidden="true"><span :style="{width:progress+'%'}"></span></div>
         <div v-if="preview" class="preview-banner">草稿预览 · 这篇日记尚未发布，链接会过期</div>
-        <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div></header>
+        <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div>
+          <div class="reading-scale"><button type="button" aria-label="减小正文字号" :disabled="scaleIndex===0" @click="stepScale(-1)">A−</button><span>{{scaleLabel}}</span><button type="button" aria-label="增大正文字号" :disabled="scaleIndex===scaleMax" @click="stepScale(1)">A+</button></div></header>
         <article ref="article" class="markdown-body" v-html="html" @click="openArticleImage"></article>
         <nav class="article-nav"><router-link v-if="data.previousSlug" :to="'/journals/'+data.previousSlug">← 上一篇</router-link><span v-else></span><router-link v-if="data.nextSlug" :to="'/journals/'+data.nextSlug">下一篇 →</router-link></nav>
         <teleport to="body"><div v-if="lightbox" class="photo-lightbox" role="dialog" aria-modal="true" @click.self="lightbox=null">
@@ -500,14 +517,23 @@
       const profile = ref({ displayName:'旅行者', avatarUrl:null, themeKey:'travel-classic' });
       watch(() => router.currentRoute.value.fullPath, () => menu.value = false);
       function previewTheme(event){if(event.origin===location.origin&&event.data?.type==='travel-theme-preview')applyTheme(event.data.theme,{persist:false});}
+      // 菜单现在是浮层，点旁边任何地方都该收起来；Esc 同理
+      function closeMenuOutside(event){ if(menu.value && !event.target.closest('.public-nav, .mobile-menu')) menu.value = false; }
+      function closeMenuOnEsc(event){ if(event.key === 'Escape') menu.value = false; }
       onMounted(async () => {
         window.addEventListener('message',previewTheme);
+        document.addEventListener('click',closeMenuOutside);
+        window.addEventListener('keydown',closeMenuOnEsc);
         try {
           profile.value = await api.profile();
           if(!isThemePreview)setSiteTheme(profile.value.theme||profile.value.themeKey);
         } catch (_) { }
       });
-      onBeforeUnmount(()=>window.removeEventListener('message',previewTheme));
+      onBeforeUnmount(()=>{
+        window.removeEventListener('message',previewTheme);
+        document.removeEventListener('click',closeMenuOutside);
+        window.removeEventListener('keydown',closeMenuOnEsc);
+      });
       return { menu, profile };
     },
     template: `

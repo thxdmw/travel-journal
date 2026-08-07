@@ -148,8 +148,17 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .editor-meta-toggle { flex:0 0 34px; display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; margin-bottom:10px; padding:0 14px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); color:var(--tj-primary); background:var(--tj-surface); font-size:13px; cursor:pointer; }
 .editor-meta-toggle:hover { border-color:var(--tj-accent); }
 .editor-meta-toggle span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.editor-meta-toggle span:last-child { flex:0 0 auto; color:var(--tj-accent); font-size:15px; }
-.editor-meta-group.collapsed { display:none; }
+/* 用 border 画的箭头，比 ⌄ ⌃ 这类字符稳定（不同字体里字符的粗细和基线差别很大） */
+.editor-meta-toggle__chev { flex:0 0 auto; width:8px; height:8px; margin-right:2px; border-right:2px solid var(--tj-accent); border-bottom:2px solid var(--tj-accent); transform:translateY(-2px) rotate(-135deg); transition:transform .24s ease; }
+.editor-meta-toggle[aria-expanded="false"] .editor-meta-toggle__chev { transform:translateY(-3px) rotate(45deg); }
+/*
+ * 折叠动画：grid 的 0fr → 1fr 能在「高度未知」的前提下做补间，
+ * 比写死 max-height 好——日记信息区的高度随标签、预览链接、模板提示变化，
+ * max-height 猜大了收起会拖沓，猜小了内容会被截断。
+ */
+.editor-meta-group { display:grid; grid-template-rows:1fr; transition:grid-template-rows .26s ease, opacity .2s ease; }
+.editor-meta-inner { min-height:0; overflow:hidden; }
+.editor-meta-group.collapsed { grid-template-rows:0fr; opacity:0; }
 /* 中间那条 0 宽的列是锁定按钮的落点，正好压在编辑区和预览区的交界线上 */
 .editor-grid { position:relative; flex:1; min-height:0; display:grid; grid-template-columns:1fr 0 1fr 280px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); overflow:hidden; background:var(--tj-surface); }
 .editor-column { min-width:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--tj-border); }
@@ -166,6 +175,16 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .writing-toolbar button { flex:0 0 auto; min-height:28px; padding:0 9px; border:1px solid var(--tj-border); border-radius:6px; color:var(--tj-primary); background:var(--tj-surface); font-size:13px; }
 .writing-toolbar button:hover { border-color:var(--tj-accent); color:var(--tj-accent); }
 .toolbar-sep { flex:0 0 1px; align-self:stretch; margin:2px 3px; background:var(--tj-border); }
+.show-on-mobile { display:none; }
+
+/* ---- 移动端「双击正文插入」面板 */
+.insert-sheet .el-drawer__header { margin-bottom:8px; padding:14px 16px 0; color:var(--tj-primary); font-weight:700; }
+.insert-sheet .el-drawer__body { padding:0 16px 20px; }
+.insert-sheet__group + .insert-sheet__group { margin-top:14px; padding-top:12px; border-top:1px solid var(--tj-border); }
+.insert-sheet__title { margin-bottom:8px; color:var(--tj-muted); font-size:12px; letter-spacing:.06em; }
+.insert-sheet__items { display:flex; flex-wrap:wrap; gap:8px; }
+.insert-sheet__items button { min-height:38px; padding:0 14px; border:1px solid var(--tj-border); border-radius:9px; color:var(--tj-primary); background:var(--tj-surface); font-size:14px; }
+.insert-sheet__items button:active { border-color:var(--tj-accent); background:color-mix(in srgb,var(--tj-accent) 10%,var(--tj-surface)); }
 .markdown-input { flex:1; min-height:0; }
 .markdown-input .el-textarea__inner { height:100%!important; padding:20px!important; border:0!important; box-shadow:none!important; resize:none; font:14px/1.75 Consolas,monospace; background:#fffdf8; }
 /*
@@ -255,6 +274,10 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .figure-stage .journal-figure--bleed { --figure-width:min(var(--tj-content-width,1200px),100%); }
 .figure-stage-empty { display:grid; place-items:center; min-height:180px; color:var(--tj-muted); font-size:13px; }
 .image-layout-controls { max-height:min(62vh,560px); overflow-y:auto; padding-right:4px; scrollbar-width:thin; }
+/* 分段之后每段都很短，弹窗高度就稳定了，不会再被某一段撑爆 */
+.image-layout-tabs .el-tabs__header { margin-bottom:14px; }
+.image-layout-tabs .el-tabs__nav-wrap::after { height:1px; }
+.image-layout-tabs .el-tabs__item { padding:0 14px; font-size:13px; }
 .image-layout-controls .el-form-item { margin-bottom:14px; }
 /*
  * 选项变多之后（画框 9 个、展示模式 10 个）连体的一长排会撑破面板。
@@ -345,6 +368,11 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .theme-designer { height:min(72vh,760px); min-height:560px; display:grid; grid-template-columns:minmax(360px,430px) 1fr; gap:18px; }
 .theme-controls { min-height:0; overflow:auto; padding:2px 8px 18px 2px; scrollbar-width:thin; }
 .theme-history { position:sticky; top:0; z-index:2; padding:5px 0 10px; background:var(--tj-surface); }
+/*
+ * 只管排列，不要去改按钮和下拉的高度：Element Plus 的 el-button 和
+ * el-select 在同一 size 下本来就是一致的高度，之前手动写死 34px 反而把
+ * 按钮内部的 padding / 行高比例弄乱，看着又矮又褪色。
+ */
 .tag-merge-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .tag-merge-bar span { color:var(--tj-muted); font-size:13px; }
 .tag-merge-bar .el-select { width:220px; }
@@ -356,7 +384,8 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .draft-recover-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; padding:11px 16px; border:1px solid var(--tj-accent); border-radius:var(--tj-radius-small,8px); background:color-mix(in srgb, var(--tj-accent) 8%, var(--tj-surface)); font-size:13px; }
 
 /* ——— 编辑器：标签 ——— */
-.editor-tags { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:10px; }
+/* 下边距不能省：紧跟着的模板状态条 / 预览链接条只有 margin-bottom，两块会贴死 */
+.editor-tags { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin:10px 0 12px; }
 .editor-tags .tag-input { width:150px; }
 
 /* ——— 备份导出 ——— */
@@ -474,12 +503,14 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
   .admin-topbar,.admin-content { padding-left:16px; padding-right:16px; }
   .dashboard-grid,.trip-list,.budget-summary,.theme-grid,.profile-grid { grid-template-columns:1fr; }
   .workspace-tabs .el-tabs__header { padding:0; overflow:hidden; }
-  .workspace-tabs .el-tabs__nav-wrap { padding:0!important; overflow-x:auto; overscroll-behavior-inline:contain; scroll-snap-type:x proximity; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x; }
+  /* 不要 scroll-snap：吸附会在滑到末尾时把 tab 拽回来，滑到哪停哪才跟手 */
+  .workspace-tabs .el-tabs__nav-wrap { padding:0!important; overflow-x:auto; overscroll-behavior-inline:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x; }
   .workspace-tabs .el-tabs__nav-wrap::-webkit-scrollbar { display:none; }
   .workspace-tabs .el-tabs__nav-wrap::after { display:none; }
   .workspace-tabs .el-tabs__nav-scroll { overflow:visible; }
-  .workspace-tabs .el-tabs__nav { float:none; width:max-content; transform:none!important; }
-  .workspace-tabs .el-tabs__item { flex:0 0 auto; padding:0 18px; scroll-snap-align:center; }
+  /* 首尾各留一段内边距，第一个和最后一个 tab 才不会贴着屏幕边 */
+  .workspace-tabs .el-tabs__nav { float:none; width:max-content; padding:0 14px; transform:none!important; }
+  .workspace-tabs .el-tabs__item { flex:0 0 auto; padding:0 16px; }
   .workspace-tabs .el-tabs__nav-prev,.workspace-tabs .el-tabs__nav-next { display:none; }
   .workspace-tabs .el-tabs__content { padding:16px 12px; }
   .budget-amount-input { width:100%; min-width:140px; }
@@ -501,24 +532,50 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
   .editor-actions .el-button { flex:0 0 auto; margin-left:0!important; }
   /* 移动端只调触摸目标尺寸，其余样式沿用上面的基础规则 */
   .editor-meta-toggle { flex:0 0 40px; margin-bottom:8px; border-radius:9px; }
-  .editor-meta-toggle span:last-child { font-size:16px; }
   .editor-meta { grid-template-columns:1fr; }
   .template-state { min-height:32px; }
-  .editor-mobile-tabs { flex:0 0 42px; display:grid; grid-template-columns:repeat(3,1fr); margin-bottom:8px; padding:3px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface-soft); }
-  .editor-mobile-tabs button { border:0; border-radius:7px; color:var(--tj-muted); background:transparent; }
+  /* 分段切换压扁一档，省下的高度全给编辑区 */
+  .editor-mobile-tabs { flex:0 0 32px; display:grid; grid-template-columns:repeat(3,1fr); margin-bottom:6px; padding:2px; border:1px solid var(--tj-border); border-radius:8px; background:var(--tj-surface-soft); }
+  .editor-mobile-tabs button { border:0; border-radius:6px; color:var(--tj-muted); background:transparent; font-size:13px; }
   .editor-mobile-tabs button.active { color:var(--tj-primary); background:var(--tj-surface); box-shadow:0 2px 7px rgba(28,55,46,.09); font-weight:700; }
   .editor-grid { grid-template-columns:1fr; }
   .editor-column { display:none; border:0; }
   .editor-column.mobile-active { display:flex; min-height:0; }
+  /*
+   * 手机上编辑区本来就窄，桌面那套 14px/1.75 加 20px 内边距会让一屏只剩几行。
+   * 收紧到 13px/1.6、内边距减半，可视行数多出接近一半；
+   * 预览侧同理，让作者在手机上也能一眼看到一整段。
+   */
+  .editor-label { flex:0 0 36px; height:36px; padding:0 12px; font-size:12px; }
+  /* 工具栏在手机上铺开要三四行，改走双击弹出的插入面板 */
+  .writing-toolbar { display:none; }
+  /* 手机上三栏是分段切换的，图片管理本来就独占一屏，没有「收起让位」这回事 */
+  .media-toggle { display:none; }
+  .hide-on-mobile { display:none; }
+  .show-on-mobile { display:inline; }
+  .markdown-input .el-textarea__inner { padding:12px 12px 14px!important; font:13px/1.6 Consolas,monospace; }
+  .preview { padding:12px; }
+  .preview.markdown-body { --body-size:14px; }
   /* 手机端一次只显示一栏，没有「两侧同步」可言 */
   .scroll-lock { display:none; }
   .markdown-input textarea,.preview { height:100%!important; }
   .media-side { max-height:none; }
-  .image-layout-body { grid-template-columns:1fr; }
+  /*
+   * 手机上把弹窗做成「上面预览、下面分段设置」的固定两段：
+   * 预览常驻不跟着滚，设置区自己在下半部分滚。
+   * 之前是整块一起滚，改到底部的图注要再滑回顶部才看得见效果，
+   * 而且内容一长就和底部按钮叠在一起。
+   */
+  .image-layout-dialog .el-dialog__body { display:flex; flex-direction:column; height:calc(100dvh - 118px); padding:10px 12px; overflow:hidden; }
+  .image-layout-body { flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
   /* 窄屏放不下正文宽度，预览台退回可用宽度；比例关系失真但仍能看清版式 */
-  .figure-stage { max-height:38vh; padding-top:30px; }
+  .figure-stage { flex:0 0 auto; max-height:34vh; padding-top:26px; }
   .figure-stage__page { width:100%; max-width:calc(100% - 24px); }
-  .image-layout-controls { max-height:none; overflow:visible; }
+  /* 设置区独立滚动，预览留在上面不动 */
+  .image-layout-controls { flex:1; min-height:0; max-height:none; overflow-y:auto; padding-right:2px; }
+  .image-layout-tabs .el-tabs__header { margin-bottom:10px; }
+  .image-layout-tabs .el-tabs__item { padding:0 11px; font-size:13px; }
+  .image-layout-controls .el-radio-button__inner { padding:8px 12px; }
   .template-writing { min-height:0; grid-template-columns:1fr; }
   .template-choices { display:flex; max-height:none; overflow-x:auto; padding-bottom:5px; scrollbar-width:none; }
   .template-choices::-webkit-scrollbar { display:none; }
@@ -535,6 +592,22 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
   .block-actions { grid-column:2; flex-direction:row; justify-content:flex-end; }
   .block-title-row { grid-template-columns:1fr; }
 }
+
+/*
+ * ================================================================ 后台列表
+ * 表头和单元格统一居中：这些列多是日期、状态、数量和操作，
+ * 左对齐会让每列的内容散在很宽的格子左边，扫读时对不上。
+ */
+.admin-content .el-table th.el-table__cell > .cell,
+.admin-content .el-table td.el-table__cell > .cell { text-align:center; }
+/* 标题这类长文本仍然左对齐，居中会让每行起点参差不齐 */
+.admin-content .el-table td.el-table__cell.is-left > .cell,
+.admin-content .el-table th.el-table__cell.is-left > .cell { text-align:left; }
+
+/* 操作列做成实体小按钮，比一排纯文字链接更像可点的东西 */
+.table-actions { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+.table-actions .el-button { height:28px; margin:0!important; padding:0 12px; border-radius:6px; font-size:12px; }
+.table-actions .el-button--danger.is-plain { --el-button-hover-bg-color:var(--el-color-danger); --el-button-hover-text-color:#fff; }
 
 /* 只隐藏页面最外层滚动条；列表、编辑预览等独立区域按需滚动 */
 .el-table .el-scrollbar__bar.is-vertical,
