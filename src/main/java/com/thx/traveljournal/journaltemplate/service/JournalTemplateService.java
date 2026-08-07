@@ -60,7 +60,8 @@ public class JournalTemplateService {
      * stack 表示不合成图组，仍然一张一张地竖着排（保持模板的历史行为）。
      */
     private static final Set<String> GALLERY_LAYOUTS = Set.of(
-            "row", "grid", "masonry", "mosaic", "carousel", "filmstrip", "compare");
+            "row", "grid", "masonry", "mosaic", "magazine", "story", "staggered",
+            "carousel", "filmstrip", "compare");
 
     private final JournalTemplateMapper mapper;
     private final TripMapper tripMapper;

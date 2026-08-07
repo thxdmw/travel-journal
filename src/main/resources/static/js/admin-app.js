@@ -662,7 +662,7 @@
       // 版式面板的全部状态。默认值刻意留空字符串＝「跟随主题」，拼 class 时不输出。
       // editRange 非空表示这次是在改正文里已有的一段图片，而不是插入新的。
       const imageForm=reactive({items:[],mode:'single',size:'medium',align:'center',wrap:false,
-        ratio:'',focus:'',frame:'',radius:'',caption:'',captionPos:'',cols:3,editRange:null});
+        ratio:'',focus:'',frame:'',radius:'',tone:'',effect:'',caption:'',captionPos:'',cols:3,editRange:null});
       const formRef=ref(null);
       const form=reactive({tripId:route.query.tripId?Number(route.query.tripId):null,tripStopId:null,title:'',slug:'',excerpt:'',contentMarkdown:'',occurredOn:'',coverMediaId:null,status:'DRAFT',themeKey:null,templateId:null,templateVersion:null,templateData:null,templateSnapshot:null,templateDetached:false});
       // 保存草稿时就校验，不用等到点「发布」才发现少填了东西
@@ -723,8 +723,22 @@
       const figureMarkup=computed(()=>JM.buildFigure(imageForm));
       const figurePreview=computed(()=>figureMarkup.value?DOMPurify.sanitize(marked.parse(figureMarkup.value)):'');
       const isGallery=computed(()=>imageForm.items.length>1);
-      const galleryModes=[{value:'row',label:'并排'},{value:'grid',label:'网格'},{value:'masonry',label:'瀑布流'},{value:'mosaic',label:'拼贴'},{value:'carousel',label:'轮播'},{value:'filmstrip',label:'胶片条'},{value:'compare',label:'前后对比'}];
-      function resetImageForm(){Object.assign(imageForm,{items:[],mode:'single',size:'medium',align:'center',wrap:false,ratio:'',focus:'',frame:'',radius:'',caption:'',captionPos:'',cols:3,editRange:null});}
+      const galleryModes=[
+        {value:'row',label:'并排'},{value:'grid',label:'网格'},{value:'masonry',label:'瀑布流'},{value:'mosaic',label:'拼贴'},
+        {value:'magazine',label:'杂志',hint:'推荐 3～5 张，首图作主图，其余自动排成规则网格。'},
+        {value:'story',label:'故事流',hint:'保持原始比例，纵向铺开、左右交替，适合按顺序讲一段旅程。'},
+        {value:'staggered',label:'错落画廊',hint:'保持原始比例，宽窄错落交替，适合竖图和横图混排。'},
+        {value:'carousel',label:'轮播'},{value:'filmstrip',label:'胶片条'},{value:'compare',label:'前后对比'}
+      ];
+      // 保持原始比例的布局，裁剪比例和焦点对它们没有意义，面板里直接隐藏
+      const keepsOriginalRatio=computed(()=>isGallery.value&&JM.FREE_RATIO_MODES.includes(imageForm.mode));
+      const modeHint=computed(()=>galleryModes.find(m=>m.value===imageForm.mode)?.hint||'');
+      // 切到保持原始比例的排布方式时，把之前选的比例和焦点清掉。
+      // 不清的话它们会一直留在 state 里，面板上又看不见，最后被 buildFigure 写进正文变成不生效的僵尸 class。
+      watch(()=>imageForm.mode,mode=>{
+        if(JM.FREE_RATIO_MODES.includes(mode)){imageForm.ratio='';imageForm.focus='';}
+      });
+      function resetImageForm(){Object.assign(imageForm,{items:[],mode:'single',size:'medium',align:'center',wrap:false,ratio:'',focus:'',frame:'',radius:'',tone:'',effect:'',caption:'',captionPos:'',cols:3,editRange:null});}
       /** 打开版式面板。传入的图片来自媒体侧栏，多选时默认用并排。 */
       function openImageDialog(items){
         if(!items.length)return;
@@ -904,7 +918,7 @@
         editorTextarea()?.removeEventListener('scroll',onEditorScroll);
         window.removeEventListener('beforeunload',beforeUnload);
       });
-      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,mobileMetaCollapsed,toolbarGroups,scrollLocked,onPreviewScroll,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
+      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,mobileMetaCollapsed,toolbarGroups,scrollLocked,onPreviewScroll,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
     },
     template: `<div class="editor-page"><div class="editor-top"><el-button link @click="backToTrip">← 返回</el-button><h2>编辑旅行日记</h2><span class="status">{{statusLabel(form.status)}}</span><span class="word-count">{{wordCount}} 字</span><div class="editor-actions"><el-button @click="openTemplate">{{form.templateId?'填写模板':'从模板开始'}}</el-button><el-button :loading="saving" @click="save()">保存草稿</el-button><el-button v-if="form.status==='PUBLISHED'" @click="unpublish">撤回</el-button><el-button type="primary" @click="publish">发布日记</el-button></div></div>
       <button type="button" class="editor-meta-toggle" :aria-expanded="!mobileMetaCollapsed" @click="mobileMetaCollapsed=!mobileMetaCollapsed"><span>{{mobileMetaCollapsed?(form.title||'日记信息'):'收起日记信息'}}</span><span aria-hidden="true">{{mobileMetaCollapsed?'⌄':'⌃'}}</span></button>
@@ -926,28 +940,41 @@
             <div><el-input class="media-item__caption" v-model="item.caption" placeholder="图注（留空则不显示）" @change="saveCaption(item)"/>
               <div><el-button link size="small" @click="insertImage(item)">插入</el-button><el-button link size="small" @click="setCover(item)">{{form.coverMediaId===item.id?'当前封面':'设封面'}}</el-button><el-button link type="danger" size="small" @click="removeMedia(item)">删除</el-button></div></div></div>
         </div></aside></div>
-      <el-dialog v-model="imageDialog" :title="imageForm.editRange?'修改图片版式':'设置图片版式'" width="min(1000px,96vw)" class="image-layout-dialog">
+      <el-dialog v-model="imageDialog" :title="imageForm.editRange?'修改图片版式':'设置图片版式'" width="min(1500px,96vw)" class="image-layout-dialog">
         <div class="image-layout-body">
-          <div class="figure-stage markdown-body" v-html="figurePreview"></div>
+          <div class="figure-stage"><div class="figure-stage__label">按正文宽度预览</div><div class="figure-stage__page markdown-body" v-html="figurePreview"></div></div>
           <div class="image-layout-controls"><el-form label-position="top">
             <template v-if="isGallery">
               <div class="image-layout-group-title">展示模式</div>
               <el-form-item><el-radio-group v-model="imageForm.mode"><el-radio-button v-for="m in galleryModes" :key="m.value" :value="m.value">{{m.label}}</el-radio-button></el-radio-group>
+                <div v-if="modeHint" class="image-layout-hint">{{modeHint}}</div>
                 <div v-if="imageForm.mode==='compare'&&imageForm.items.length!==2" class="image-layout-hint">前后对比只支持恰好两张图片，当前选了 {{imageForm.items.length}} 张，会退回竖向排列。</div></el-form-item>
               <el-form-item v-if="['grid','masonry'].includes(imageForm.mode)" label="列数"><el-radio-group v-model="imageForm.cols"><el-radio-button :value="2">2 列</el-radio-button><el-radio-button :value="3">3 列</el-radio-button><el-radio-button :value="4">4 列</el-radio-button></el-radio-group></el-form-item>
             </template>
-            <div class="image-layout-group-title">版式</div>
+            <div class="image-layout-group-title">大小与对齐</div>
             <el-form-item label="展示大小"><el-radio-group v-model="imageForm.size"><el-radio-button value="small">小</el-radio-button><el-radio-button value="medium">中</el-radio-button><el-radio-button value="large">大</el-radio-button><el-radio-button value="full">满宽</el-radio-button><el-radio-button value="bleed">通栏出血</el-radio-button></el-radio-group></el-form-item>
             <el-form-item label="对齐方式"><el-radio-group v-model="imageForm.align"><el-radio-button value="left">居左</el-radio-button><el-radio-button value="center">居中</el-radio-button><el-radio-button value="right">居右</el-radio-button></el-radio-group></el-form-item>
             <el-form-item><el-checkbox v-model="imageForm.wrap" :disabled="imageForm.align==='center'||['full','bleed'].includes(imageForm.size)">让正文文字环绕图片</el-checkbox>
               <div class="image-layout-hint">需要先设为居左或居右，且不是满宽/通栏。窄屏会自动取消环绕。</div></el-form-item>
             <div class="image-layout-group-title">裁剪</div>
-            <el-form-item label="显示比例"><el-radio-group v-model="imageForm.ratio"><el-radio-button value="">原始比例</el-radio-button><el-radio-button value="16x9">16:9</el-radio-button><el-radio-button value="4x3">4:3</el-radio-button><el-radio-button value="1x1">1:1</el-radio-button><el-radio-button value="3x4">3:4</el-radio-button></el-radio-group>
-              <div class="image-layout-hint">原始比例下卡片会贴合照片本身；选了比例则按比例裁剪填满。</div></el-form-item>
-            <el-form-item v-if="imageForm.ratio" label="裁剪焦点"><el-radio-group v-model="imageForm.focus"><el-radio-button value="">居中</el-radio-button><el-radio-button value="top">偏上</el-radio-button><el-radio-button value="bottom">偏下</el-radio-button></el-radio-group></el-form-item>
+            <template v-if="keepsOriginalRatio">
+              <div class="image-layout-hint">这个排布方式保持每张照片的原始比例，不做裁剪，因此没有比例和焦点设置。</div>
+            </template>
+            <template v-else>
+              <el-form-item label="显示比例"><el-radio-group v-model="imageForm.ratio"><el-radio-button value="">原始比例</el-radio-button><el-radio-button value="16x9">16:9</el-radio-button><el-radio-button value="4x3">4:3</el-radio-button><el-radio-button value="1x1">1:1</el-radio-button><el-radio-button value="3x4">3:4</el-radio-button></el-radio-group>
+                <div class="image-layout-hint">{{isGallery?'原始比例下用这个排布方式自带的比例；选了比例则整组统一按它裁剪。':'原始比例下卡片会贴合照片本身；选了比例则按比例裁剪填满。'}}</div></el-form-item>
+              <el-form-item v-if="imageForm.ratio||isGallery" label="裁剪焦点"><el-radio-group v-model="imageForm.focus"><el-radio-button value="">居中</el-radio-button><el-radio-button value="top">偏上</el-radio-button><el-radio-button value="bottom">偏下</el-radio-button></el-radio-group></el-form-item>
+            </template>
             <div class="image-layout-group-title">外观</div>
-            <el-form-item label="画框"><el-radio-group v-model="imageForm.frame"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">无框</el-radio-button><el-radio-button value="line">细描边</el-radio-button><el-radio-button value="paper">相纸白边</el-radio-button><el-radio-button value="float">浮起阴影</el-radio-button><el-radio-button value="polaroid">宝丽来</el-radio-button></el-radio-group></el-form-item>
+            <el-form-item label="画框"><el-radio-group v-model="imageForm.frame"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">无框</el-radio-button><el-radio-button value="line">细描边</el-radio-button><el-radio-button value="paper">相纸白边</el-radio-button><el-radio-button value="float">浮起阴影</el-radio-button><el-radio-button value="polaroid">宝丽来</el-radio-button><el-radio-button value="tape">手账胶带</el-radio-button><el-radio-button value="film">胶片边框</el-radio-button><el-radio-button value="postcard">旅行明信片</el-radio-button></el-radio-group>
+              <div v-if="imageForm.frame==='tape'&&isGallery" class="image-layout-hint">图组里胶带贴在整组顶部，不会每张一条互相压住。</div>
+              <div v-if="imageForm.frame==='postcard'" class="image-layout-hint">底部留白是明信片的留言区，没有图注时也会保留。</div></el-form-item>
             <el-form-item label="圆角"><el-radio-group v-model="imageForm.radius"><el-radio-button value="">跟随主题</el-radio-button><el-radio-button value="none">直角</el-radio-button><el-radio-button value="soft">小圆角</el-radio-button><el-radio-button value="round">大圆角</el-radio-button></el-radio-group></el-form-item>
+            <el-form-item label="色调"><el-radio-group v-model="imageForm.tone"><el-radio-button value="">跟随原图</el-radio-button><el-radio-button value="warm">暖色</el-radio-button><el-radio-button value="vintage">复古</el-radio-button><el-radio-button value="mono">黑白</el-radio-button></el-radio-group>
+              <div class="image-layout-hint">只影响正文里的显示，点开灯箱看到的仍是原图。</div></el-form-item>
+            <div class="image-layout-group-title">交互动效</div>
+            <el-form-item label="鼠标悬停"><el-radio-group v-model="imageForm.effect"><el-radio-button value="">无动效</el-radio-button><el-radio-button value="lift">悬停浮起</el-radio-button><el-radio-button value="zoom">缓慢放大</el-radio-button><el-radio-button value="tilt">轻微倾斜</el-radio-button></el-radio-group>
+              <div class="image-layout-hint">触摸设备不显示倾斜；读者若在系统里开启了「减少动态效果」，动效会自动关闭。</div></el-form-item>
             <div class="image-layout-group-title">图注</div>
             <el-form-item label="图注文字"><el-input v-model="imageForm.caption" placeholder="这张照片背后的故事，留空则不显示"/></el-form-item>
             <el-form-item label="图注位置"><el-radio-group v-model="imageForm.captionPos"><el-radio-button value="">下方居中</el-radio-button><el-radio-button value="left">下方居左</el-radio-button><el-radio-button v-if="!isGallery" value="overlay">悬浮图上</el-radio-button><el-radio-button v-if="!isGallery" value="side">右侧</el-radio-button><el-radio-button value="none">隐藏</el-radio-button></el-radio-group></el-form-item>
@@ -1013,7 +1040,7 @@
               <el-input v-if="['text','textarea','quote'].includes(block.type)" v-model="block.config.placeholder" placeholder="填写提示语"/>
               <el-select v-if="block.type==='route'" v-model="block.config.source"><el-option label="路线来源：当天行程条目" value="itinerary"/><el-option label="路线来源：整趟旅行的城市顺序" value="trip"/></el-select>
               <el-select v-if="block.type==='expense-summary'" v-model="block.config.source"><el-option label="统计范围：日记当天的支出" value="expense"/><el-option label="统计范围：整趟旅行的全部支出" value="trip"/></el-select>
-              <el-input-number v-if="block.type==='rating'" v-model="block.config.max" :min="3" :max="10" controls-position="right" style="width:140px"/><div v-if="['image','gallery'].includes(block.type)" class="form-grid form-grid-2"><el-select v-model="block.config.imageSize"><el-option label="小图" value="small"/><el-option label="中图" value="medium"/><el-option label="大图" value="large"/><el-option label="满宽" value="full"/><el-option label="通栏出血" value="bleed"/></el-select><el-select v-model="block.config.align"><el-option label="居左" value="left"/><el-option label="居中" value="center"/><el-option label="居右" value="right"/></el-select></div><el-select v-if="block.type==='gallery'" v-model="block.config.layout" placeholder="图组排布"><el-option label="竖向逐张排列" value="stack"/><el-option label="并排" value="row"/><el-option label="网格" value="grid"/><el-option label="瀑布流" value="masonry"/><el-option label="拼贴" value="mosaic"/><el-option label="轮播" value="carousel"/><el-option label="胶片条" value="filmstrip"/><el-option label="前后对比" value="compare"/></el-select></div><div class="block-actions"><button type="button" @click="copyBlock(index)">复制</button><button type="button" class="danger" @click="form.definitionJson.blocks.splice(index,1)">删除</button></div></article></div>
+              <el-input-number v-if="block.type==='rating'" v-model="block.config.max" :min="3" :max="10" controls-position="right" style="width:140px"/><div v-if="['image','gallery'].includes(block.type)" class="form-grid form-grid-2"><el-select v-model="block.config.imageSize"><el-option label="小图" value="small"/><el-option label="中图" value="medium"/><el-option label="大图" value="large"/><el-option label="满宽" value="full"/><el-option label="通栏出血" value="bleed"/></el-select><el-select v-model="block.config.align"><el-option label="居左" value="left"/><el-option label="居中" value="center"/><el-option label="居右" value="right"/></el-select></div><el-select v-if="block.type==='gallery'" v-model="block.config.layout" placeholder="图组排布"><el-option label="竖向逐张排列" value="stack"/><el-option label="并排" value="row"/><el-option label="网格" value="grid"/><el-option label="瀑布流" value="masonry"/><el-option label="拼贴" value="mosaic"/><el-option label="杂志" value="magazine"/><el-option label="故事流" value="story"/><el-option label="错落画廊" value="staggered"/><el-option label="轮播" value="carousel"/><el-option label="胶片条" value="filmstrip"/><el-option label="前后对比" value="compare"/></el-select></div><div class="block-actions"><button type="button" @click="copyBlock(index)">复制</button><button type="button" class="danger" @click="form.definitionJson.blocks.splice(index,1)">删除</button></div></article></div>
         <aside class="template-live-preview"><div class="template-live-head">实时预览<small>示例数据</small></div><article ref="builderPreviewEl" class="preview markdown-body template-preview-body" v-html="builderPreview"></article><div v-if="!form.definitionJson.blocks.length" class="template-live-empty">添加区块后这里会显示生成的日记长什么样</div></aside>
         </div>
         <template #footer><el-button @click="dialog=false">取消</el-button><el-button type="primary" @click="save">保存模板</el-button></template></el-dialog>

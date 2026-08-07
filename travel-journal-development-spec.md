@@ -285,9 +285,21 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
    | 文字环绕 | `journal-figure--wrap` | 仅在 left / right 且非 full / bleed 时输出 |
    | 裁剪比例 | `journal-figure--ratio-{v}` | 16x9 / 4x3 / 1x1 / 3x4（默认原始比例，不输出） |
    | 裁剪焦点 | `journal-figure--focus-{v}` | top / bottom（默认居中，不输出） |
-   | 画框 | `journal-figure--frame-{v}` | none / line / paper / float / polaroid（默认跟随主题） |
+   | 画框 | `journal-figure--frame-{v}` | none / line / paper / float / polaroid / tape 手账胶带 / film 胶片边框 / postcard 明信片（默认跟随主题） |
    | 圆角 | `journal-figure--radius-{v}` | none / soft / round（默认跟随主题） |
+   | 色调 | `journal-figure--tone-{v}` | warm / vintage / mono（默认跟随原图，不输出） |
+   | 动效 | `journal-figure--effect-{v}` | lift / zoom / tilt（默认无动效，不输出） |
    | 图注 | `journal-figure--caption-{v}` | left / overlay / side / none（默认下方居中） |
+
+   画框全部画在 `img` 上，边框才会贴着照片而不是贴着列宽；只有胶带因为要用伪元素，
+   画在 `figure` 上，因此图组里是「整组一条胶带」而不是每张一条。
+   色调用轻量 `filter`，同样写在 `img` 上——灯箱是 teleport 到 body 的独立节点，
+   天然不继承，点开看到的始终是原图。动效在 `prefers-reduced-motion` 和无 hover 的
+   触摸设备上自动降级。
+
+   主题的 `data-image-style` 只是「没有逐图设置时的默认值」，选择器要用
+   `:not([class*="--frame-"])` 把逐图设过的排除掉。早先靠「把 frame 规则再抄一遍
+   放到主题后面」来覆盖是无效的：主题选择器带属性选择器，特异性本来就更高。
 
 4. 多张图片写成图组，与单图平级，复用上面的大小和对齐轴：
 
@@ -299,7 +311,17 @@ Markdown 适合作为本项目的日记格式：正文是可迁移的纯文本�
    </figure>
    ~~~
 
-   排布方式为 row 并排、grid 网格、masonry 瀑布流、mosaic 拼贴、carousel 轮播、filmstrip 胶片条、compare 前后对比。前四种纯 CSS；后三种由 `js/common/journal-media.js` 在渲染后重排结构并挂事件，重排只发生在运行时 DOM，正文字符串不受影响。compare 要求恰好两张，否则退回竖向堆叠。
+   排布方式为 row 并排、grid 网格、masonry 瀑布流、mosaic 拼贴、magazine 杂志、story 故事流、staggered 错落画廊、carousel 轮播、filmstrip 胶片条、compare 前后对比。
+
+   carousel 和 filmstrip 都必须有左右箭头：桌面端鼠标滚轮只滚纵向，横向轨道的滚动条
+   又被 scrollbar-width:none 藏掉了，没有箭头在 PC 上就等于完全滚不动。两者还都支持
+   按住鼠标横向拖动，拖动超过阈值时要吃掉紧随其后的 click，否则松手会误开灯箱。
+
+   裁剪比例走 `--gallery-ratio` 变量：ratio 轴只负责把选择记在变量上，各布局写
+   `aspect-ratio:var(--gallery-ratio, 本布局默认值)`。早先是直接给 img 写死 aspect-ratio，
+   而图组布局在后面又各自写了一遍，同特异性下后来者赢，用户在图组里选的比例根本不生效。
+   masonry、filmstrip、story、staggered 保持原始比例，不设 aspect-ratio，
+   后台面板对这几种隐藏比例和焦点选项（见 `FREE_RATIO_MODES`）。前四种纯 CSS；后三种由 `js/common/journal-media.js` 在渲染后重排结构并挂事件，重排只发生在运行时 DOM，正文字符串不受影响。compare 要求恰好两张，否则退回竖向堆叠。
 5. 这套标记的拼装和反解集中在 `js/common/journal-media.js` 的 `buildFigure` / `parseFigure`，样式集中在 `css/journal-media.css`（公开端与后台预览共用），后端模板生成在 `JournalTemplateService.figure()` / `gallery()`。改动 class 契约时这三处必须同步。
 6. 正文只保存上述稳定的应用内媒体地址，不保存 MinIO 地址、对象键或预签名 URL。
 7. 浏览器请求 GET /api/media/{mediaId}/display 时，后端检查媒体可见性，再 302 跳转到新生成的短期 MinIO 预签名地址。
@@ -554,6 +576,7 @@ journal_media：
 
 - 小于 768px 时，后台菜单改为抽屉，列表在必要时改为卡片。
 - 日记编辑在手机端使用“写作、预览、图片”分段切换，模板填写和图片布局弹窗使用全屏布局。
+- 图片版式弹窗的预览台内层固定为正文阅读宽度（`--tj-article-width`）。版式尺寸都是百分比，若按弹窗左栏宽度计算，预览里的图会比线上大一圈，「所见」就不是「所得」。
 - 旅行工作台菜单支持点击、横向滚动和左右滑动切换。
 - 地图全宽，主要按钮点击区域不小于 44px。
 - 图片上传支持手机相册。

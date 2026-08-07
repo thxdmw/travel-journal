@@ -3,7 +3,7 @@
  *
  * 之所以单独成文件：这套样式原本在 public.css 和 admin.css 里各抄了一份，
  * 改一处忘另一处就会出现「预览和线上不一样」。后台的实时预览元素本身带
- * .preview.markdown-body，版式面板的预览台带 .figure-stage.markdown-body，
+ * .preview.markdown-body，版式面板的预览台在 .figure-stage__page 上带 .markdown-body，
  * 所以只要都挂上 .markdown-body，一份规则就能服务三个地方。
  *
  * 上下文差异走 CSS 变量，不要再复制选择器。
@@ -11,8 +11,9 @@
 /* 注意别在这里声明 --body-size：本文件在 public.css 之后加载，同为 .markdown-body
    单类选择器会盖掉前台设的 17px。默认值写在下面 font 的 var() 兜底里。 */
 .markdown-body { --figure-max-h: min(720px, 75vh); --figure-cursor: zoom-in; --figure-gap: 10px; }
+/* 预览台的 .markdown-body 在内层的 __page 上，所以这里用后代选择器而不是同元素 */
 .preview.markdown-body,
-.figure-stage.markdown-body { --figure-max-h: min(560px, 60vh); --figure-cursor: pointer; }
+.figure-stage .markdown-body { --figure-max-h: min(560px, 60vh); --figure-cursor: pointer; }
 
 /*
  * 正文排版。这一段必须在公开端和后台预览之间共用，否则就会出现
@@ -93,21 +94,36 @@
 .journal-figure--wrap.journal-figure--left { float:left; margin:6px 30px 20px 0; }
 .journal-figure--wrap.journal-figure--right { float:right; margin:6px 0 20px 30px; }
 
-/* ---- 裁剪比例：选了比例就等于「我要裁剪填满」，这时才切回 cover */
-.journal-figure--ratio-16x9 img,
-.journal-figure--ratio-4x3 img,
-.journal-figure--ratio-1x1 img,
-.journal-figure--ratio-3x4 img { width:100%; height:auto; max-height:none; object-fit:cover; }
-.journal-figure--ratio-16x9 img { aspect-ratio:16/9; }
-.journal-figure--ratio-4x3 img { aspect-ratio:4/3; }
-.journal-figure--ratio-1x1 img { aspect-ratio:1/1; }
-.journal-figure--ratio-3x4 img { aspect-ratio:3/4; }
+/*
+ * ---- 裁剪比例
+ * ratio 轴只负责把选择记在 --gallery-ratio 上，具体用不用、用在哪由各布局决定。
+ * 早先是直接写 .journal-figure--ratio-16x9 img{aspect-ratio:16/9}，但图组布局
+ * （row/grid/mosaic）在后面又各自写了 aspect-ratio:1，同特异性下后来者赢，
+ * 用户在图组里选的比例根本不生效。改成变量之后，布局只要写
+ * aspect-ratio:var(--gallery-ratio, 本布局默认值)，选了就用选的、没选就用默认，
+ * 既不用 !important 也不依赖规则先后。
+ */
+.journal-figure--ratio-16x9 { --gallery-ratio:16/9; }
+.journal-figure--ratio-4x3 { --gallery-ratio:4/3; }
+.journal-figure--ratio-1x1 { --gallery-ratio:1/1; }
+.journal-figure--ratio-3x4 { --gallery-ratio:3/4; }
+/* 单图：选了比例就等于「我要裁剪填满」，这时才切回 cover */
+.journal-figure[class*="--ratio-"] img {
+  width:100%; height:auto; max-height:none;
+  object-fit:cover; aspect-ratio:var(--gallery-ratio);
+}
 
 /* ---- 裁剪焦点 */
 .journal-figure--focus-top img { object-position:50% 0; }
 .journal-figure--focus-bottom img { object-position:50% 100%; }
 
-/* ---- 画框。全部画在 img 上，这样边框永远贴着照片而不是贴着列宽 */
+/*
+ * ---- 画框
+ * 全部画在 img 上，这样边框永远贴着照片而不是贴着列宽（竖图时 figure 会比图宽）。
+ * img 的 background 在 padding 区域是可见的，胶片齿孔、明信片纸纹都靠这一点用
+ * 渐变画出来，不引入任何外部素材。
+ * 图组里这些规则同样命中每一张 img，所以画框在多图下天然是逐张的。
+ */
 .journal-figure--frame-none img { padding:0; border:0; background:none; box-shadow:none; }
 .journal-figure--frame-line img { padding:0; border:1px solid var(--tj-border); background:none; box-shadow:none; }
 .journal-figure--frame-paper img { padding:8px; border:1px solid var(--tj-border); background:var(--tj-surface); box-shadow:var(--tj-shadow-soft); }
@@ -115,10 +131,99 @@
 .journal-figure--frame-polaroid img { padding:11px 11px 38px; border:0; border-radius:3px; background:#fffdf7; box-shadow:0 10px 26px rgba(28,40,34,.18); }
 .journal-figure--frame-polaroid figcaption { margin-top:-32px; margin-bottom:14px; color:#7b7367; font-family:var(--tj-serif); }
 
+/*
+ * 手账胶带：图片顶部中央压一段半透明纸胶带。
+ * 胶带是 figure 的伪元素——img 不能有伪元素，所以图组里是「整组一条胶带」，
+ * 这样也不会出现每张图的胶带互相压在一起。
+ * padding-top 给胶带留出位置，胶带完全落在 figure 内，配合 effect-zoom 的
+ * overflow:hidden 也不会被裁掉；角度固定写死，不用随机数，重复渲染结果一致。
+ */
+.journal-figure--frame-tape { position:relative; padding-top:16px; }
+.journal-figure--frame-tape img { padding:0; border:0; background:none; box-shadow:0 6px 18px rgba(40,45,38,.14); }
+.journal-figure--frame-tape::before {
+  content:""; position:absolute; z-index:1;
+  top:6px; left:50%;
+  width:104px; height:26px;
+  transform:translateX(-50%) rotate(-1.6deg);
+  background:
+    linear-gradient(105deg, rgba(255,255,255,.34) 0 18%, rgba(255,255,255,0) 18%),
+    linear-gradient(180deg, rgba(226,214,186,.82), rgba(210,196,164,.74));
+  box-shadow:0 1px 3px rgba(40,45,38,.16);
+  /* 撕口：两端做成锯齿。不支持 mask 时退化成平直的胶带，观感仍然成立 */
+  -webkit-mask-image:linear-gradient(90deg,transparent 0 3px,#000 3px calc(100% - 3px),transparent calc(100% - 3px));
+  mask-image:linear-gradient(90deg,transparent 0 3px,#000 3px calc(100% - 3px),transparent calc(100% - 3px));
+}
+/* 靠左/靠右时胶带跟着挪到图片那一侧，不然会飘在空白处 */
+.journal-figure--frame-tape.journal-figure--left::before { left:22%; }
+.journal-figure--frame-tape.journal-figure--right::before { left:78%; }
+
+/*
+ * 胶片边框：深色片基 + 上下齿孔。
+ * 齿孔用 repeating-linear-gradient 画在 img 的 background 上，落在 padding 区域里。
+ * box-sizing:border-box（基础规则里已设）让 padding 算进 max-height，
+ * 所以竖图被 max-height 夹住时片基照样铺满，不会露出透明条。
+ */
+.journal-figure--frame-film img {
+  padding:15px 9px; border:0; border-radius:2px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, rgba(226,222,208,.92) 7px 14px) 0 4px / 100% 7px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 7px, rgba(226,222,208,.92) 7px 14px) 0 calc(100% - 4px) / 100% 7px no-repeat,
+    #221f1b;
+  box-shadow:0 8px 22px rgba(20,18,15,.3);
+}
+.journal-figure--frame-film figcaption { color:#6a6358; font-family:var(--tj-sans); letter-spacing:.04em; }
+/* 悬浮图注叠在深色片基上时，压暗渐变要更实一点才读得清 */
+.journal-figure--frame-film.journal-figure--caption-overlay figcaption { background:linear-gradient(transparent,rgba(10,9,7,.86)); }
+
+/*
+ * 旅行明信片：米白厚边，底边留得更宽，图注就落在那片留白里。
+ * 没有图注时底边留白照样保留——那是明信片的留言区，本来就该空着；
+ * 不画任何伪造的邮戳、日期或地点文字。
+ */
+.journal-figure--frame-postcard img {
+  padding:13px 13px 52px; border:0; border-radius:2px;
+  background:
+    repeating-linear-gradient(45deg, rgba(140,120,86,.045) 0 2px, transparent 2px 5px),
+    #fbf7ee;
+  box-shadow:0 9px 24px rgba(48,42,30,.16), 0 0 0 1px rgba(120,105,78,.14);
+}
+.journal-figure--frame-postcard figcaption {
+  margin-top:-42px; margin-bottom:16px; padding:0 20px;
+  color:#7a6f5c; font-family:var(--tj-serif); font-size:13.5px;
+}
+
 /* ---- 圆角 */
 .journal-figure--radius-none img { border-radius:0; }
 .journal-figure--radius-soft img { border-radius:10px; }
 .journal-figure--radius-round img { border-radius:22px; }
+
+/*
+ * ---- 色调
+ * 只用轻量 filter，暖色和复古都刻意做得克制，避免把照片调成滤镜过头的样子。
+ * 注意 filter 写在 img 上而不是 figure 上：灯箱是 teleport 到 body 的独立节点，
+ * 天然不会继承这里的滤镜，点开看到的始终是原图。
+ * 不要在 :hover 里改 filter——那会让色调在悬停时突然消失。
+ */
+.journal-figure--tone-warm img { filter:saturate(1.06) sepia(.12) hue-rotate(-6deg); }
+.journal-figure--tone-vintage img { filter:sepia(.28) saturate(.88) contrast(.94) brightness(1.03); }
+.journal-figure--tone-mono img { filter:grayscale(1) contrast(1.04); }
+
+/*
+ * ---- 交互动效
+ * 动效只作用在 img 上，不碰 figure 的布局盒子，免得轮播轨道、对比手柄这些
+ * 需要精确命中的交互被 transform 带偏。
+ */
+.journal-figure--effect-lift img,
+.journal-figure--effect-zoom img,
+.journal-figure--effect-tilt img { transition:transform 200ms ease, box-shadow 200ms ease; }
+.journal-figure--effect-lift img:hover { transform:translateY(-4px); box-shadow:var(--tj-shadow); }
+/* zoom 要裁掉放大溢出的部分，否则会盖到正文上；1.025 是刻意的小幅度，不产生布局抖动 */
+.journal-figure--effect-zoom { overflow:hidden; }
+.journal-figure--effect-zoom img:hover { transform:scale(1.025); }
+/* tilt 固定角度，不用随机数；两个方向交替，图组里看起来才不呆板 */
+.journal-figure--effect-tilt img { transform:rotate(-0.8deg); }
+.journal-figure--effect-tilt img:nth-of-type(even) { transform:rotate(0.9deg); }
+.journal-figure--effect-tilt img:hover { transform:rotate(0deg); }
 
 /* ---- 图注 */
 .journal-figure--caption-none figcaption { display:none; }
@@ -149,17 +254,22 @@
 .journal-gallery--cols-3 { --gallery-cols:3; }
 .journal-gallery--cols-4 { --gallery-cols:4; }
 
+/*
+ * 会裁剪的布局统一写 aspect-ratio:var(--gallery-ratio, 本布局默认值)：
+ * 用户在裁剪里选了比例就用选的，没选就退回各自合适的默认值。
+ */
+
 /* 并排 */
 .journal-gallery--row { display:flex; flex-wrap:wrap; gap:var(--figure-gap,10px); }
-.journal-gallery--row img { flex:1 1 0; min-width:0; aspect-ratio:1; object-fit:cover; }
+.journal-gallery--row img { flex:1 1 0; min-width:0; aspect-ratio:var(--gallery-ratio,1); object-fit:cover; }
 .journal-gallery--row figcaption { flex:0 0 100%; }
 
 /* 网格 */
 .journal-gallery--grid { display:grid; grid-template-columns:repeat(var(--gallery-cols,3),1fr); gap:var(--figure-gap,10px); }
-.journal-gallery--grid img { aspect-ratio:1; object-fit:cover; }
+.journal-gallery--grid img { aspect-ratio:var(--gallery-ratio,1); object-fit:cover; }
 .journal-gallery--grid figcaption { grid-column:1/-1; }
 
-/* 瀑布流：唯一保留原始比例、完全不裁剪的多图模式 */
+/* 瀑布流：保留原始比例，完全不裁剪，所以不设 aspect-ratio */
 .journal-gallery--masonry { columns:var(--gallery-cols,3); column-gap:var(--figure-gap,10px); }
 .journal-gallery--masonry img { margin-bottom:var(--figure-gap,10px); break-inside:avoid; }
 .journal-gallery--masonry figcaption { column-span:all; }
@@ -169,9 +279,55 @@
  * 反过来让首图定行高会两边对不齐——1fr 行在高度不确定的容器里是按内容算的。
  */
 .journal-gallery--mosaic { display:grid; grid-template-columns:2fr 1fr; gap:var(--figure-gap,10px); }
-.journal-gallery--mosaic img { width:100%; aspect-ratio:1; object-fit:cover; }
+.journal-gallery--mosaic img { width:100%; aspect-ratio:var(--gallery-ratio,1); object-fit:cover; }
 .journal-gallery--mosaic img:first-of-type { grid-row:span 2; height:100%; aspect-ratio:auto; }
 .journal-gallery--mosaic figcaption { grid-column:1/-1; }
+
+/*
+ * 杂志：按张数换版式，用 :first-of-type:nth-last-of-type(N) 精确命中「一共几张」，
+ * 再用 ~ img 选中其余的。12 列底盘能整除出 7/5、4、6 几种跨度。
+ * 六张以上不再特殊排，主图通栏 + 其余三列铺开，多出来的照样各占一格，
+ * 不会重叠也不会被吃掉。
+ */
+.journal-gallery--magazine { display:grid; grid-template-columns:repeat(12,1fr); gap:var(--figure-gap,10px); }
+.journal-gallery--magazine img { grid-column:span 4; aspect-ratio:var(--gallery-ratio,4/3); object-fit:cover; }
+.journal-gallery--magazine figcaption { grid-column:1/-1; }
+/* 2 张：约 60 / 40 */
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(2) { grid-column:span 7; }
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(2) ~ img { grid-column:span 5; }
+/* 3 张：主图占左侧两行，另外两张在右侧上下排列 */
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(3) { grid-column:span 7; grid-row:span 2; height:100%; aspect-ratio:auto; }
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(3) ~ img { grid-column:span 5; }
+/* 4 张：主图通栏，其余三张一行 */
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(4) { grid-column:span 12; aspect-ratio:var(--gallery-ratio,16/9); }
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(4) ~ img { grid-column:span 4; }
+/* 5 张：主图通栏，其余四张两行两列 */
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(5) { grid-column:span 12; aspect-ratio:var(--gallery-ratio,16/9); }
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(5) ~ img { grid-column:span 6; }
+/* 6 张及以上：主图通栏，其余回到规则网格 */
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(n+6) { grid-column:span 12; aspect-ratio:var(--gallery-ratio,16/9); }
+.journal-gallery--magazine img:first-of-type:nth-last-of-type(n+6) ~ img { grid-column:span 4; }
+
+/*
+ * 故事流：纵向叙事排版，全部保持原始比例，靠左右交替和较大的章节间距拉开节奏。
+ * 宽度按奇偶固定，不用随机数。
+ */
+.journal-gallery--story { display:flex; flex-direction:column; gap:46px; }
+.journal-gallery--story img { width:82%; margin-right:auto; margin-left:0; }
+.journal-gallery--story img:nth-of-type(even) { width:72%; margin-left:auto; margin-right:0; }
+.journal-gallery--story figcaption { margin-top:4px; }
+
+/*
+ * 错落画廊：上下错落、左右交替，宽度按 nth-of-type 在 62%～86% 之间循环。
+ * 全部保持原始比例，所以竖图横图混排时更有杂志感；
+ * 用 margin 制造错落而不是绝对定位，容器高度不会塌陷。
+ */
+.journal-gallery--staggered { display:flex; flex-direction:column; gap:22px; }
+.journal-gallery--staggered img { width:74%; }
+.journal-gallery--staggered img:nth-of-type(4n+1) { width:86%; margin-right:auto; margin-left:0; }
+.journal-gallery--staggered img:nth-of-type(4n+2) { width:62%; margin-left:auto; margin-right:0; }
+.journal-gallery--staggered img:nth-of-type(4n+3) { width:70%; margin-left:9%; margin-right:auto; }
+.journal-gallery--staggered img:nth-of-type(4n+4) { width:78%; margin-left:auto; margin-right:0; }
 
 /* ---- 轮播 / 胶片条：结构由 journal-media.js 重排出来 */
 .journal-carousel { position:relative; }
@@ -182,8 +338,13 @@
   scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch;
 }
 .journal-carousel__track::-webkit-scrollbar { display:none; }
-.journal-carousel__track img { flex:0 0 88%; scroll-snap-align:center; aspect-ratio:3/2; object-fit:cover; }
+/* 桌面端可以按住横向拖动；拖动中禁掉 snap，否则会被一格格吸回去 */
+.journal-carousel__track { cursor:grab; }
+.journal-carousel__track.is-dragging { cursor:grabbing; scroll-snap-type:none; scroll-behavior:auto; }
+.journal-carousel__track.is-dragging img { pointer-events:none; }
+.journal-carousel__track img { flex:0 0 88%; scroll-snap-align:center; aspect-ratio:var(--gallery-ratio,3/2); object-fit:cover; }
 .journal-carousel--strip .journal-carousel__track { scroll-snap-type:x proximity; }
+/* 胶片条按高度排，保持原始比例，所以显式清掉 aspect-ratio */
 .journal-carousel--strip .journal-carousel__track img { flex:0 0 auto; width:auto; height:220px; aspect-ratio:auto; scroll-snap-align:start; }
 .journal-carousel__nav {
   position:absolute; top:calc(50% - 20px); z-index:2;
@@ -202,11 +363,14 @@
 .journal-carousel__dots button[aria-current="true"] { background:var(--tj-accent); transform:scale(1.5); }
 .journal-carousel > figcaption { margin-top:10px; color:var(--tj-muted); text-align:center; font:13px/1.6 var(--tj-sans); }
 
-/* ---- 前后对比：结构由 journal-media.js 重排出来 */
-.journal-compare { position:relative; overflow:hidden; border-radius:var(--tj-image-radius,8px); box-shadow:var(--tj-shadow-soft); touch-action:pan-y; user-select:none; }
-.journal-compare img { display:block; width:100%; height:auto; margin:0; border-radius:0; box-shadow:none; }
+/*
+ * ---- 前后对比：结构由 journal-media.js 重排出来。
+ * 两张图必须用同一个容器比例 + cover，否则叠在一起时边界对不齐、
+ * 拖动分割线会看到底图错位。容器定比例，两张图都填满它。
+ */
+.journal-compare { position:relative; overflow:hidden; aspect-ratio:var(--gallery-ratio,3/2); border-radius:var(--tj-image-radius,8px); box-shadow:var(--tj-shadow-soft); touch-action:pan-y; user-select:none; }
+.journal-compare img { display:block; width:100%; height:100%; margin:0; border-radius:0; box-shadow:none; object-fit:cover; }
 .journal-compare__after { position:absolute; inset:0; clip-path:inset(0 0 0 var(--compare,50%)); }
-.journal-compare__after img { height:100%; object-fit:cover; }
 .journal-compare__handle {
   position:absolute; top:0; bottom:0; left:var(--compare,50%);
   z-index:2; width:3px; margin-left:-1.5px; padding:0;
@@ -223,21 +387,21 @@
 .journal-compare__handle:focus-visible { outline:2px solid var(--tj-accent); outline-offset:2px; }
 
 /* ================================================================ 主题联动 */
-[data-image-style="paper"] .journal-figure img,
-[data-image-style="paper"] .journal-gallery img { padding:7px; border:1px solid var(--tj-border); background:var(--tj-surface); }
-[data-image-style="rounded"] .journal-figure img,
-[data-image-style="rounded"] .journal-gallery img { border-radius:calc(var(--tj-image-radius,8px) + 5px); }
-[data-image-shadow="none"] .markdown-body img { box-shadow:none; }
-[data-image-shadow="floating"] .markdown-body img { box-shadow:var(--tj-shadow); }
-/* 逐图选了画框就盖过主题默认值，所以这些规则要排在主题联动之后 */
-.journal-figure--frame-none img { padding:0; border:0; background:none; box-shadow:none; }
-.journal-figure--frame-line img { padding:0; border:1px solid var(--tj-border); background:none; box-shadow:none; }
-.journal-figure--frame-paper img { padding:8px; border:1px solid var(--tj-border); background:var(--tj-surface); box-shadow:var(--tj-shadow-soft); }
-.journal-figure--frame-float img { padding:0; border:0; box-shadow:var(--tj-shadow); }
-.journal-figure--frame-polaroid img { padding:11px 11px 38px; border:0; background:#fffdf7; box-shadow:0 10px 26px rgba(28,40,34,.18); }
-.journal-figure--radius-none img { border-radius:0; }
-.journal-figure--radius-soft img { border-radius:10px; }
-.journal-figure--radius-round img { border-radius:22px; }
+/*
+ * 主题的图片风格只是「没有逐图设置时的默认值」，所以这里必须把逐图设过的排除掉。
+ *
+ * 原来是靠「把 frame 规则再抄一遍放到主题后面」来覆盖，但那是无效的：
+ * [data-image-style="paper"] .journal-figure img 是 (0,2,1)，
+ * 而 .journal-figure--frame-none img 只有 (0,1,1)，特异性更低，
+ * 抄多少遍都赢不了——选了「无框」的图在 paper 主题下依旧带着白边。
+ * 用 :not() 把范围让出来，语义也更准：逐图一旦设了画框/圆角就完全接管。
+ */
+[data-image-style="paper"] .journal-figure:not([class*="--frame-"]) img,
+[data-image-style="paper"] .journal-gallery:not([class*="--frame-"]) img { padding:7px; border:1px solid var(--tj-border); background:var(--tj-surface); }
+[data-image-style="rounded"] .journal-figure:not([class*="--radius-"]) img,
+[data-image-style="rounded"] .journal-gallery:not([class*="--radius-"]) img { border-radius:calc(var(--tj-image-radius,8px) + 5px); }
+[data-image-shadow="none"] .markdown-body :not([class*="--frame-"]) > img { box-shadow:none; }
+[data-image-shadow="floating"] .markdown-body :not([class*="--frame-"]) > img { box-shadow:var(--tj-shadow); }
 .journal-figure--caption-overlay figcaption { border-radius:0 0 var(--tj-image-radius,8px) var(--tj-image-radius,8px); }
 
 /* ================================================================ 窄屏 */
@@ -255,8 +419,63 @@
   .journal-gallery--masonry { --gallery-cols:2; }
   .journal-gallery--row img { flex:1 1 calc(50% - var(--figure-gap,10px)); }
   .journal-gallery--mosaic { grid-template-columns:1fr 1fr; }
-  .journal-gallery--mosaic img:first-of-type { grid-row:1; grid-column:1/-1; height:auto; aspect-ratio:3/2; }
+  .journal-gallery--mosaic img:first-of-type { grid-row:1; grid-column:1/-1; height:auto; aspect-ratio:var(--gallery-ratio,3/2); }
+  /*
+   * 杂志退化成「主图通栏 + 其余两列」。
+   * 注意底盘仍然是 12 列，不能改成 repeat(2,1fr)：桌面端首图的
+   * grid-column:span 12 特异性是 (0,3,1)，比 img:first-of-type 的 (0,2,1) 高，
+   * 覆盖不掉；一个要 12 列的项目落进 2 列网格，会凭空长出 10 个 0 宽隐式列，
+   * 后面几张图就被挤成 0 宽。所以这里保持 12 列，只按同等特异性改 span。
+   */
+  .journal-gallery--magazine img,
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(2) ~ img,
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(3) ~ img,
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(4) ~ img,
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(5) ~ img,
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(n+6) ~ img { grid-column:span 6; }
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(2),
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(3),
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(4),
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(5),
+  .journal-gallery--magazine img:first-of-type:nth-last-of-type(n+6) { grid-column:span 12; grid-row:auto; height:auto; aspect-ratio:var(--gallery-ratio,16/9); }
+  /* 故事流和错落画廊在窄屏都退化成普通单列，交替留白已经没有意义 */
+  .journal-gallery--story { gap:28px; }
+  .journal-gallery--story img,
+  .journal-gallery--story img:nth-of-type(even),
+  .journal-gallery--staggered img,
+  .journal-gallery--staggered img:nth-of-type(4n+1),
+  .journal-gallery--staggered img:nth-of-type(4n+2),
+  .journal-gallery--staggered img:nth-of-type(4n+3),
+  .journal-gallery--staggered img:nth-of-type(4n+4) { width:100%; margin-left:0; margin-right:0; }
+  /* 胶带在窄屏缩短一点，靠左右对齐时也回到中间，免得贴到图外 */
+  .journal-figure--frame-tape::before,
+  .journal-figure--frame-tape.journal-figure--left::before,
+  .journal-figure--frame-tape.journal-figure--right::before { left:50%; width:84px; }
+  .journal-figure--frame-postcard img { padding:10px 10px 44px; }
   .journal-carousel__track img { flex:0 0 92%; }
   .journal-carousel--strip .journal-carousel__track img { height:170px; }
   .journal-carousel__nav { display:none; }
+}
+
+/* 触摸设备没有 hover，倾斜会一直挂着，直接关掉；其余动效本来就只在 hover 生效 */
+@media (hover: none) {
+  .journal-figure--effect-tilt img,
+  .journal-figure--effect-tilt img:nth-of-type(even) { transform:none; }
+}
+
+/*
+ * 用户要求减少动态效果时，所有 transition / animation / transform 一律停掉。
+ * tilt 的静态倾斜也算动态观感的一部分，同样归零。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .journal-figure--effect-lift img,
+  .journal-figure--effect-zoom img,
+  .journal-figure--effect-tilt img,
+  .journal-figure--effect-lift img:hover,
+  .journal-figure--effect-zoom img:hover,
+  .journal-figure--effect-tilt img:hover,
+  .journal-figure--effect-tilt img:nth-of-type(even) {
+    transition:none; animation:none; transform:none;
+  }
+  .journal-figure--effect-lift img:hover { box-shadow:var(--tj-shadow-soft); }
 }

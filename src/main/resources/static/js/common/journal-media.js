@@ -50,12 +50,21 @@
     track.append(...images);
     shell.append(track);
 
+    /*
+     * 箭头两种模式都要有。桌面端鼠标滚轮只滚纵向，横向轨道的滚动条又被
+     * scrollbar-width:none 藏掉了，没有箭头就等于完全滚不动——
+     * 胶片条以前就漏了这一组按钮，PC 上只能看到第一屏。
+     * 圆点只有轮播才给：胶片条是连续浏览，不是一张一页。
+     */
+    const prev = navButton('prev', strip ? '向左查看' : '上一张');
+    const next = navButton('next', strip ? '向右查看' : '下一张');
+    shell.append(prev, next);
+    // 胶片条每张宽度不一，按可视宽度翻更自然；轮播仍然按整张对齐
+    prev.addEventListener('click', () => strip ? nudge(track, -1) : step(track, -1));
+    next.addEventListener('click', () => strip ? nudge(track, 1) : step(track, 1));
+
     let dots = null;
-    let prev = null;
-    let next = null;
     if (!strip) {
-      prev = navButton('prev', '上一张');
-      next = navButton('next', '下一张');
       dots = document.createElement('div');
       dots.className = 'journal-carousel__dots';
       images.forEach((image, index) => {
@@ -65,9 +74,7 @@
         dot.addEventListener('click', () => scrollToIndex(track, index));
         dots.append(dot);
       });
-      shell.append(prev, next, dots);
-      prev.addEventListener('click', () => step(track, -1));
-      next.addEventListener('click', () => step(track, 1));
+      shell.append(dots);
     }
     if (caption) shell.append(caption);
 
@@ -76,14 +83,68 @@
     function sync() {
       const index = currentIndex(track);
       if (dots) Array.from(dots.children).forEach((dot, i) => dot.setAttribute('aria-current', String(i === index)));
-      if (prev) prev.disabled = track.scrollLeft <= 2;
-      if (next) next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 2;
+      prev.disabled = track.scrollLeft <= 2;
+      next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 2;
     }
     track.addEventListener('scroll', sync, { passive: true });
     // 图片是懒加载的，尺寸落定后箭头的可用状态才准
     window.addEventListener('resize', sync);
-    state.cleanup = () => window.removeEventListener('resize', sync);
+    const stopDrag = enableDragScroll(track);
+    state.cleanup = () => { window.removeEventListener('resize', sync); stopDrag(); };
     requestAnimationFrame(sync);
+  }
+
+  /**
+   * 按住鼠标横向拖动轨道。桌面端除了箭头，这是最顺手的浏览方式。
+   *
+   * 拖过一点距离之后要吃掉紧随其后的 click，否则松手时会顺带把灯箱打开。
+   * 触摸设备本来就能滑，交给浏览器原生处理，这里只认鼠标。
+   */
+  function enableDragScroll(track) {
+    let dragging = false, startX = 0, startLeft = 0, moved = 0;
+    function down(event) {
+      if (event.pointerType !== 'mouse' || event.button !== 0) return;
+      dragging = true; moved = 0;
+      startX = event.clientX;
+      startLeft = track.scrollLeft;
+      track.classList.add('is-dragging');
+    }
+    function move(event) {
+      if (!dragging) return;
+      const delta = event.clientX - startX;
+      moved = Math.max(moved, Math.abs(delta));
+      track.scrollLeft = startLeft - delta;
+      if (moved > 3) event.preventDefault();
+    }
+    function up() {
+      if (!dragging) return;
+      dragging = false;
+      track.classList.remove('is-dragging');
+    }
+    function click(event) {
+      if (moved > 5) { event.preventDefault(); event.stopPropagation(); }
+      moved = 0;
+    }
+    track.addEventListener('pointerdown', down);
+    track.addEventListener('pointermove', move);
+    track.addEventListener('pointerup', up);
+    track.addEventListener('pointercancel', up);
+    track.addEventListener('pointerleave', up);
+    track.addEventListener('click', click, true);
+    return () => {
+      track.removeEventListener('pointerdown', down);
+      track.removeEventListener('pointermove', move);
+      track.removeEventListener('pointerup', up);
+      track.removeEventListener('pointercancel', up);
+      track.removeEventListener('pointerleave', up);
+      track.removeEventListener('click', click, true);
+    };
+  }
+
+  /** 按可视宽度翻一屏，用于每张宽度不固定的胶片条。 */
+  function nudge(track, direction) {
+    track.scrollBy({ left: direction * track.clientWidth * 0.82,
+                     behavior: reducedMotion.matches ? 'auto' : 'smooth' });
   }
 
   function navButton(direction, label) {
@@ -235,12 +296,20 @@
    * 约定：每个轴的默认值一律不输出 class，沿用主题的 data-image-* 设置。
    * 这样改动之前写的日记一个字都不用动。
    */
-  const GALLERY_MODES = ['row', 'grid', 'masonry', 'mosaic', 'carousel', 'filmstrip', 'compare'];
+  const GALLERY_MODES = ['row', 'grid', 'masonry', 'mosaic', 'magazine', 'story', 'staggered',
+                         'carousel', 'filmstrip', 'compare'];
+  /**
+   * 保持原始比例的排布方式：这些模式下裁剪比例和焦点没有意义，
+   * 后台面板会据此隐藏那两项。和 journal-media.css 里「不设 aspect-ratio」的布局一一对应。
+   */
+  const FREE_RATIO_MODES = ['masonry', 'filmstrip', 'story', 'staggered'];
   const AXES = [
     { key: 'ratio', prefix: 'journal-figure--ratio-', values: ['16x9', '4x3', '1x1', '3x4'] },
     { key: 'focus', prefix: 'journal-figure--focus-', values: ['top', 'bottom'] },
-    { key: 'frame', prefix: 'journal-figure--frame-', values: ['none', 'line', 'paper', 'float', 'polaroid'] },
+    { key: 'frame', prefix: 'journal-figure--frame-', values: ['none', 'line', 'paper', 'float', 'polaroid', 'tape', 'film', 'postcard'] },
     { key: 'radius', prefix: 'journal-figure--radius-', values: ['none', 'soft', 'round'] },
+    { key: 'tone', prefix: 'journal-figure--tone-', values: ['warm', 'vintage', 'mono'] },
+    { key: 'effect', prefix: 'journal-figure--effect-', values: ['lift', 'zoom', 'tilt'] },
     { key: 'captionPos', prefix: 'journal-figure--caption-', values: ['left', 'overlay', 'side', 'none'] }
   ];
   const SIZES = ['small', 'medium', 'large', 'full', 'bleed'];
@@ -340,6 +409,6 @@
   window.JournalMedia = {
     enhance, teardown, groupOf,
     buildFigure, parseFigure, figureRanges,
-    GALLERY_MODES, SIZES, ALIGNS
+    GALLERY_MODES, FREE_RATIO_MODES, SIZES, ALIGNS
   };
 })();

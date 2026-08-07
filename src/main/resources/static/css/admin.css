@@ -193,18 +193,33 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
 .template-state { flex:0 0 auto; min-height:36px; margin-bottom:10px; padding:7px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #cfe0d6; border-radius:8px; color:var(--tj-primary); background:#eef6f1; font-size:12px; }
 .template-state.detached { border-color:#ead8bd; color:#805d37; background:#fff6e8; }
 .template-state button { padding:0; border:0; color:var(--tj-accent); background:transparent; }
-.image-layout-body { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:20px; }
+.image-layout-body { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px; }
 /*
- * 预览台用的就是正文那一套 .journal-figure / .journal-gallery 样式
- * （journal-media.css 里 .figure-stage.markdown-body 已经带好上下文变量），
- * 拼出来的 HTML 也和最终写进正文的完全一致，所以这里是真的所见即所得。
+ * 预览台用的就是正文那一套 .journal-figure / .journal-gallery 样式，
+ * 拼出来的 HTML 也和最终写进正文的完全一致。
+ *
+ * 关键是里面那层 __page 固定成正文的阅读宽度：版式尺寸都是百分比
+ * （medium=68%），如果直接按弹窗左栏的宽度算，预览里的图会比线上大一圈，
+ * 「所见」就不是「所得」了。锁死 --tj-article-width 之后，
+ * 68% 算出来和读者真正看到的一模一样。
  */
-.figure-stage { min-height:220px; max-height:min(52vh,440px); overflow:auto; padding:18px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface-soft); }
+.figure-stage { position:relative; min-height:300px; max-height:min(62vh,560px); overflow:auto; overflow-x:hidden; padding:34px 0 22px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface-soft); }
+.figure-stage__page { width:var(--tj-article-width,760px); max-width:calc(100% - 36px); margin:0 auto; }
+.figure-stage__label { position:absolute; top:8px; left:0; right:0; color:var(--tj-muted); text-align:center; font-size:11px; letter-spacing:.08em; }
 .figure-stage .journal-figure,.figure-stage .journal-gallery { margin-top:0; margin-bottom:0; }
+/* 通栏出血在预览里撑满预览台，保住「比正文宽」的相对关系，横向不外溢 */
+.figure-stage .journal-figure--bleed { --figure-width:min(var(--tj-content-width,1200px),100%); }
 .figure-stage-empty { display:grid; place-items:center; min-height:180px; color:var(--tj-muted); font-size:13px; }
-.image-layout-controls { max-height:min(52vh,440px); overflow-y:auto; padding-right:4px; scrollbar-width:thin; }
+.image-layout-controls { max-height:min(62vh,560px); overflow-y:auto; padding-right:4px; scrollbar-width:thin; }
 .image-layout-controls .el-form-item { margin-bottom:14px; }
-.image-layout-controls .el-radio-button__inner { padding:7px 11px; font-size:12px; }
+/*
+ * 选项变多之后（画框 9 个、展示模式 10 个）连体的一长排会撑破面板。
+ * 允许换行，并且换行后每个按钮各自成形——Element Plus 默认靠相邻边框合并做连体，
+ * 一旦 wrap 就会出现半截圆角和错位的分隔线。
+ */
+.image-layout-controls .el-radio-group { flex-wrap:wrap; gap:5px; }
+.image-layout-controls .el-radio-button__inner { padding:7px 11px; border-radius:6px!important; border-left:1px solid var(--el-border-color)!important; box-shadow:none!important; font-size:12px; }
+.image-layout-controls .el-radio-button__original-radio:checked+.el-radio-button__inner { border-color:var(--el-color-primary)!important; }
 .image-layout-group-title { margin:14px 0 8px; padding-top:12px; border-top:1px solid var(--tj-border); color:var(--tj-primary); font:600 12px var(--tj-sans); letter-spacing:.06em; }
 .image-layout-group-title:first-child { margin-top:0; padding-top:0; border-top:0; }
 .image-layout-hint { margin-top:6px; color:var(--tj-muted); font-size:12px; line-height:1.6; }
@@ -421,7 +436,9 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
   .markdown-input textarea,.preview { height:100%!important; }
   .media-side { max-height:none; }
   .image-layout-body { grid-template-columns:1fr; }
-  .figure-stage { max-height:34vh; }
+  /* 窄屏放不下正文宽度，预览台退回可用宽度；比例关系失真但仍能看清版式 */
+  .figure-stage { max-height:38vh; padding-top:30px; }
+  .figure-stage__page { width:100%; max-width:calc(100% - 24px); }
   .image-layout-controls { max-height:none; overflow:visible; }
   .template-writing { min-height:0; grid-template-columns:1fr; }
   .template-choices { display:flex; max-height:none; overflow-x:auto; padding-bottom:5px; scrollbar-width:none; }
