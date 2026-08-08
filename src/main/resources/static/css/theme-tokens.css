@@ -277,7 +277,7 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 /* 日记正文的宽度策略 */
 [data-layout-journal-layout="wide"] .article { width: min(var(--tj-content-width, 1200px), calc(100% - 40px)); }
 [data-layout-journal-layout="immersive"] .article-head { min-height: 62vh; display: flex; flex-direction: column; justify-content: flex-end; }
-[data-layout-journal-layout="immersive"] .markdown-body { width: min(var(--tj-article-width, 760px), 100%); margin: 0 auto; }
+[data-layout-journal-layout="immersive"] .markdown-body { width:min(var(--tj-journal-reading-width,860px),100%); margin:0 auto; }
 [data-layout-journal-layout="scrapbook"] .markdown-body { font-family: var(--tj-serif); }
 [data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(odd) { transform: rotate(-1.1deg); }
 [data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(even) { transform: rotate(.9deg); }
@@ -475,6 +475,7 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
   [data-layout-home-layout="masonry"] .card-grid { columns: 2; }
 }
 @media (max-width: 700px) {
+  [data-layout-journal-layout="wide"] .article { width:100%; }
   [data-layout-home-layout="bento"] .card-grid,
   [data-layout-home-layout="magazine"] .card-grid { grid-template-columns: 1fr; }
   [data-layout-home-layout="bento"] .card-grid > *,

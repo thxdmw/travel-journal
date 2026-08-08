@@ -866,39 +866,55 @@
           {label:'分隔线',title:'分隔线',run:()=>insertAtCursor('\n---\n')}]}
       ];
       /*
-       * 手机上工具栏铺开要占三四行，把编辑区挤得只剩一小条。
-       * 改成双击正文任意位置弹出插入面板：光标已经落在双击的位置上，
-       * 选完直接插在那儿，比先点工具栏再回来找位置顺手。
-       */
-      /*
        * 版式设置分段。选项已经多到一页放不下——手机上一路往下滑，
        * 滑到底部改个图注，还得再滑回顶部才看得见预览效果。
        * 分成几段之后每段都很短，预览始终留在视野里。
        */
       const layoutTab=ref('layout');
       const insertSheet=ref(false);
-      function openInsertSheet(){ if(window.matchMedia('(max-width:760px)').matches) insertSheet.value=true; }
-      function runInsert(item){ insertSheet.value=false; nextTick(()=>item.run()); }
-      /*
-       * 触摸设备上不能指望 dblclick：
-       * 移动端浏览器的双击优先被当成「双击缩放」，textarea 上这个事件常常根本不派发，
-       * 派发了也可能延迟到 300ms 之后。所以自己按两次 touchend 的间隔和落点来判定。
-       * 判定通过后要 preventDefault，免得系统再补一次缩放。
-       */
-      let lastTap=0,lastTapX=0,lastTapY=0;
-      function onEditorTouchEnd(event){
+      const insertQuery=ref('');
+      const RECENT_INSERTS_KEY='travel-journal.editor-recent-inserts';
+      const loadRecentInserts=()=>{
+        try{
+          const value=JSON.parse(localStorage.getItem(RECENT_INSERTS_KEY)||'[]');
+          return Array.isArray(value)?value.filter(item=>typeof item==='string').slice(0,4):[];
+        }catch(_){return[];}
+      };
+      const recentInsertLabels=ref(loadRecentInserts());
+      const allToolbarItems=computed(()=>toolbarGroups.flatMap(group=>group.items));
+      const recentToolbarItems=computed(()=>recentInsertLabels.value
+        .map(label=>allToolbarItems.value.find(item=>item.label===label)).filter(Boolean));
+      const filteredToolbarGroups=computed(()=>{
+        const keyword=insertQuery.value.trim().toLowerCase();
+        if(!keyword)return toolbarGroups;
+        return toolbarGroups.map(group=>({
+          ...group,
+          items:group.items.filter(item=>`${group.name} ${item.label} ${item.title}`.toLowerCase().includes(keyword))
+        })).filter(group=>group.items.length);
+      });
+      let insertCursor=null;
+      function editorTextarea(){return textarea.value?.$el?.querySelector('textarea');}
+      function openInsertSheet(){
         if(!window.matchMedia('(max-width:760px)').matches)return;
-        const touch=event.changedTouches&&event.changedTouches[0];
-        if(!touch)return;
-        const now=Date.now();
-        const near=Math.abs(touch.clientX-lastTapX)<28&&Math.abs(touch.clientY-lastTapY)<28;
-        if(now-lastTap<320&&near){
-          lastTap=0;
-          event.preventDefault();
-          insertSheet.value=true;
-          return;
-        }
-        lastTap=now;lastTapX=touch.clientX;lastTapY=touch.clientY;
+        const el=editorTextarea();
+        insertCursor=el?{start:el.selectionStart??0,end:el.selectionEnd??el.selectionStart??0}:null;
+        insertQuery.value='';
+        insertSheet.value=true;
+      }
+      function runInsert(item){
+        recentInsertLabels.value=[item.label,...recentInsertLabels.value.filter(label=>label!==item.label)].slice(0,4);
+        try{localStorage.setItem(RECENT_INSERTS_KEY,JSON.stringify(recentInsertLabels.value));}catch(_){}
+        insertSheet.value=false;
+        nextTick(()=>{
+          const el=editorTextarea();
+          if(el&&insertCursor){
+            el.focus();
+            el.selectionStart=insertCursor.start;
+            el.selectionEnd=insertCursor.end;
+          }
+          item.run();
+          insertCursor=null;
+        });
       }
       async function setCover(item){try{await A.setCover(id.value,item.id);form.coverMediaId=item.id;message('已设为封面');}catch(e){fail(e);}}
       function toggleSelect(item){
@@ -1199,7 +1215,7 @@
         // 离开时若还有未保存改动，至少把本地快照留下
         if(dirty.value)saveLocalDraft();
       });
-      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,metaCollapsed,toolbarGroups,insertSheet,openInsertSheet,runInsert,onEditorTouchEnd,layoutTab,scrollLocked,onPreviewScroll,location,pageLoading,isFullscreen,toggleFullscreen,mediaCollapsed,sortByCaptureTime,citySuggestion,applyCitySuggestion,previewLink,makePreviewLink,copyPreviewLink,autoSaveState,lastAutoSavedAt,recoverable,restoreDraft,discardDraft,autoSaveHint,tagInput,addTag,removeTag,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,removeSelected,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
+      return{form,formRef,rules,trips,stops,media,templates,themes,html,wordCount,id,uploading,saving,fileInput,textarea,previewEl,templateDialog,selectedTemplate,templateData,templateBlocks,generating,imageDialog,imageForm,figurePreview,isGallery,galleryModes,keepsOriginalRatio,modeHint,selectedMedia,allSelected,dragFrom,dragOver,mobilePane,metaCollapsed,toolbarGroups,insertSheet,insertQuery,recentToolbarItems,filteredToolbarGroups,openInsertSheet,runInsert,layoutTab,scrollLocked,onPreviewScroll,location,pageLoading,isFullscreen,toggleFullscreen,mediaCollapsed,sortByCaptureTime,citySuggestion,applyCitySuggestion,previewLink,makePreviewLink,copyPreviewLink,autoSaveState,lastAutoSavedAt,recoverable,restoreDraft,discardDraft,autoSaveHint,tagInput,addTag,removeTag,save,publish,unpublish,choose,picked,onPaste,dropped,insertImage,insertSelected,confirmImage,removeFigure,editFigureAt,toggleSelect,toggleSelectAll,removeSelected,saveCaption,onDragStart,onDragOver,onDragEnd,onDrop,insertFormat,setCover,removeMedia,selectTemplate,openTemplate,generateFromTemplate,markDetached,backToTrip,statusLabel};
     },
     template: `<div class="editor-page" :class="{'is-fullscreen':isFullscreen}" v-loading="pageLoading" element-loading-text="正在打开日记…"><div class="editor-top"><el-button link @click="backToTrip">← 返回</el-button><h2>编辑旅行日记</h2><span class="status">{{statusLabel(form.status)}}</span><span class="word-count">{{wordCount}} 字</span><span v-if="autoSaveHint" class="autosave-hint" :class="autoSaveState">{{autoSaveHint}}</span><div class="editor-actions"><el-button :title="isFullscreen?'退出全屏':'全屏写作'" @click="toggleFullscreen">{{isFullscreen?'退出全屏':'全屏'}}</el-button><el-button @click="openTemplate">{{form.templateId?'填写模板':'从模板开始'}}</el-button><el-button :loading="saving" @click="save()">保存草稿</el-button><el-button v-if="form.status==='DRAFT'" :disabled="!id" title="生成 48 小时有效的预览链接" @click="makePreviewLink">预览链接</el-button><el-button v-if="form.status==='PUBLISHED'" @click="unpublish">撤回</el-button><el-button type="primary" @click="publish">发布日记</el-button></div></div>
       <div v-if="recoverable" class="draft-recover-bar"><span>检测到上次未保存的内容（{{new Date(recoverable.savedAt).toLocaleString()}}）</span><div><el-button size="small" type="primary" @click="restoreDraft">恢复</el-button><el-button size="small" @click="discardDraft">忽略</el-button></div></div>
@@ -1212,7 +1228,7 @@
       <div v-if="form.templateId" class="template-state" :class="{detached:form.templateDetached}"><span>{{form.templateDetached?'正文已自由修改，不会自动覆盖':'正文仍与模板填写数据关联'}}</span><button type="button" @click="openTemplate">继续填写模板</button></div></div></el-form>
       <div class="editor-mobile-tabs"><button type="button" :class="{active:mobilePane==='write'}" @click="mobilePane='write'">写作</button><button type="button" :class="{active:mobilePane==='preview'}" @click="mobilePane='preview'">预览</button><button type="button" :class="{active:mobilePane==='media'}" @click="mobilePane='media'">图片</button></div>
       <div class="writing-toolbar" :class="{'mobile-hidden':mobilePane!=='write'}"><template v-for="(group,gi) in toolbarGroups" :key="group.name"><span v-if="gi" class="toolbar-sep" aria-hidden="true"></span><button v-for="item in group.items" :key="item.label" type="button" :title="item.title" @click="item.run()">{{item.label}}</button></template></div>
-      <div class="editor-grid" :class="{'media-collapsed':mediaCollapsed}"><section class="editor-column" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small class="hide-on-mobile">支持粘贴图片</small><small class="show-on-mobile">双击正文插入</small></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste" @dblclick="openInsertSheet" @touchend="onEditorTouchEnd"/></section>
+      <div class="editor-grid" :class="{'media-collapsed':mediaCollapsed}"><section class="editor-column editor-column--write" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">Markdown 编辑 <small class="hide-on-mobile">支持粘贴图片</small><small class="show-on-mobile">点击 + 插入内容</small></div><el-input ref="textarea" class="markdown-input" v-model="form.contentMarkdown" type="textarea" @input="markDetached" @paste="onPaste"/><button type="button" class="mobile-insert-trigger" aria-label="在当前光标处插入内容" title="插入内容" @mousedown.prevent @click="openInsertSheet"><span aria-hidden="true">＋</span><small>插入</small></button></section>
         <button type="button" class="scroll-lock" :class="{locked:scrollLocked}" :aria-pressed="scrollLocked" :title="scrollLocked?'已锁定：编辑与预览同步滚动':'已解锁：两侧各自滚动'" :aria-label="scrollLocked?'解锁滚动同步':'锁定滚动同步'" @click="scrollLocked=!scrollLocked">{{scrollLocked?'🔒':'🔓'}}</button>
         <section class="editor-column" :class="{'mobile-active':mobilePane==='preview'}"><div class="editor-label">实时预览 <small>点图片可改版式</small></div><article ref="previewEl" class="preview markdown-body" v-html="html" @click="editFigureAt" @scroll.passive="onPreviewScroll"></article></section>
         <aside class="editor-column media-column" :class="{'mobile-active':mobilePane==='media'}"><div class="editor-label"><span class="label-text">图片管理</span><button type="button" class="media-toggle" :title="mediaCollapsed?'展开图片管理':'收起图片管理'" @click="mediaCollapsed=!mediaCollapsed">{{mediaCollapsed?'‹':'›'}}</button></div><div class="media-side"><div class="upload-box" @click="choose" @drop.prevent="dropped" @dragover.prevent><span v-if="!uploading">选择、拖拽或粘贴图片<br><small>可多选，JPEG / PNG / WebP</small></span><span v-else>正在上传…</span></div><input ref="fileInput" hidden type="file" multiple accept="image/jpeg,image/png,image/webp" @change="picked">
@@ -1227,11 +1243,18 @@
             <div><el-input class="media-item__caption" v-model="item.caption" placeholder="图注（留空则不显示）" @change="saveCaption(item)"/>
               <div><el-button link size="small" @click="insertImage(item)">插入</el-button><el-button link size="small" @click="setCover(item)">{{form.coverMediaId===item.id?'当前封面':'设封面'}}</el-button><el-button link type="danger" size="small" @click="removeMedia(item)">删除</el-button></div></div></div>
         </div></aside></div>
-      <el-drawer v-model="insertSheet" direction="btt" size="auto" class="insert-sheet" title="插入内容">
-        <div v-for="group in toolbarGroups" :key="group.name" class="insert-sheet__group">
-          <div class="insert-sheet__title">{{group.name}}</div>
-          <div class="insert-sheet__items"><button v-for="item in group.items" :key="item.label" type="button" :title="item.title" @click="runInsert(item)">{{item.label}}</button></div>
+      <el-drawer v-model="insertSheet" direction="btt" size="68%" class="insert-sheet" modal-class="insert-sheet-modal" title="插入内容" append-to-body>
+        <div class="insert-sheet__intro">选择后会插入到刚才的光标位置</div>
+        <el-input v-model="insertQuery" class="insert-sheet__search" clearable placeholder="搜索标题、引用、地点、日期…" aria-label="搜索可插入内容"/>
+        <div v-if="!insertQuery&&recentToolbarItems.length" class="insert-sheet__group insert-sheet__group--recent">
+          <div class="insert-sheet__title">最近使用</div>
+          <div class="insert-sheet__items"><button v-for="item in recentToolbarItems" :key="item.label" type="button" :title="item.title" @click="runInsert(item)"><strong>{{item.label}}</strong><small>{{item.title}}</small></button></div>
         </div>
+        <div v-for="group in filteredToolbarGroups" :key="group.name" class="insert-sheet__group">
+          <div class="insert-sheet__title">{{group.name}}</div>
+          <div class="insert-sheet__items"><button v-for="item in group.items" :key="item.label" type="button" :title="item.title" @click="runInsert(item)"><strong>{{item.label}}</strong><small>{{item.title}}</small></button></div>
+        </div>
+        <el-empty v-if="!filteredToolbarGroups.length" :image-size="56" description="没有匹配的插入项"/>
       </el-drawer>
       <el-dialog v-model="imageDialog" :title="imageForm.editRange?'修改图片版式':'设置图片版式'" width="min(1500px,96vw)" class="image-layout-dialog">
         <div class="image-layout-body">
