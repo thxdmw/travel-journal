@@ -3,10 +3,11 @@
   const {ref,watch,nextTick,onMounted,onBeforeUnmount,computed}=Vue;
   const JB=window.JournalBlocks;
   const IMAGE_BLOCKS=['image','gallery','postcard'];
+  const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport'];
 
   window.JournalBlockEditor={
     name:'JournalBlockEditor',
-    props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]}},
+    props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]},travelContext:{type:Object,default:()=>({})}},
     emits:['update:modelValue'],
     setup(props,{emit,expose}){
       const document=ref(JB.normalize(props.modelValue));
@@ -21,6 +22,19 @@
       const layoutUsesRatio=computed(()=>draft.value?.type!=='postcard'&&(
         draft.value?.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value?.settings?.layout)));
       const alignAvailable=computed(()=>!['full','bleed'].includes(draft.value?.settings?.size));
+      const isLinkableBlock=computed(()=>LINKABLE_BLOCKS.includes(draft.value?.type));
+      const dataBinding=computed(()=>draft.value?.settings?.dataBinding||null);
+      const relatedRecords=computed(()=>{
+        const context=props.travelContext||{},type=draft.value?.type,binding=dataBinding.value||{};
+        if(type==='route')return binding.source==='itinerary'?(context.itinerary||[]):(context.stops||[]);
+        if(['itinerary','timeline'].includes(type))return context.itinerary||[];
+        if(type==='expense-summary')return context.expenses||[];
+        if(type==='location-card')return context.stops||[];
+        if(type==='food')return (context.itinerary||[]).filter(item=>item.type==='FOOD');
+        if(type==='stay')return (context.itinerary||[]).filter(item=>item.type==='HOTEL');
+        if(type==='transport')return (context.itinerary||[]).filter(item=>item.type==='TRANSPORT');
+        return [];
+      });
       const imageModeHint=computed(()=>{
         if(draft.value?.type==='postcard')return '明信片使用固定的“照片 + 手写寄语”结构，只需填写内容。';
         const layout=draft.value?.settings?.layout;
@@ -28,6 +42,79 @@
         return draft.value?.type==='gallery'?(hints[layout]||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
       });
       let syncing=false;
+
+      function bindingDefaults(type){
+        if(type==='trip-info')return{enabled:false,fields:['date','city','tripTitle']};
+        if(type==='route')return{enabled:false,source:'stops',selectedIds:[]};
+        if(['itinerary','timeline','expense-summary'].includes(type))return{enabled:false,selectedIds:[]};
+        return{enabled:false,recordId:null};
+      }
+      function ensureBinding(){
+        if(!draft.value||!LINKABLE_BLOCKS.includes(draft.value.type))return;
+        draft.value.settings=draft.value.settings||{};
+        draft.value.settings.dataBinding=Object.assign(bindingDefaults(draft.value.type),draft.value.settings.dataBinding||{});
+      }
+      function shortTime(value){return value?String(value).slice(0,5):'';}
+      function recordLabel(item){
+        if(!item)return'';
+        if(draft.value?.type==='expense-summary')return [item.expenseDate,item.description||item.merchant,'¥'+item.amount].filter(Boolean).join(' · ');
+        if(draft.value?.type==='route'&&dataBinding.value?.source!=='itinerary')return [item.cityName,item.arrivalDate].filter(Boolean).join(' · ');
+        if(draft.value?.type==='location-card')return [item.cityName,item.formattedAddress||item.regionName].filter(Boolean).join(' · ');
+        return [item.itemDate,shortTime(item.startTime),item.title,item.address].filter(Boolean).join(' · ');
+      }
+      function initializeBindingSelection(){
+        const binding=dataBinding.value,context=props.travelContext||{};if(!binding)return;
+        if(draft.value.type==='trip-info')return;
+        const records=relatedRecords.value;
+        if(['route','itinerary','timeline','expense-summary'].includes(draft.value.type)){
+          if(binding.selectedIds?.length)return;
+          let preferred=records;
+          if(draft.value.type!=='route'&&context.occurredOn){
+            const key=draft.value.type==='expense-summary'?'expenseDate':'itemDate';
+            const sameDay=records.filter(item=>item[key]===context.occurredOn);if(sameDay.length)preferred=sameDay;
+          }
+          binding.selectedIds=preferred.map(item=>item.id);
+        }else if(binding.recordId==null){
+          const currentStop=draft.value.type==='location-card'&&context.stop
+            ? records.find(item=>Number(item.id)===Number(context.stop.id)):null;
+          binding.recordId=(currentStop||records[0])?.id||null;
+        }
+      }
+      function applyBinding(){
+        const binding=dataBinding.value,block=draft.value,context=props.travelContext||{};
+        if(!binding?.enabled||!block)return;
+        const data=block.data;
+        if(block.type==='trip-info'){
+          const fields=binding.fields||[];
+          if(fields.includes('date'))data.date=context.occurredOn||'';
+          if(fields.includes('city'))data.city=context.stop?.cityName||'';
+          if(fields.includes('tripTitle'))data.tripTitle=context.trip?.title||'';
+          return;
+        }
+        const selectedIds=new Set((binding.selectedIds||[]).map(Number));
+        const selected=relatedRecords.value.filter(item=>selectedIds.has(Number(item.id)));
+        if(block.type==='route'){
+          data.items=selected.map(item=>binding.source==='itinerary'?item.title:item.cityName).filter(Boolean);return;
+        }
+        if(['itinerary','timeline'].includes(block.type)){
+          data.items=selected.map(item=>({time:shortTime(item.startTime),title:item.title||'',address:item.address||'',description:item.note||''}));return;
+        }
+        if(block.type==='expense-summary'){
+          const categoryNames=new Map((context.budget?.categories||[]).map(item=>[Number(item.id),item.name]));
+          const groups=new Map();let total=0;
+          selected.forEach(item=>{const amount=Number(item.amount)||0,name=categoryNames.get(Number(item.budgetCategoryId))||'其他';total+=amount;groups.set(name,(groups.get(name)||0)+amount);});
+          data.currency=context.budget?.currency||context.trip?.defaultCurrency||'CNY';data.total=Number(total.toFixed(2));
+          data.categories=Array.from(groups,([name,amount])=>({name,amount:Number(amount.toFixed(2))}));return;
+        }
+        const item=relatedRecords.value.find(record=>Number(record.id)===Number(binding.recordId));if(!item)return;
+        if(block.type==='location-card')Object.assign(data,{name:item.cityName||'',address:item.formattedAddress||item.regionName||'',impression:item.note||''});
+        if(block.type==='food')Object.assign(data,{dish:item.title||'',restaurant:item.address||'',price:item.plannedCost?String(item.plannedCost):'',note:item.note||''});
+        if(block.type==='stay')Object.assign(data,{name:item.title||'',room:item.address||'',note:item.note||''});
+        if(block.type==='transport')Object.assign(data,{mode:item.title||'交通',from:context.stops?.find(stop=>Number(stop.id)===Number(item.tripStopId))?.cityName||'',to:item.address||'',duration:[shortTime(item.startTime),shortTime(item.endTime)].filter(Boolean).join('–'),note:item.note||''});
+      }
+      function onBindingModeChange(enabled){if(enabled){initializeBindingSelection();applyBinding();}}
+      function onBindingSourceChange(){if(dataBinding.value)dataBinding.value.selectedIds=[];initializeBindingSelection();applyBinding();}
+      function refreshBinding(){initializeBindingSelection();applyBinding();ElementPlus.ElMessage.success('已同步当前旅行数据');}
 
       watch(()=>props.modelValue,value=>{
         if(syncing)return;
@@ -37,6 +124,10 @@
       watch([draftPreview,editorOpen],()=>nextTick(()=>{
         if(editorOpen.value&&previewEl.value)window.JournalMedia?.enhance(previewEl.value);
       }),{flush:'post'});
+      watch(()=>dataBinding.value?.selectedIds,()=>applyBinding(),{deep:true});
+      watch(()=>dataBinding.value?.recordId,()=>applyBinding());
+      watch(()=>dataBinding.value?.fields,()=>applyBinding(),{deep:true});
+      watch(()=>props.travelContext,()=>applyBinding(),{deep:true});
       function commit(){
         syncing=true;
         const value=JB.normalize(document.value);
@@ -50,10 +141,12 @@
       function choose(item){
         catalogOpen.value=false;draft.value=JB.createBlock(item.type);editIndex.value=-1;
         if(item.type==='divider'){confirmEdit();return;}
+        ensureBinding();
         imageTab.value='content';
         nextTick(()=>editorOpen.value=true);
       }
-      function edit(index){draft.value=JSON.parse(JSON.stringify(document.value.blocks[index]));editIndex.value=index;imageTab.value='content';editorOpen.value=true;}
+      function edit(index){draft.value=JSON.parse(JSON.stringify(document.value.blocks[index]));editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
+      function backToCatalog(){editorOpen.value=false;draft.value=null;nextTick(()=>catalogOpen.value=true);}
       function confirmEdit(){
         if(!draft.value)return;
         const block=JSON.parse(JSON.stringify(draft.value));
@@ -109,9 +202,9 @@
       onBeforeUnmount(()=>{window.JournalMedia?.teardown(previewEl.value);window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);});
       expose({openCatalog,insertMedia});
       return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
-        layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,
-        openCatalog,choose,edit,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,
-        render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia};
+        layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,dataBinding,relatedRecords,
+        openCatalog,choose,edit,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,
+        render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding};
     },
     template:`
       <div class="block-editor">
@@ -130,7 +223,7 @@
         </template>
         <div v-if="document.blocks.length" class="block-insert-line block-insert-line--last"><button type="button" @click="openCatalog(document.blocks.length)">＋</button><span>添加内容</span></div>
 
-        <el-dialog v-model="catalogOpen" title="添加内容" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body destroy-on-close>
+        <el-dialog v-model="catalogOpen" title="添加内容" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body align-center destroy-on-close>
           <p class="block-dialog-intro">选择一种内容。下一步会先填写具体内容，确认后才放入正文。</p>
           <el-input v-model="query" clearable placeholder="搜索文字、地点、美食、图片……" class="block-search"/>
           <div class="block-categories"><button v-for="category in categories" :key="category" type="button" :class="{active:activeCategory===category}" @click="activeCategory=category">{{category}}</button></div>
@@ -139,7 +232,7 @@
         </el-dialog>
 
         <el-dialog v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
-          :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body destroy-on-close :close-on-click-modal="false">
+          :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body align-center destroy-on-close :close-on-click-modal="false">
           <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock}">
             <aside v-if="isImageBlock" class="block-live-preview"><header><div><strong>正文效果</strong><small>模拟文章正文栏，不是单独放大的图片</small></div><span>文字栏宽度</span></header>
               <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>
@@ -147,6 +240,26 @@
                 <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
             <div class="block-config-form" @focusin="ensureVisible">
               <label v-if="!['heading','divider'].includes(draft.type)">区块标题（可选）<el-input v-model="draft.title" placeholder="例如 今日路线"/></label>
+              <section v-if="isLinkableBlock" class="travel-data-binding">
+                <header><div><strong>旅行数据关联</strong><small>关联会把旅行工作台的数据填入区块；正文仍保存为稳定快照。</small></div>
+                  <el-radio-group v-model="dataBinding.enabled" size="small" @change="onBindingModeChange"><el-radio-button :value="false">手动填写</el-radio-button><el-radio-button :value="true">关联数据</el-radio-button></el-radio-group></header>
+                <template v-if="dataBinding.enabled">
+                  <label v-if="draft.type==='trip-info'">选择关联字段
+                    <el-checkbox-group v-model="dataBinding.fields"><el-checkbox value="date">日记日期</el-checkbox><el-checkbox value="city">所选城市</el-checkbox><el-checkbox value="tripTitle">旅行名称</el-checkbox></el-checkbox-group>
+                  </label>
+                  <label v-else-if="draft.type==='route'">数据来源
+                    <el-select v-model="dataBinding.source" @change="onBindingSourceChange"><el-option label="旅行城市顺序" value="stops"/><el-option label="旅行行程条目" value="itinerary"/></el-select>
+                  </label>
+                  <label v-if="['route','itinerary','timeline','expense-summary'].includes(draft.type)">选择要关联的数据
+                    <el-select v-model="dataBinding.selectedIds" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择"><el-option v-for="item in relatedRecords" :key="item.id" :label="recordLabel(item)" :value="item.id"/></el-select>
+                  </label>
+                  <label v-else-if="!['trip-info'].includes(draft.type)">选择要关联的数据
+                    <el-select v-model="dataBinding.recordId" filterable clearable placeholder="请选择"><el-option v-for="item in relatedRecords" :key="item.id" :label="recordLabel(item)" :value="item.id"/></el-select>
+                  </label>
+                  <p v-if="draft.type!=='trip-info'&&!relatedRecords.length" class="travel-data-binding__empty">当前旅行还没有可用于这个组件的数据，可以切回“手动填写”。</p>
+                  <div class="travel-data-binding__actions"><small>手动微调下面的内容不会修改旅行工作台；重新同步会覆盖关联字段。</small><el-button size="small" plain @click="refreshBinding">重新同步</el-button></div>
+                </template>
+              </section>
               <template v-if="draft.type==='paragraph'"><label>正文<el-input v-model="draft.data.text" type="textarea" :rows="8" placeholder="写下这一段故事"/></label>
                 <div class="form-grid form-grid-2"><label>段落样式<el-select v-model="draft.settings.style"><el-option label="普通正文" value="normal"/><el-option label="开篇引言" value="lead"/><el-option label="轻声旁注" value="note"/></el-select></label><label>文字对齐<el-select v-model="draft.settings.align"><el-option label="左对齐" value="left"/><el-option label="居中" value="center"/><el-option label="右对齐" value="right"/></el-select></label></div>
               </template>
@@ -195,7 +308,7 @@
               </template>
             </div>
           </div>
-          <template #footer><el-button @click="editorOpen=false">取消</el-button><el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button></template>
+          <template #footer><div class="block-dialog-actions"><el-button v-if="editIndex<0" @click="backToCatalog">← 返回重选</el-button><span></span><el-button @click="editorOpen=false">取消</el-button><el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button></div></template>
         </el-dialog>
       </div>`
   };

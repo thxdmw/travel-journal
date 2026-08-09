@@ -608,6 +608,7 @@
       const route=VueRouter.useRoute(),router=VueRouter.useRouter();
       const id=ref(route.params.id==='new'?null:Number(route.params.id));
       const trips=ref([]),stops=ref([]),media=ref([]),templates=ref([]),themes=ref([]);
+      const linkedItinerary=ref([]),linkedExpenses=ref([]),linkedBudget=ref(null);
       const pageLoading=ref(true),saving=ref(false),uploading=ref(false),dirty=ref(false);
       const formRef=ref(null),fileInput=ref(null),blockEditor=ref(null);
       const selectedMedia=ref([]),dragFrom=ref(null),dragOver=ref(null);
@@ -624,6 +625,22 @@
       const allSelected=computed(()=>media.value.length>0&&selectedMedia.value.length===media.value.length);
       const templateBlocks=computed(()=>selectedTemplate.value?.definitionJson?.blocks||[]);
       const draftKey=computed(()=>id.value?'travel-journal.blocks-draft.'+id.value:'travel-journal.blocks-draft.new');
+      const travelContext=computed(()=>({
+        trip:trips.value.find(item=>Number(item.id)===Number(form.tripId))||null,
+        stop:stops.value.find(item=>Number(item.id)===Number(form.tripStopId))||null,
+        stops:stops.value,itinerary:linkedItinerary.value,expenses:linkedExpenses.value,budget:linkedBudget.value,
+        occurredOn:form.occurredOn
+      }));
+      let travelDataRequest=0;
+
+      async function loadTravelData(tripId){
+        const request=++travelDataRequest;
+        if(!tripId){stops.value=[];linkedItinerary.value=[];linkedExpenses.value=[];linkedBudget.value=null;return;}
+        const result=await Promise.all([A.stops(tripId),A.itinerary(tripId),A.expenses(tripId),A.budget(tripId)]);
+        if(request!==travelDataRequest)return;
+        stops.value=result[0]||[];linkedItinerary.value=result[1]||[];linkedExpenses.value=result[2]||[];linkedBudget.value=result[3]||null;
+        if(!stops.value.some(item=>Number(item.id)===Number(form.tripStopId)))form.tripStopId=null;
+      }
 
       function body(){return{tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,
         excerpt:form.excerpt,contentJson:form.contentJson,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,
@@ -635,7 +652,7 @@
           trips.value=result[0];templates.value=result[1];themes.value=result[2];
           if(id.value){const entry=await A.journal(id.value);Object.assign(form,entry);
             form.contentJson=window.JournalBlocks.normalize(entry.contentJson);media.value=await A.media(id.value);}
-          if(form.tripId)stops.value=await A.stops(form.tripId);
+          if(form.tripId)await loadTravelData(form.tripId);
           selectedTemplate.value=templates.value.find(x=>x.id===form.templateId)||null;if(selectedTemplate.value)selectTemplate(selectedTemplate.value);
           const local=localStorage.getItem(draftKey.value);
           if(local){try{
@@ -647,7 +664,7 @@
           dirty.value=false;
         }catch(e){fail(e);}finally{pageLoading.value=false;}
       }
-      watch(()=>form.tripId,async value=>{stops.value=value?await A.stops(value):[];if(!stops.value.some(x=>x.id===form.tripStopId))form.tripStopId=null;});
+      watch(()=>form.tripId,async value=>{try{await loadTravelData(value);}catch(e){fail(e);}});
       watch(()=>form.occurredOn,value=>{if(value&&!form.slug)form.slug='journal-'+value.replaceAll('-','')+'-'+Date.now().toString().slice(-5);});
       watch(metaCollapsed,value=>localStorage.setItem('travel-journal.editor-meta-collapsed',value?'on':'off'));
       watch(form,()=>{
@@ -754,7 +771,7 @@
       let timer=null;
       onMounted(()=>{load();timer=setInterval(()=>{if(id.value&&dirty.value&&!saving.value&&form.status==='DRAFT')save(true,true);},20000);});
       onBeforeUnmount(()=>clearInterval(timer));
-      return{form,formRef,rules,id,trips,stops,media,templates,themes,pageLoading,saving,uploading,dirty,
+      return{form,formRef,rules,id,trips,stops,media,templates,themes,travelContext,pageLoading,saving,uploading,dirty,
         fileInput,blockEditor,metaCollapsed,wordCount,templateDialog,selectedTemplate,templateData,templateBlocks,
         generating,previewLink,autoSaveState,tagInput,save,publish,updatePublished,unpublish,picked,dropped,pasted,setCover,saveCaption,removeMedia,
         selectedMedia,allSelected,dragOver,mobilePane,toggleSelect,toggleSelectAll,insertSelected,onDragStart,onDragOver,onDragEnd,onDrop,sortByCaptureTime,removeSelected,
@@ -788,7 +805,7 @@
         <div class="editor-mobile-tabs"><button type="button" :class="{active:mobilePane==='write'}" @click="mobilePane='write'">写日记</button><button type="button" :class="{active:mobilePane==='media'}" @click="mobilePane='media'">图片管理（{{media.length}}）</button></div>
         <div class="editor-grid block-editor-layout">
           <section class="editor-column editor-column--write" :class="{'mobile-active':mobilePane==='write'}"><div class="editor-label">日记内容 <small>点击区块之间的 ＋ 添加</small></div>
-            <journal-block-editor ref="blockEditor" v-model="form.contentJson" :media="media"/></section>
+            <journal-block-editor ref="blockEditor" v-model="form.contentJson" :media="media" :travel-context="travelContext"/></section>
           <aside class="editor-column media-column" :class="{'mobile-active':mobilePane==='media'}"><div class="editor-label">图片管理 <small>点击图片可放大预览</small></div>
             <label class="upload-box" :class="{uploading}" @dragover.prevent @drop.prevent="dropped">
               <input ref="fileInput" type="file" multiple accept="image/jpeg,image/png,image/webp" @change="picked">

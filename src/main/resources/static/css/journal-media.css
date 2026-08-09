@@ -264,7 +264,11 @@
  * 这里只负责排布。carousel / filmstrip / compare 需要 journal-media.js 在渲染后
  * 重排结构；在 enhance 之前它们就是普通的竖向堆叠，不会坏。
  */
-.journal-gallery { width:var(--figure-width,68%); margin:30px auto; clear:both; --gallery-cols:3; }
+.journal-gallery { width:var(--figure-width,68%); margin-top:30px; margin-bottom:30px; clear:both; --gallery-cols:3; }
+/* 图片组与单图共用位置设置；不要让图片组自己的垂直间距覆盖左右对齐。 */
+.journal-gallery.journal-figure--left { margin-left:0; margin-right:auto; }
+.journal-gallery.journal-figure--center { margin-left:auto; margin-right:auto; }
+.journal-gallery.journal-figure--right { margin-left:auto; margin-right:0; }
 .journal-gallery img { display:block; box-sizing:border-box; width:100%; height:auto; margin:0; border-radius:var(--tj-image-radius,8px); box-shadow:var(--tj-shadow-soft); cursor:var(--figure-cursor,zoom-in); }
 .journal-gallery figcaption { margin-top:10px; color:var(--tj-muted); text-align:center; font:13px/1.6 var(--tj-sans); }
 .journal-gallery--cols-1 { --gallery-cols:1; }
