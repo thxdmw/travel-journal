@@ -1,5 +1,7 @@
 package com.thx.traveljournal.media.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.thx.traveljournal.journal.service.JournalDocumentService;
 import com.thx.traveljournal.config.AppProperties;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
@@ -50,7 +52,7 @@ class MediaServiceTest {
                 new AppProperties.Upload(20, 50, 50_000_000),
                 new AppProperties.Minio("http://localhost:9000", "key", "secret", "travel-journal", 60));
         MediaService service = new MediaService(assetMapper, relationMapper, mock(MediaVisibilityMapper.class),
-                journalMapper, mock(TripMapper.class),
+                journalMapper, new JournalDocumentService(new ObjectMapper()), mock(TripMapper.class),
                 mock(com.thx.traveljournal.trip.mapper.TripStopMapper.class), minio, properties);
 
         BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);

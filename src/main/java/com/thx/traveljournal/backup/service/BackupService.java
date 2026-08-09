@@ -39,23 +39,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * 全站内容导出。
- *
- * <p>存在的意义：内容分散在 PostgreSQL 和 MinIO 两处，没有导出能力就意味着这些
- * 旅行记录被锁死在这套部署里——换服务器、换方案或者哪天不想维护了，只能手动
- * dump 数据库再扒对象存储。开发规范选 Markdown 的理由本来就是「便于长期保存」，
- * 那就得真的能把它们拿出来。</p>
- *
- * <p>导出结构：
- * <pre>
- *   manifest.json                    全部结构化数据（旅行、城市、行程、预算、支出、日记元信息）
- *   journals/2026-04-12-kyoto.md     每篇日记一个 Markdown，带 YAML front matter
- *   photos/{journalId}/{文件名}       日记配图原图
- * </pre>
- * Markdown 正文原样导出，不做任何改写，换到别的静态博客也能直接用。</p>
- *
- * <p>整个过程流式写进响应，不在内存里攒完整的 zip；照片按需从 MinIO 拉取，
- * 单张失败只记日志跳过，不让一张坏图毁掉整个备份。</p>
+ * 全站可恢复备份。结构化数据写入 manifest.json，每篇日记额外导出一份 Block JSON，
+ * 图片按日记目录保存原图；整个 zip 流式写出，单张图片失败不会中断其余内容。
  */
 @Slf4j
 @Service
@@ -97,7 +82,7 @@ public class BackupService {
             writeManifest(zip, trips, journals);
             Set<String> usedNames = new HashSet<>();
             for (JournalEntry journal : journals) {
-                writeJournalMarkdown(zip, journal, tripById.get(journal.getTripId()), usedNames);
+                writeJournalJson(zip, journal, tripById.get(journal.getTripId()), usedNames);
                 if (includePhotos) writePhotos(zip, journal);
             }
         }
@@ -131,7 +116,7 @@ public class BackupService {
             item.put("occurredOn", journal.getOccurredOn());
             item.put("publishedAt", journal.getPublishedAt());
             item.put("tags", tagService.namesOf(journal.getId()));
-            item.put("markdownFile", markdownName(journal, new HashSet<>()));
+            item.put("documentFile", jsonName(journal, new HashSet<>()));
             return item;
         }).toList());
 
@@ -140,31 +125,24 @@ public class BackupService {
         zip.closeEntry();
     }
 
-    /**
-     * 单篇日记写成 Markdown，带 YAML front matter。
-     *
-     * <p>front matter 是静态博客的通用约定（Hugo、Jekyll、Astro 都认），
-     * 导出的文件基本可以直接拿去用。</p>
-     */
-    private void writeJournalMarkdown(ZipOutputStream zip, JournalEntry journal, Trip trip,
-                                      Set<String> usedNames) throws IOException {
-        StringBuilder text = new StringBuilder();
-        text.append("---\n");
-        text.append("title: ").append(yaml(journal.getTitle())).append('\n');
-        text.append("slug: ").append(yaml(journal.getSlug())).append('\n');
-        text.append("date: ").append(journal.getOccurredOn()).append('\n');
-        text.append("status: ").append(journal.getStatus()).append('\n');
-        if (trip != null) text.append("trip: ").append(yaml(trip.getTitle())).append('\n');
-        if (journal.getExcerpt() != null) text.append("excerpt: ").append(yaml(journal.getExcerpt())).append('\n');
-        List<String> tags = tagService.namesOf(journal.getId());
-        if (!tags.isEmpty()) {
-            text.append("tags: [").append(tags.stream().map(this::yaml).collect(Collectors.joining(", "))).append("]\n");
-        }
-        text.append("---\n\n");
-        text.append(journal.getContentMarkdown() == null ? "" : journal.getContentMarkdown());
+    /** 单篇日记写成自包含 JSON，正文保持原始 Block 文档结构。 */
+    private void writeJournalJson(ZipOutputStream zip, JournalEntry journal, Trip trip,
+                                  Set<String> usedNames) throws IOException {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("title", journal.getTitle());
+        item.put("slug", journal.getSlug());
+        item.put("occurredOn", journal.getOccurredOn());
+        item.put("status", journal.getStatus());
+        item.put("trip", trip == null ? null : trip.getTitle());
+        item.put("excerpt", journal.getExcerpt());
+        item.put("tags", tagService.namesOf(journal.getId()));
+        item.put("themeKey", journal.getThemeKey());
+        item.put("templateId", journal.getTemplateId());
+        item.put("templateVersion", journal.getTemplateVersion());
+        item.put("content", journal.getContentJson());
 
-        zip.putNextEntry(new ZipEntry("journals/" + markdownName(journal, usedNames)));
-        zip.write(text.toString().getBytes(StandardCharsets.UTF_8));
+        zip.putNextEntry(new ZipEntry("journals/" + jsonName(journal, usedNames)));
+        zip.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(item));
         zip.closeEntry();
     }
 
@@ -190,10 +168,10 @@ public class BackupService {
         }
     }
 
-    private String markdownName(JournalEntry journal, Set<String> used) {
+    private String jsonName(JournalEntry journal, Set<String> used) {
         String base = journal.getOccurredOn() + "-" + safeName(
                 journal.getSlug() == null || journal.getSlug().isBlank() ? journal.getTitle() : journal.getSlug());
-        return uniqueName(base + ".md", used);
+        return uniqueName(base + ".json", used);
     }
 
     private String safeName(String raw) {
@@ -215,9 +193,4 @@ public class BackupService {
         }
     }
 
-    /** YAML 标量：统一用双引号包起来并转义，省得判断哪些字符需要引号。 */
-    private String yaml(String value) {
-        return '"' + (value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", " ")) + '"';
-    }
 }

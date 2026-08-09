@@ -42,8 +42,7 @@ public class AdminJournalController {
      * @param tripId           所属旅行，必填
      * @param tripStopId       可选的所属城市，必须属于同一次旅行
      * @param slug             前台访问用的唯一短链，只允许小写字母、数字和短横线
-     * @param contentMarkdown  Markdown 正文，草稿可以为空字符串但不能为 null
-     * @param templateDetached 正文是否已脱离模板自由编辑，脱离后不再被模板生成覆盖
+     * @param contentJson      Block 正文文档，草稿允许为空文档但不能为 null
      */
     public record TagNameRequest(@NotBlank @Size(max=40) String name) {}
 
@@ -51,15 +50,12 @@ public class AdminJournalController {
                                  @NotBlank(message = "请填写日记标题") @Size(max=200) String title,
                                  @NotBlank(message = "请填写 Slug") @Size(max=220) String slug,
                                  @Size(max=500) String excerpt,
-                                 @NotNull String contentMarkdown,
+                                 @NotNull JsonNode contentJson,
                                  @NotNull(message = "请选择发生日期") LocalDate occurredOn,
                                  Long coverMediaId,
                                  @Size(max=80) String themeKey,
                                  Long templateId,
                                  Integer templateVersion,
-                                 JsonNode templateData,
-                                 JsonNode templateSnapshot,
-                                 Boolean templateDetached,
                                  /** 标签名列表，传 null 表示不改动标签，传空列表表示清空 */
                                  List<String> tags) {}
 

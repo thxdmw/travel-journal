@@ -2,6 +2,7 @@ package com.thx.traveljournal.publicapi.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.journal.entity.JournalEntry;
@@ -54,7 +55,7 @@ public class PublicContentService {
                                java.math.BigDecimal latitude, java.math.BigDecimal longitude,
                                String formattedAddress, String adcode, String coordinateSystem,
                                LocalDate arrivalDate, LocalDate departureDate, int sortOrder) {}
-    public record JournalDetail(JournalCard journal, String contentMarkdown,
+    public record JournalDetail(JournalCard journal, JsonNode contentJson,
                                 List<MediaService.MediaView> media, String previousSlug, String nextSlug,
                                 ThemePresetService.ThemeView theme) {}
     public record CityMarker(String cityName, String regionName, String countryName,
@@ -163,7 +164,7 @@ public class PublicContentService {
         String next = index >= 0 && index < tripJournals.size() - 1 ? tripJournals.get(index + 1).getSlug() : null;
         Trip trip = tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
-        return new JournalDetail(card(entry, trip, stop), entry.getContentMarkdown(), mediaService.list(entry.getId()),
+        return new JournalDetail(card(entry, trip, stop), entry.getContentJson(), mediaService.list(entry.getId()),
                 previous, next, themePresetService.effective(entry.getThemeKey(), trip.getThemeKey()));
     }
 
@@ -177,7 +178,7 @@ public class PublicContentService {
         JournalEntry entry = previewService.resolve(token);
         Trip trip = tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
-        return new JournalDetail(card(entry, trip, stop), entry.getContentMarkdown(),
+        return new JournalDetail(card(entry, trip, stop), entry.getContentJson(),
                 mediaService.list(entry.getId()), null, null,
                 themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()));
     }
@@ -229,8 +230,8 @@ public class PublicContentService {
     /**
      * 已发布日记的轻量投影，按发布时间倒序。
      *
-     * <p>刻意不查 {@code content_markdown} 和两个模板 jsonb 字段：首页、旅行列表和地图
-     * 都只需要标题、日期和归属，正文一个字都用不到。不做这个投影的话，每渲染一次首页
+     * <p>刻意不查 {@code content_json}：首页、旅行列表和地图只需要标题、日期和归属，
+     * 正文一个字都用不到。不做这个投影的话，每渲染一次首页
      * 就要把全站正文读一遍，日记攒到几百篇会非常明显。</p>
      *
      * <p>需要正文的地方（日记详情）另外按 slug 单查一条完整记录。</p>

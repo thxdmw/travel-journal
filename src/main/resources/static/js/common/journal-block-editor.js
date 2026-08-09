@@ -1,0 +1,202 @@
+(function(){
+  'use strict';
+  const {ref,watch,nextTick,onMounted,onBeforeUnmount,computed}=Vue;
+  const JB=window.JournalBlocks;
+  const IMAGE_BLOCKS=['image','gallery','postcard'];
+
+  window.JournalBlockEditor={
+    name:'JournalBlockEditor',
+    props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]}},
+    emits:['update:modelValue'],
+    setup(props,{emit,expose}){
+      const document=ref(JB.normalize(props.modelValue));
+      const catalogOpen=ref(false),editorOpen=ref(false),draft=ref(null),editIndex=ref(-1),insertAt=ref(0);
+      const query=ref(''),activeCategory=ref('全部'),imageTab=ref('content'),previewEl=ref(null);
+      const categories=['全部',...new Set(JB.CATALOG.map(x=>x.category))];
+      const filtered=()=>JB.CATALOG.filter(x=>(activeCategory.value==='全部'||x.category===activeCategory.value)
+        &&(!query.value||[x.label,x.description,x.category].join(' ').includes(query.value)));
+      const isImageBlock=computed(()=>IMAGE_BLOCKS.includes(draft.value?.type));
+      const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media):'');
+      const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&['grid','masonry'].includes(draft.value.settings?.layout));
+      const layoutUsesRatio=computed(()=>draft.value?.type!=='postcard'&&(
+        draft.value?.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value?.settings?.layout)));
+      const alignAvailable=computed(()=>!['full','bleed'].includes(draft.value?.settings?.size));
+      const imageModeHint=computed(()=>{
+        if(draft.value?.type==='postcard')return '明信片使用固定的“照片 + 手写寄语”结构，只需填写内容。';
+        const layout=draft.value?.settings?.layout;
+        const hints={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
+        return draft.value?.type==='gallery'?(hints[layout]||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
+      });
+      let syncing=false;
+
+      watch(()=>props.modelValue,value=>{
+        if(syncing)return;
+        const incoming=JB.normalize(value);
+        if(JSON.stringify(incoming)!==JSON.stringify(document.value))document.value=incoming;
+      },{deep:true});
+      watch([draftPreview,editorOpen],()=>nextTick(()=>{
+        if(editorOpen.value&&previewEl.value)window.JournalMedia?.enhance(previewEl.value);
+      }),{flush:'post'});
+      function commit(){
+        syncing=true;
+        const value=JB.normalize(document.value);
+        document.value=value;emit('update:modelValue',value);
+        nextTick(()=>syncing=false);
+      }
+      function openCatalog(index){
+        insertAt.value=index==null?document.value.blocks.length:index;
+        query.value='';activeCategory.value='全部';catalogOpen.value=true;
+      }
+      function choose(item){
+        catalogOpen.value=false;draft.value=JB.createBlock(item.type);editIndex.value=-1;
+        if(item.type==='divider'){confirmEdit();return;}
+        imageTab.value='content';
+        nextTick(()=>editorOpen.value=true);
+      }
+      function edit(index){draft.value=JSON.parse(JSON.stringify(document.value.blocks[index]));editIndex.value=index;imageTab.value='content';editorOpen.value=true;}
+      function confirmEdit(){
+        if(!draft.value)return;
+        const block=JSON.parse(JSON.stringify(draft.value));
+        let index=editIndex.value;
+        if(index>=0)document.value.blocks.splice(index,1,block);
+        else{index=insertAt.value;document.value.blocks.splice(index,0,block);}
+        editorOpen.value=false;commit();
+        if(window.document.activeElement?.blur)window.document.activeElement.blur();
+        nextTick(()=>setTimeout(()=>window.document.querySelector('[data-editor-block-id="'+block.id+'"]')
+          ?.scrollIntoView({behavior:'smooth',block:'center'}),80));
+      }
+      function remove(index){document.value.blocks.splice(index,1);commit();}
+      function move(index,offset){
+        const target=index+offset;if(target<0||target>=document.value.blocks.length)return;
+        const item=document.value.blocks.splice(index,1)[0];document.value.blocks.splice(target,0,item);commit();
+      }
+      function addRow(field,value){if(!Array.isArray(draft.value.data[field]))draft.value.data[field]=[];draft.value.data[field].push(value);}
+      function removeRow(field,index){draft.value.data[field].splice(index,1);}
+      function addTableColumn(){draft.value.data.headers.push('新列');draft.value.data.rows.forEach(row=>row.push(''));}
+      function removeTableColumn(index){if(draft.value.data.headers.length<=1)return;draft.value.data.headers.splice(index,1);draft.value.data.rows.forEach(row=>row.splice(index,1));}
+      function addTableRow(){draft.value.data.rows.push(draft.value.data.headers.map(()=>''));}
+      function render(block){return JB.renderBlock(block,props.media);}
+      function label(type){return JB.CATALOG.find(x=>x.type===type)?.label||type;}
+      function isMediaType(type){return IMAGE_BLOCKS.includes(type);}
+      function ensureVisible(event){
+        const el=event?.target||window.document.activeElement;if(!el)return;
+        requestAnimationFrame(()=>setTimeout(()=>el.scrollIntoView({block:'center',behavior:'smooth'}),120));
+      }
+      function viewport(){
+        const vv=window.visualViewport,bottom=vv?Math.max(0,window.innerHeight-vv.height-vv.offsetTop):0;
+        window.document.documentElement.style.setProperty('--visual-viewport-height',(vv?vv.height:window.innerHeight)+'px');
+        window.document.documentElement.style.setProperty('--browser-bottom-inset',bottom+'px');
+        if(editorOpen.value&&window.document.activeElement&&/INPUT|TEXTAREA/.test(window.document.activeElement.tagName))ensureVisible();
+      }
+      function selectedMedia(item){
+        if(!draft.value)return false;
+        return draft.value.type==='gallery'?(draft.value.data.mediaIds||[]).includes(item.id):draft.value.data.mediaId===item.id;
+      }
+      function toggleDraftMedia(item){
+        if(draft.value.type==='gallery'){
+          const ids=draft.value.data.mediaIds||[];
+          draft.value.data.mediaIds=ids.includes(item.id)?ids.filter(x=>x!==item.id):[...ids,item.id];
+        }else draft.value.data.mediaId=item.id;
+      }
+      function insertMedia(ids,preferredType){
+        const values=(Array.isArray(ids)?ids:[ids]).filter(Boolean);if(!values.length)return;
+        insertAt.value=document.value.blocks.length;
+        const type=preferredType||((values.length>1)?'gallery':'image');
+        draft.value=JB.createBlock(type,type==='gallery'?{mediaIds:values}:{mediaId:values[0]});
+        editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
+      }
+      onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);});
+      onBeforeUnmount(()=>{window.JournalMedia?.teardown(previewEl.value);window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);});
+      expose({openCatalog,insertMedia});
+      return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
+        layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,
+        openCatalog,choose,edit,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,
+        render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia};
+    },
+    template:`
+      <div class="block-editor">
+        <div v-if="!document.blocks.length" class="block-editor-empty">
+          <strong>从第一段内容开始</strong><p>选择内容类型，填写完成后一次插入正文。</p>
+          <el-button type="primary" round @click="openCatalog(0)">＋ 添加内容</el-button>
+        </div>
+        <template v-for="(block,index) in document.blocks" :key="block.id">
+          <div class="block-insert-line"><button type="button" @click="openCatalog(index)" aria-label="在这里添加内容">＋</button></div>
+          <article class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id">
+            <header><span>{{label(block.type)}}</span><div>
+              <button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><button type="button" :disabled="index===document.blocks.length-1" @click="move(index,1)">↓</button>
+              <button type="button" @click="edit(index)">编辑</button><button type="button" class="danger" @click="remove(index)">删除</button>
+            </div></header><div class="journal-document block-editor-preview" v-html="render(block)"></div>
+          </article>
+        </template>
+        <div v-if="document.blocks.length" class="block-insert-line block-insert-line--last"><button type="button" @click="openCatalog(document.blocks.length)">＋</button><span>添加内容</span></div>
+
+        <el-dialog v-model="catalogOpen" title="添加内容" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body destroy-on-close>
+          <p class="block-dialog-intro">选择一种内容。下一步会先填写具体内容，确认后才放入正文。</p>
+          <el-input v-model="query" clearable placeholder="搜索文字、地点、美食、图片……" class="block-search"/>
+          <div class="block-categories"><button v-for="category in categories" :key="category" type="button" :class="{active:activeCategory===category}" @click="activeCategory=category">{{category}}</button></div>
+          <div class="block-catalog"><button v-for="item in filtered()" :key="item.type" type="button" @click="choose(item)"><b>{{item.icon}}</b><span><strong>{{item.label}}</strong><small>{{item.description}}</small></span></button></div>
+          <el-empty v-if="!filtered().length" :image-size="54" description="没有匹配的内容类型"/>
+        </el-dialog>
+
+        <el-dialog v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
+          :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body destroy-on-close :close-on-click-modal="false">
+          <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock}">
+            <aside v-if="isImageBlock" class="block-live-preview"><header><div><strong>正文效果</strong><small>模拟文章正文栏，不是单独放大的图片</small></div><span>文字栏宽度</span></header>
+              <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>
+                <div class="journal-document" v-html="draftPreview"></div><div v-if="!draftPreview" class="block-preview-empty">选择图片后，这里会显示它在正文中的实际比例和占位</div>
+                <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
+            <div class="block-config-form" @focusin="ensureVisible">
+              <label v-if="!['heading','divider'].includes(draft.type)">区块标题（可选）<el-input v-model="draft.title" placeholder="例如 今日路线"/></label>
+              <template v-if="draft.type==='paragraph'"><label>正文<el-input v-model="draft.data.text" type="textarea" :rows="8" placeholder="写下这一段故事"/></label>
+                <div class="form-grid form-grid-2"><label>段落样式<el-select v-model="draft.settings.style"><el-option label="普通正文" value="normal"/><el-option label="开篇引言" value="lead"/><el-option label="轻声旁注" value="note"/></el-select></label><label>文字对齐<el-select v-model="draft.settings.align"><el-option label="左对齐" value="left"/><el-option label="居中" value="center"/><el-option label="右对齐" value="right"/></el-select></label></div>
+              </template>
+              <template v-else-if="draft.type==='heading'"><label>标题<el-input v-model="draft.data.text" placeholder="章节标题"/></label><label>层级<el-radio-group v-model="draft.data.level"><el-radio-button :value="2">大标题</el-radio-button><el-radio-button :value="3">小标题</el-radio-button><el-radio-button :value="4">细分标题</el-radio-button></el-radio-group></label></template>
+              <template v-else-if="draft.type==='quote'"><label>引用内容<el-input v-model="draft.data.text" type="textarea" :rows="6"/></label><label>出处（可选）<el-input v-model="draft.data.source"/></label></template>
+              <template v-else-if="draft.type==='callout'"><div class="form-grid form-grid-2"><label>卡片类型<el-select v-model="draft.data.tone"><el-option label="旅途心得" value="note"/><el-option label="温馨提示" value="tip"/><el-option label="重要提醒" value="warning"/><el-option label="特别记忆" value="memory"/></el-select></label><label>图标（可选）<el-input v-model="draft.data.icon" maxlength="2" placeholder="例如 ✦"/></label></div><label>内容<el-input v-model="draft.data.text" type="textarea" :rows="5"/></label></template>
+              <template v-else-if="draft.type==='facts'"><div v-for="(item,i) in draft.data.items" :key="i" class="block-row"><el-input v-model="item.label" placeholder="名称"/><el-input v-model="item.value" placeholder="内容"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{label:'',value:''})">＋ 添加信息</el-button></template>
+              <template v-else-if="draft.type==='pros-cons'"><div class="block-dual-list"><section><strong>喜欢</strong><div v-for="(item,i) in draft.data.pros" :key="i" class="block-row"><el-input v-model="draft.data.pros[i]"/><button type="button" @click="removeRow('pros',i)">×</button></div><el-button plain @click="addRow('pros','')">＋ 添加</el-button></section><section><strong>遗憾</strong><div v-for="(item,i) in draft.data.cons" :key="i" class="block-row"><el-input v-model="draft.data.cons[i]"/><button type="button" @click="removeRow('cons',i)">×</button></div><el-button plain @click="addRow('cons','')">＋ 添加</el-button></section></div></template>
+              <template v-else-if="draft.type==='table'"><div class="block-table-editor"><div class="block-table-head"><div v-for="(head,i) in draft.data.headers" :key="i"><el-input v-model="draft.data.headers[i]" placeholder="列名"/><button type="button" @click="removeTableColumn(i)">×</button></div><el-button plain @click="addTableColumn">＋ 列</el-button></div><div v-for="(row,ri) in draft.data.rows" :key="ri" class="block-table-row"><el-input v-for="(_,ci) in draft.data.headers" :key="ci" v-model="row[ci]"/><button type="button" @click="removeRow('rows',ri)">删除</button></div></div><el-button plain @click="addTableRow">＋ 添加一行</el-button></template>
+              <template v-else-if="draft.type==='link-card'"><label>链接地址<el-input v-model="draft.data.url" placeholder="https://"/></label><label>标题<el-input v-model="draft.data.title"/></label><label>简介<el-input v-model="draft.data.description" type="textarea" :rows="3"/></label></template>
+              <template v-else-if="draft.type==='rating'"><label>评分<el-rate v-model="draft.data.score" :max="draft.data.max||5" show-score/></label><div class="form-grid form-grid-2"><label>满分<el-input-number v-model="draft.data.max" :min="3" :max="10"/></label><label>一句感受<el-input v-model="draft.data.comment"/></label></div></template>
+              <template v-else-if="['checklist','route'].includes(draft.type)"><div v-for="(item,i) in draft.data.items" :key="i" class="block-row"><el-checkbox v-if="draft.type==='checklist'" v-model="item.checked"/><el-input v-if="draft.type==='checklist'" v-model="item.text" placeholder="清单内容"/><el-input v-else v-model="draft.data.items[i]" placeholder="地点"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',draft.type==='checklist'?{text:'',checked:false}:'')">＋ 添加一项</el-button></template>
+              <template v-else-if="draft.type==='stats'"><div v-for="(item,i) in draft.data.items" :key="i" class="block-row"><el-input v-model="item.value" placeholder="数字，例如 18,642"/><el-input v-model="item.label" placeholder="说明，例如 步"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{value:'',label:''})">＋ 添加数字</el-button></template>
+              <template v-else-if="draft.type==='companions'"><div v-for="(item,i) in draft.data.items" :key="i" class="block-complex-row"><el-input v-model="item.name" placeholder="名字"/><el-input v-model="item.role" placeholder="关系或角色"/><el-input v-model="item.note" type="textarea" placeholder="想记住的小事"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{name:'',role:'',note:''})">＋ 添加同行者</el-button></template>
+              <template v-else-if="draft.type==='trip-info'"><div class="form-grid form-grid-2"><label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label><label>地点<el-input v-model="draft.data.city"/></label><label>旅行<el-input v-model="draft.data.tripTitle"/></label><label>天气<el-input v-model="draft.data.weather"/></label><label>心情<el-input v-model="draft.data.mood"/></label></div></template>
+              <template v-else-if="['itinerary','timeline'].includes(draft.type)"><div v-for="(item,i) in draft.data.items" :key="i" class="block-complex-row"><el-input v-model="item.time" placeholder="时间"/><el-input v-model="item.title" placeholder="发生了什么"/><el-input v-model="item.address" placeholder="地点（可选）"/><el-input v-if="draft.type==='timeline'" v-model="item.description" type="textarea" placeholder="补充描述"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{time:'',title:'',address:'',description:''})">＋ 添加行程</el-button></template>
+              <template v-else-if="draft.type==='expense-summary'"><div class="form-grid form-grid-2"><label>币种<el-input v-model="draft.data.currency"/></label><label>合计<el-input-number v-model="draft.data.total" :min="0"/></label></div><div v-for="(item,i) in draft.data.categories" :key="i" class="block-row"><el-input v-model="item.name" placeholder="分类"/><el-input-number v-model="item.amount" :min="0"/><button type="button" @click="removeRow('categories',i)">×</button></div><el-button plain @click="addRow('categories',{name:'',amount:0})">＋ 添加分类</el-button></template>
+              <template v-else-if="draft.type==='location-card'"><label>地点名称<el-input v-model="draft.data.name"/></label><label>地址<el-input v-model="draft.data.address"/></label><div class="form-grid form-grid-2"><label>开放时间<el-input v-model="draft.data.hours"/></label><label>费用<el-input v-model="draft.data.cost"/></label></div><label>感受与建议<el-input v-model="draft.data.impression" type="textarea" :rows="4"/></label></template>
+              <template v-else-if="draft.type==='food'"><div class="form-grid form-grid-2"><label>菜品<el-input v-model="draft.data.dish"/></label><label>店铺<el-input v-model="draft.data.restaurant"/></label><label>价格<el-input v-model="draft.data.price"/></label><label>评分<el-rate v-model="draft.data.rating"/></label></div><label>味道与感受<el-input v-model="draft.data.note" type="textarea" :rows="4"/></label></template>
+              <template v-else-if="draft.type==='stay'"><div class="form-grid form-grid-2"><label>住宿名称<el-input v-model="draft.data.name"/></label><label>房型<el-input v-model="draft.data.room"/></label><label>入住晚数<el-input-number v-model="draft.data.nights" :min="1"/></label><label>评分<el-rate v-model="draft.data.rating"/></label></div><label>住宿体验<el-input v-model="draft.data.note" type="textarea" :rows="4"/></label></template>
+              <template v-else-if="draft.type==='transport'"><div class="form-grid form-grid-2"><label>交通方式<el-input v-model="draft.data.mode" placeholder="高铁 / 航班 / 自驾"/></label><label>班次<el-input v-model="draft.data.number"/></label><label>出发地<el-input v-model="draft.data.from"/></label><label>目的地<el-input v-model="draft.data.to"/></label><label>耗时<el-input v-model="draft.data.duration"/></label></div><label>乘坐提示<el-input v-model="draft.data.note" type="textarea" :rows="3"/></label></template>
+              <template v-else-if="draft.type==='weather'"><div class="form-grid form-grid-2"><label>天气<el-input v-model="draft.data.condition"/></label><label>温度<el-input v-model="draft.data.temperature" placeholder="26°C"/></label><label>体感<el-input v-model="draft.data.feelsLike"/></label><label>风力<el-input v-model="draft.data.wind"/></label></div><label>天气带来的感受<el-input v-model="draft.data.note" type="textarea" :rows="3"/></label></template>
+              <template v-else-if="isImageBlock">
+                <el-tabs v-model="imageTab" class="image-setting-tabs">
+                  <el-tab-pane label="内容" name="content"><div class="image-setting-section"><header><strong>选择要放进正文的图片</strong><small>{{draft.type==='gallery'?'可多选，再到“版式”选择组合方式':'单击图片进行选择'}}</small></header>
+                    <div class="block-image-picker"><button v-for="item in media" :key="item.id" type="button" :class="{selected:selectedMedia(item)}" @click="toggleDraftMedia(item)"><img :src="item.thumbnailUrl||item.displayUrl" :alt="item.caption||item.filename"><span>{{item.caption||item.filename}}</span></button><p v-if="!media.length">图片库为空，请先在图片管理中上传。</p></div>
+                    <template v-if="draft.type==='postcard'"><p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2"><label>地点<el-input v-model="draft.data.location"/></label><label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label></div><label>明信片正文<el-input v-model="draft.data.message" type="textarea" :rows="5" placeholder="写下想和这张照片一起留下的话"/></label><label>署名<el-input v-model="draft.data.signature"/></label></template>
+                    <label v-else>图注（可选）<el-input v-model="draft.data.caption" placeholder="会跟随图片显示，也可以在“图注”中调整位置"/></label>
+                  </div></el-tab-pane>
+                  <el-tab-pane v-if="draft.type!=='postcard'" label="版式" name="layout"><div class="image-setting-section"><header><strong>图片在正文里占多大、怎样排列</strong><small>预览中的灰色短线代表文章文字</small></header>
+                    <p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2">
+                      <label>占用宽度<el-select v-model="draft.settings.size"><el-option label="小图 · 约文字栏 42%" value="small"/><el-option label="中等 · 约文字栏 68%" value="medium"/><el-option label="大图 · 约文字栏 90%" value="large"/><el-option label="正文宽度 · 与文字同宽" value="full"/><el-option label="通栏出血 · 超出文字栏" value="bleed"/></el-select><small class="field-help">“通栏出血”会向文字栏两侧延伸，适合风景大图；手机上自动退回屏幕宽度。</small></label>
+                      <label v-if="alignAvailable">在文字栏中的位置<el-select v-model="draft.settings.align"><el-option label="靠左" value="left"/><el-option label="居中" value="center"/><el-option label="靠右" value="right"/></el-select></label><p v-else class="setting-inline-note">当前宽度已经占满或超出文字栏，因此无需设置左右位置。</p>
+                      <label v-if="draft.type==='gallery'">图片组排版<el-select v-model="draft.settings.layout"><el-option label="规则网格" value="grid"/><el-option label="横向并排" value="row"/><el-option label="瀑布流" value="masonry"/><el-option label="主图拼贴" value="mosaic"/><el-option label="杂志版" value="magazine"/><el-option label="故事流" value="story"/><el-option label="错落画廊" value="staggered"/><el-option label="轮播" value="carousel"/><el-option label="胶片条" value="filmstrip"/><el-option label="前后对比" value="compare"/></el-select><small class="field-help">{{imageModeHint}}</small></label>
+                      <label v-if="layoutUsesColumns">每行列数<el-input-number v-model="draft.settings.columns" :min="1" :max="6"/><small class="field-help">只在规则网格和瀑布流中生效。</small></label>
+                      <label v-if="layoutUsesRatio">照片显示比例<el-select v-model="draft.settings.ratio"><el-option :label="draft.type==='gallery'?'使用当前排版的默认比例':'保留照片原始比例'" value=""/><el-option label="16:9 · 横向风景" value="16x9"/><el-option label="4:3 · 常规照片" value="4x3"/><el-option label="1:1 · 方形" value="1x1"/><el-option label="3:4 · 竖向照片" value="3x4"/></el-select><small class="field-help">指定比例会裁切照片，但不会拉伸变形；图片组留空时由所选排版决定。</small></label><p v-else class="setting-inline-note">当前排版会保留每张照片的原始比例，因此无需设置裁切比例。</p>
+                    </div></div></el-tab-pane>
+                  <el-tab-pane v-if="draft.type!=='postcard'" label="外观" name="appearance"><div class="image-setting-section"><header><strong>装饰照片</strong><small>这些效果不会改变原图文件</small></header><div class="form-grid form-grid-2">
+                    <label>相框样式<el-select v-model="draft.settings.frame"><el-option label="跟随当前主题" value=""/><el-option label="无边框" value="none"/><el-option label="细线描边" value="line"/><el-option label="相纸白边" value="paper"/><el-option label="浮起阴影" value="float"/><el-option label="宝丽来" value="polaroid"/><el-option label="手账胶带" value="tape"/><el-option label="胶片边框" value="film"/><el-option label="明信片边框" value="postcard"/></el-select></label>
+                    <label>圆角<el-select v-model="draft.settings.radius"><el-option label="跟随当前主题" value=""/><el-option label="直角" value="none"/><el-option label="小圆角" value="soft"/><el-option label="大圆角" value="round"/></el-select></label>
+                    <label>色调<el-select v-model="draft.settings.tone"><el-option label="保留原图" value=""/><el-option label="暖色" value="warm"/><el-option label="复古" value="vintage"/><el-option label="黑白" value="mono"/></el-select></label>
+                    <label>电脑悬停效果<el-select v-model="draft.settings.effect"><el-option label="无" value=""/><el-option label="轻轻浮起" value="lift"/><el-option label="轻微放大" value="zoom"/><el-option label="手账倾斜" value="tilt"/></el-select><small class="field-help">只在鼠标悬停时生效，手机浏览不会触发。</small></label>
+                  </div></div></el-tab-pane>
+                  <el-tab-pane v-if="draft.type!=='postcard'" label="图注" name="caption"><div class="image-setting-section"><header><strong>照片说明</strong><small>图注为空时不会显示</small></header><label>图注文字<el-input v-model="draft.data.caption" placeholder="例如 青城山下山时的薄雾"/></label><label>显示位置<el-select v-model="draft.settings.captionPos"><el-option label="图片下方居中" value=""/><el-option label="图片下方靠左" value="left"/><el-option label="覆盖在图片底部" value="overlay"/><el-option label="显示在图片右侧" value="side"/><el-option label="隐藏图注" value="none"/></el-select><small class="field-help">“右侧”更适合中等或大图；手机上会自动移到图片下方。</small></label></div></el-tab-pane>
+                </el-tabs>
+              </template>
+            </div>
+          </div>
+          <template #footer><el-button @click="editorOpen=false">取消</el-button><el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button></template>
+        </el-dialog>
+      </div>`
+  };
+})();

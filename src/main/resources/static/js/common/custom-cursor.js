@@ -84,7 +84,7 @@
     if (target.closest('input, textarea, [contenteditable="true"]')) return 'writing';
     if (target.closest('img, picture, .card-photo, .hero-photo, .trip-banner-photo, .journal-gallery, .journal-carousel, .journal-compare')) return 'photo';
     if (target.closest('a, button, select, [role="button"], [role="link"], [role="tab"], [tabindex]:not([tabindex="-1"]), .el-select, .el-switch, .el-checkbox, .el-radio, .el-tabs__item, .el-date-editor, .el-input-number__decrease, .el-input-number__increase, .admin-trip-card, .workspace-head .back, .upload-box')) return 'link';
-    if (target.closest('.markdown-body, .preview, .article, .markdown-input, article')) return 'writing';
+    if (target.closest('.journal-document, .preview, .article, article')) return 'writing';
     return 'compass';
   }
 

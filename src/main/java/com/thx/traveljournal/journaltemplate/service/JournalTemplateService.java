@@ -12,6 +12,7 @@ import com.thx.traveljournal.budget.mapper.ExpenseMapper;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.itinerary.entity.ItineraryItem;
 import com.thx.traveljournal.itinerary.mapper.ItineraryMapper;
+import com.thx.traveljournal.journal.service.JournalDocumentService;
 import com.thx.traveljournal.journaltemplate.entity.JournalTemplate;
 import com.thx.traveljournal.journaltemplate.mapper.JournalTemplateMapper;
 import com.thx.traveljournal.media.service.MediaService;
@@ -23,45 +24,23 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * 日记模板服务：模板的增删改查，以及按模板生成日记正文。
- *
- * <p>模板由一组区块组成，区块类型限定在 {@link #BLOCK_TYPES} 白名单内。
- * 生成正文时，路线、行程、花费这类区块会自动读取当天的旅行数据，
- * 用户填的文字则统一做 HTML 转义后再拼进 Markdown。</p>
- */
+/** 模板是 Block 蓝图；生成以后，日记正文独立于模板继续编辑。 */
 @Service
 @RequiredArgsConstructor
 public class JournalTemplateService {
-    /** 允许的区块类型白名单。模板由用户自己搭，只认这些类型，杜绝脚本和任意 HTML */
-    private static final Set<String> BLOCK_TYPES = Set.of(
-            "trip-info", "text", "textarea", "quote", "rating", "checklist",
-            "route", "itinerary", "expense-summary", "image", "gallery", "divider");
-    /** 从旅行数据自动取值的区块。这些区块查不到数据时会整块消失，需要回报给用户。 */
-    private static final Set<String> AUTO_BLOCKS = Set.of("route", "itinerary", "expense-summary");
-    private static final Set<String> IMAGE_SIZES = Set.of("small", "medium", "large", "full", "bleed");
-    private static final Set<String> IMAGE_ALIGNS = Set.of("left", "center", "right");
-    /**
-     * 图组的排布方式，和前端 journal-media.js 的 GALLERY_MODES、
-     * journal-media.css 的 .journal-gallery--* 是同一套值，改这里记得三处同步。
-     * stack 表示不合成图组，仍然一张一张地竖着排（保持模板的历史行为）。
-     */
-    private static final Set<String> GALLERY_LAYOUTS = Set.of(
-            "row", "grid", "masonry", "mosaic", "magazine", "story", "staggered",
-            "carousel", "filmstrip", "compare");
+    private static final Set<String> TYPES = Set.of("trip-info","text","textarea","quote","rating",
+            "checklist","route","itinerary","expense-summary","image","gallery","divider");
+    private static final Set<String> AUTO = Set.of("route","itinerary","expense-summary");
+    private static final Set<String> SIZES = Set.of("small","medium","large","full","bleed");
+    private static final Set<String> ALIGNS = Set.of("left","center","right");
+    private static final Set<String> LAYOUTS = Set.of("row","grid","masonry","mosaic","magazine",
+            "story","staggered","carousel","filmstrip","compare");
 
     private final JournalTemplateMapper mapper;
     private final TripMapper tripMapper;
@@ -71,352 +50,241 @@ public class JournalTemplateService {
     private final BudgetCategoryMapper budgetMapper;
     private final MediaService mediaService;
     private final ObjectMapper objectMapper;
+    private final JournalDocumentService documentService;
 
-    public record TemplateInput(String name, String description, String category,
-                                JsonNode definitionJson, Boolean enabled) {}
-    public record GenerateInput(Long journalId, Long tripId, Long tripStopId,
-                                LocalDate occurredOn, JsonNode data) {}
-    /**
-     * @param skippedBlocks 因为查不到对应数据而没有生成的自动区块标题。
-     *                      这些区块会连标题一起从正文里消失，不告诉用户的话
-     *                      就会变成「模板说能自动带出，结果什么都没有」。
-     */
-    public record GenerateResult(String markdown, JsonNode data, JsonNode snapshot,
-                                 Long templateId, Integer templateVersion,
-                                 List<String> skippedBlocks) {}
+    public record TemplateInput(String name,String description,String category,JsonNode definitionJson,Boolean enabled){}
+    public record GenerateInput(Long journalId,Long tripId,Long tripStopId,LocalDate occurredOn,JsonNode data){}
+    public record GenerateResult(JsonNode contentJson,Long templateId,Integer templateVersion,List<String> skippedBlocks){}
 
-    public List<JournalTemplate> list(boolean enabledOnly) {
+    public List<JournalTemplate> list(boolean enabledOnly){
         return mapper.selectList(new LambdaQueryWrapper<JournalTemplate>()
-                .eq(enabledOnly, JournalTemplate::getEnabled, true)
-                .orderByDesc(JournalTemplate::getBuiltin)
-                .orderByDesc(JournalTemplate::getUpdatedAt));
+                .eq(enabledOnly,JournalTemplate::getEnabled,true)
+                .orderByDesc(JournalTemplate::getBuiltin).orderByDesc(JournalTemplate::getUpdatedAt));
     }
-
-    public JournalTemplate get(Long id) {
-        JournalTemplate template = mapper.selectById(id);
-        if (template == null) throw BusinessException.notFound("日记模板不存在");
-        return template;
+    public JournalTemplate get(Long id){
+        JournalTemplate value=mapper.selectById(id);
+        if(value==null) throw BusinessException.notFound("日记模板不存在");
+        return value;
     }
-
-    public JournalTemplate create(TemplateInput input) {
-        JournalTemplate template = new JournalTemplate();
-        copyInput(input, template);
-        template.setVersion(1);
-        template.setBuiltin(false);
-        mapper.insert(template);
-        return template;
+    public JournalTemplate create(TemplateInput input){
+        JournalTemplate value=new JournalTemplate(); copyInput(input,value);
+        value.setVersion(1); value.setBuiltin(false); mapper.insert(value); return value;
     }
-
-    /** 更新个人模板。系统内置模板不允许直接改，要先复制成个人模板。 */
-    public JournalTemplate update(Long id, TemplateInput input) {
-        JournalTemplate template = get(id);
-        if (Boolean.TRUE.equals(template.getBuiltin()))
-            throw BusinessException.conflict("系统模板不能直接修改，请先复制为我的模板");
-        copyInput(input, template);
-        template.setVersion(template.getVersion() + 1);
-        mapper.updateById(template);
-        return template;
+    public JournalTemplate update(Long id,TemplateInput input){
+        JournalTemplate value=get(id);
+        if(Boolean.TRUE.equals(value.getBuiltin())) throw BusinessException.conflict("系统模板不能直接修改，请先复制为我的模板");
+        copyInput(input,value); value.setVersion(value.getVersion()+1); mapper.updateById(value); return value;
     }
-
-    public void delete(Long id) {
-        JournalTemplate template = get(id);
-        if (Boolean.TRUE.equals(template.getBuiltin()))
-            throw BusinessException.conflict("系统模板不能删除");
+    public void delete(Long id){
+        JournalTemplate value=get(id);
+        if(Boolean.TRUE.equals(value.getBuiltin())) throw BusinessException.conflict("系统模板不能删除");
         mapper.deleteById(id);
     }
-
-    public JournalTemplate duplicate(Long id) {
-        JournalTemplate source = get(id);
-        JournalTemplate copy = new JournalTemplate();
-        copy.setName(source.getName() + " 副本");
-        copy.setDescription(source.getDescription());
-        copy.setCategory("CUSTOM");
-        copy.setDefinitionJson(source.getDefinitionJson().deepCopy());
-        copy.setVersion(1);
-        copy.setEnabled(true);
-        copy.setBuiltin(false);
-        mapper.insert(copy);
-        return copy;
+    public JournalTemplate duplicate(Long id){
+        JournalTemplate source=get(id),copy=new JournalTemplate();
+        copy.setName(source.getName()+" 副本"); copy.setDescription(source.getDescription()); copy.setCategory("CUSTOM");
+        copy.setDefinitionJson(source.getDefinitionJson().deepCopy()); copy.setVersion(1);
+        copy.setEnabled(true); copy.setBuiltin(false); mapper.insert(copy); return copy;
     }
 
-    @Transactional(readOnly = true)
-    /**
-     * 按模板生成日记正文。
-     *
-     * <p>旅行、路线、行程和支出这些区块会自动从库里读当天的数据填好，
-     * 用户只需要填天气、心情、感受这类只有本人知道的内容。</p>
-     *
-     * @return 生成的 Markdown、回填的数据、模板定义快照和版本号
-     */
-    public GenerateResult generate(Long templateId, GenerateInput input) {
-        JournalTemplate template = get(templateId);
-        if (!Boolean.TRUE.equals(template.getEnabled())) throw BusinessException.badRequest("该模板已停用");
-        if (input.tripId() == null || input.occurredOn() == null)
-            throw BusinessException.badRequest("请选择旅行和日记日期");
-        Trip trip = tripMapper.selectById(input.tripId());
-        if (trip == null) throw BusinessException.badRequest("所属旅行不存在");
-        TripStop selectedStop = null;
-        if (input.tripStopId() != null) {
-            selectedStop = stopMapper.selectById(input.tripStopId());
-            if (selectedStop == null || !trip.getId().equals(selectedStop.getTripId()))
-                throw BusinessException.badRequest("城市不属于当前旅行");
+    @Transactional(readOnly=true)
+    public GenerateResult generate(Long templateId,GenerateInput input){
+        JournalTemplate template=get(templateId);
+        if(!Boolean.TRUE.equals(template.getEnabled())) throw BusinessException.badRequest("该模板已停用");
+        if(input.tripId()==null||input.occurredOn()==null) throw BusinessException.badRequest("请选择旅行和日记日期");
+        Trip trip=tripMapper.selectById(input.tripId());
+        if(trip==null) throw BusinessException.badRequest("所属旅行不存在");
+        TripStop stop=selectedStop(input,trip);
+        List<TripStop> stops=stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+                .eq(TripStop::getTripId,trip.getId()).orderByAsc(TripStop::getSortOrder,TripStop::getId));
+        List<ItineraryItem> itinerary=itineraryMapper.selectList(new LambdaQueryWrapper<ItineraryItem>()
+                .eq(ItineraryItem::getTripId,trip.getId()).eq(ItineraryItem::getItemDate,input.occurredOn())
+                .orderByAsc(ItineraryItem::getStartTime,ItineraryItem::getSortOrder,ItineraryItem::getId));
+        List<Expense> day=expenses(trip.getId(),input.occurredOn()), all=expenses(trip.getId(),null);
+        Map<Long,String> categories=budgetMapper.selectList(new LambdaQueryWrapper<BudgetCategory>()
+                .eq(BudgetCategory::getTripId,trip.getId())).stream()
+                .collect(Collectors.toMap(BudgetCategory::getId,BudgetCategory::getName,(a,b)->a));
+        Set<Long> media=input.journalId()==null?Set.of():mediaService.list(input.journalId()).stream()
+                .map(MediaService.MediaView::id).collect(Collectors.toSet());
+        ObjectNode values=input.data()!=null&&input.data().isObject()
+                ?((ObjectNode)input.data()).deepCopy():objectMapper.createObjectNode();
+        ArrayNode output=objectMapper.createArrayNode();
+        List<String> skipped=new ArrayList<>();
+        for(JsonNode definition:template.getDefinitionJson().path("blocks")){
+            validateRequired(definition,values);
+            ObjectNode block=generateBlock(definition,values,trip,stop,stops,itinerary,day,all,
+                    categories,media,input.occurredOn());
+            if(block!=null) output.add(block);
+            else if(AUTO.contains(definition.path("type").asText()))
+                skipped.add(definition.path("title").asText(definition.path("type").asText()));
         }
+        ObjectNode document=documentService.emptyDocument(); document.set("blocks",output);
+        return new GenerateResult(documentService.validate(document,false),template.getId(),template.getVersion(),skipped);
+    }
 
-        List<TripStop> stops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
-                .eq(TripStop::getTripId, trip.getId())
-                .orderByAsc(TripStop::getSortOrder, TripStop::getId));
-        List<ItineraryItem> itinerary = itineraryMapper.selectList(new LambdaQueryWrapper<ItineraryItem>()
-                .eq(ItineraryItem::getTripId, trip.getId())
-                .eq(ItineraryItem::getItemDate, input.occurredOn())
-                .orderByAsc(ItineraryItem::getStartTime, ItineraryItem::getSortOrder, ItineraryItem::getId));
-        List<Expense> dayExpenses = expenseMapper.selectList(new LambdaQueryWrapper<Expense>()
-                .eq(Expense::getTripId, trip.getId())
-                .eq(Expense::getExpenseDate, input.occurredOn())
-                .orderByAsc(Expense::getId));
-        List<Expense> tripExpenses = expenseMapper.selectList(new LambdaQueryWrapper<Expense>()
-                .eq(Expense::getTripId, trip.getId())
-                .orderByAsc(Expense::getExpenseDate, Expense::getId));
-        Map<Long, String> categoryNames = budgetMapper.selectList(new LambdaQueryWrapper<BudgetCategory>()
-                        .eq(BudgetCategory::getTripId, trip.getId())).stream()
-                .collect(Collectors.toMap(BudgetCategory::getId, BudgetCategory::getName, (a, b) -> a));
-        Map<Long, MediaService.MediaView> media = input.journalId() == null ? Map.of()
-                : mediaService.list(input.journalId()).stream()
-                .collect(Collectors.toMap(MediaService.MediaView::id, value -> value));
-
-        ObjectNode data = input.data() != null && input.data().isObject()
-                ? ((ObjectNode) input.data()).deepCopy() : objectMapper.createObjectNode();
-        ObjectNode context = data.withObject("_context");
-        context.put("tripTitle", trip.getTitle());
-        context.put("occurredOn", input.occurredOn().toString());
-        if (selectedStop != null) context.put("cityName", selectedStop.getCityName());
-
-        StringBuilder markdown = new StringBuilder();
-        List<String> skipped = new ArrayList<>();
-        ArrayNode blocks = (ArrayNode) template.getDefinitionJson().path("blocks");
-        for (JsonNode block : blocks) {
-            validateRequiredBlock(block, data);
-            boolean written = appendBlock(markdown, block, data, trip, selectedStop, stops, itinerary,
-                    dayExpenses, tripExpenses, categoryNames, media);
-            // 只提示自动区块：文本类区块用户没填就是没填，不需要额外解释
-            if (!written && AUTO_BLOCKS.contains(block.path("type").asText())) {
-                String title = block.path("title").asText();
-                skipped.add(StringUtils.hasText(title) ? title : block.path("type").asText());
+    private TripStop selectedStop(GenerateInput input,Trip trip){
+        if(input.tripStopId()==null) return null;
+        TripStop stop=stopMapper.selectById(input.tripStopId());
+        if(stop==null||!trip.getId().equals(stop.getTripId())) throw BusinessException.badRequest("城市不属于当前旅行");
+        return stop;
+    }
+    private List<Expense> expenses(Long tripId,LocalDate date){
+        LambdaQueryWrapper<Expense> q=new LambdaQueryWrapper<Expense>().eq(Expense::getTripId,tripId);
+        if(date!=null) q.eq(Expense::getExpenseDate,date);
+        return expenseMapper.selectList(q.orderByAsc(Expense::getExpenseDate,Expense::getId));
+    }
+    private ObjectNode generateBlock(JsonNode def,ObjectNode values,Trip trip,TripStop stop,
+            List<TripStop> stops,List<ItineraryItem> itinerary,List<Expense> day,List<Expense> all,
+            Map<Long,String> categories,Set<Long> media,LocalDate date){
+        String type=def.path("type").asText(),title=def.path("title").asText("");
+        JsonNode config=def.path("config"),raw=values.path(def.path("id").asText()),value=blockValue(raw);
+        return switch(type){
+            case "trip-info"->tripInfo(title,trip,stop,raw,date);
+            case "route"->route(title,config,stops,itinerary);
+            case "itinerary"->itinerary(title,itinerary);
+            case "expense-summary"->expense(title,"trip".equals(config.path("source").asText())?all:day,
+                    categories,trip.getDefaultCurrency());
+            case "text","textarea"->text("paragraph",title,value.asText(""));
+            case "quote"->text("quote",title,value.asText(""));
+            case "rating"->rating(title,value,config.path("max").asInt(5));
+            case "checklist"->checklist(title,value);
+            case "image","gallery"->image(type,title,raw,config,media);
+            case "divider"->block("divider","");
+            default->null;
+        };
+    }
+    private ObjectNode tripInfo(String title,Trip trip,TripStop stop,JsonNode raw,LocalDate date){
+        ObjectNode b=block("trip-info",title),d=(ObjectNode)b.path("data");
+        d.put("date",date.toString()); d.put("tripTitle",trip.getTitle());
+        if(stop!=null)d.put("city",stop.getCityName());
+        putText(d,"weather",raw.path("weather")); putText(d,"mood",raw.path("mood")); return b;
+    }
+    private ObjectNode route(String title,JsonNode config,List<TripStop> stops,List<ItineraryItem> itinerary){
+        List<String> values="trip".equals(config.path("source").asText())
+                ?stops.stream().map(TripStop::getCityName).filter(StringUtils::hasText).toList()
+                :itinerary.stream().map(ItineraryItem::getTitle).filter(StringUtils::hasText).toList();
+        if(values.isEmpty())return null;
+        ObjectNode b=block("route",title); ArrayNode items=((ObjectNode)b.path("data")).putArray("items");
+        values.forEach(items::add); return b;
+    }
+    private ObjectNode itinerary(String title,List<ItineraryItem> values){
+        if(values.isEmpty())return null;
+        ObjectNode b=block("itinerary",title); ArrayNode items=((ObjectNode)b.path("data")).putArray("items");
+        DateTimeFormatter f=DateTimeFormatter.ofPattern("HH:mm");
+        for(ItineraryItem value:values){
+            ObjectNode item=items.addObject();
+            if(value.getStartTime()!=null)item.put("time",value.getStartTime().format(f));
+            item.put("title",value.getTitle());
+            if(StringUtils.hasText(value.getAddress()))item.put("address",value.getAddress());
+        } return b;
+    }
+    private ObjectNode expense(String title,List<Expense> values,Map<Long,String> names,String currency){
+        if(values.isEmpty())return null;
+        Map<String,BigDecimal> grouped=new LinkedHashMap<>();
+        for(Expense value:values)grouped.merge(names.getOrDefault(value.getBudgetCategoryId(),"其他"),
+                value.getAmount(),BigDecimal::add);
+        ObjectNode b=block("expense-summary",title),d=(ObjectNode)b.path("data");
+        d.put("currency",currency); d.put("total",grouped.values().stream().reduce(BigDecimal.ZERO,BigDecimal::add));
+        ArrayNode items=d.putArray("categories");
+        grouped.forEach((name,amount)->items.addObject().put("name",name).put("amount",amount)); return b;
+    }
+    private ObjectNode text(String type,String title,String value){
+        if(!StringUtils.hasText(value))return null;
+        ObjectNode b=block(type,title); ((ObjectNode)b.path("data")).put("text",value.trim()); return b;
+    }
+    private ObjectNode rating(String title,JsonNode value,int configuredMax){
+        int max=Math.max(1,Math.min(10,configuredMax));
+        int score=value.isObject()?value.path("value").asInt(value.path("score").asInt()):value.asInt();
+        String comment=value.isObject()?value.path("comment").asText(""):"";
+        if(score<=0&&!StringUtils.hasText(comment))return null;
+        ObjectNode b=block("rating",title),d=(ObjectNode)b.path("data");
+        d.put("score",Math.max(0,Math.min(max,score))); d.put("max",max);
+        if(StringUtils.hasText(comment))d.put("comment",comment.trim()); return b;
+    }
+    private ObjectNode checklist(String title,JsonNode values){
+        if(!values.isArray()||values.isEmpty())return null;
+        ObjectNode b=block("checklist",title); ArrayNode items=((ObjectNode)b.path("data")).putArray("items");
+        for(JsonNode value:values){
+            String label=value.isTextual()?value.asText():value.path("text").asText("");
+            if(StringUtils.hasText(label))items.addObject().put("text",label.trim())
+                    .put("checked",value.isObject()&&value.path("checked").asBoolean());
+        } return items.isEmpty()?null:b;
+    }
+    private ObjectNode image(String type,String title,JsonNode raw,JsonNode config,Set<Long> available){
+        JsonNode source=raw.isObject()&&raw.has("mediaIds")?raw.path("mediaIds"):raw;
+        List<Long> ids=new ArrayList<>();
+        if(source.isArray()){
+            for(JsonNode node:source){
+                if(node.canConvertToLong())ids.add(node.asLong());
             }
         }
-        return new GenerateResult(markdown.toString().trim(), data,
-                template.getDefinitionJson().deepCopy(), template.getId(), template.getVersion(), skipped);
+        else if(source.canConvertToLong())ids.add(source.asLong());
+        if("image".equals(type)&&ids.size()>1)ids.subList(1,ids.size()).clear();
+        if(ids.isEmpty())return null;
+        if(!available.containsAll(ids))throw BusinessException.badRequest("模板选择的图片不属于当前日记");
+        ObjectNode b=block(type,title),d=(ObjectNode)b.path("data"),s=(ObjectNode)b.path("settings");
+        if("image".equals(type))d.put("mediaId",ids.get(0));
+        else{
+            ArrayNode mediaIds=d.putArray("mediaIds");
+            for(Long id:ids)mediaIds.add(id);
+        }
+        s.put("size",allowed(config.path("imageSize").asText(),SIZES,"medium"));
+        s.put("align",allowed(config.path("align").asText(),ALIGNS,"center"));
+        if("gallery".equals(type)){
+            s.put("layout",allowed(config.path("layout").asText(),LAYOUTS,"grid"));
+            s.put("columns",Math.max(1,Math.min(6,config.path("columns").asInt(3))));
+        } return b;
     }
+    private ObjectNode block(String type,String title){
+        ObjectNode b=objectMapper.createObjectNode();
+        b.put("id","block_"+UUID.randomUUID().toString().replace("-","").substring(0,12));
+        b.put("type",type); b.put("version",1); if(StringUtils.hasText(title))b.put("title",title.trim());
+        b.set("data",objectMapper.createObjectNode()); b.set("settings",objectMapper.createObjectNode()); return b;
+    }
+    private String allowed(String value,Set<String> allowed,String fallback){return allowed.contains(value)?value:fallback;}
 
-    private void copyInput(TemplateInput input, JournalTemplate target) {
-        if (!StringUtils.hasText(input.name()) || input.name().trim().length() > 120)
+    private void copyInput(TemplateInput input,JournalTemplate target){
+        if(!StringUtils.hasText(input.name())||input.name().trim().length()>120)
             throw BusinessException.badRequest("模板名称不能为空且不能超过 120 个字符");
-        if (StringUtils.hasText(input.description()) && input.description().length() > 500)
+        if(StringUtils.hasText(input.description())&&input.description().length()>500)
             throw BusinessException.badRequest("模板说明不能超过 500 个字符");
-        JsonNode definition = validateDefinition(input.definitionJson());
         target.setName(input.name().trim());
-        target.setDescription(StringUtils.hasText(input.description()) ? input.description().trim() : null);
-        target.setCategory(StringUtils.hasText(input.category()) ? input.category().trim().toUpperCase() : "CUSTOM");
-        target.setDefinitionJson(definition);
-        target.setEnabled(input.enabled() == null || input.enabled());
+        target.setDescription(StringUtils.hasText(input.description())?input.description().trim():null);
+        target.setCategory(StringUtils.hasText(input.category())?input.category().trim().toUpperCase():"CUSTOM");
+        target.setDefinitionJson(validateDefinition(input.definitionJson()));
+        target.setEnabled(input.enabled()==null||input.enabled());
     }
-
-    /** 校验模板定义：必须是对象、至少一个区块、区块类型在白名单内、图片尺寸和对齐取值合法。 */
-    private JsonNode validateDefinition(JsonNode definition) {
-        if (definition == null || !definition.isObject() || !definition.path("blocks").isArray())
+    private JsonNode validateDefinition(JsonNode definition){
+        if(definition==null||!definition.isObject()||!definition.path("blocks").isArray())
             throw BusinessException.badRequest("模板定义必须包含区块列表");
-        ArrayNode blocks = (ArrayNode) definition.path("blocks");
-        if (blocks.isEmpty() || blocks.size() > 30)
-            throw BusinessException.badRequest("模板需要 1 到 30 个区块");
-        Set<String> ids = new HashSet<>();
-        for (JsonNode block : blocks) {
-            String id = block.path("id").asText("");
-            String type = block.path("type").asText("");
-            String title = block.path("title").asText("");
-            if (!id.matches("[A-Za-z][A-Za-z0-9_-]{0,39}") || !ids.add(id))
+        ArrayNode blocks=(ArrayNode)definition.path("blocks");
+        if(blocks.isEmpty()||blocks.size()>30)throw BusinessException.badRequest("模板需要 1 到 30 个区块");
+        Set<String> ids=new HashSet<>();
+        for(JsonNode block:blocks){
+            String id=block.path("id").asText(""),type=block.path("type").asText("");
+            if(!id.matches("[A-Za-z][A-Za-z0-9_-]{0,39}")||!ids.add(id))
                 throw BusinessException.badRequest("区块标识必须唯一，且只能包含字母、数字、下划线和短横线");
-            if (!BLOCK_TYPES.contains(type)) throw BusinessException.badRequest("不支持的区块类型：" + type);
-            if (title.length() > 100) throw BusinessException.badRequest("区块标题不能超过 100 个字符");
-            if (block.has("config") && !block.path("config").isObject())
-                throw BusinessException.badRequest("区块配置必须是对象");
-        }
-        return definition.deepCopy();
+            if(!TYPES.contains(type))throw BusinessException.badRequest("不支持的区块类型："+type);
+            if(block.path("title").asText("").length()>100)throw BusinessException.badRequest("区块标题不能超过 100 个字符");
+            if(block.has("config")&&!block.path("config").isObject())throw BusinessException.badRequest("区块配置必须是对象");
+        } return definition.deepCopy();
     }
-
-    /** @return 是否真的写出了内容；查不到数据的区块会整块跳过，由调用方决定要不要提示。 */
-    private boolean appendBlock(StringBuilder out, JsonNode block, ObjectNode data,
-                             Trip trip, TripStop selectedStop, List<TripStop> stops,
-                             List<ItineraryItem> itinerary, List<Expense> dayExpenses,
-                             List<Expense> tripExpenses, Map<Long, String> categoryNames,
-                             Map<Long, MediaService.MediaView> media) {
-        String type = block.path("type").asText();
-        String title = block.path("title").asText();
-        JsonNode config = block.path("config");
-        JsonNode value = blockValue(data.path(block.path("id").asText()));
-        String content = switch (type) {
-            case "trip-info" -> tripInfo(trip, selectedStop, data, block.path("id").asText());
-            case "route" -> route(config, stops, itinerary);
-            case "itinerary" -> itinerary(itinerary);
-            case "expense-summary" -> expenseSummary(
-                    "trip".equals(config.path("source").asText()) ? tripExpenses : dayExpenses,
-                    categoryNames, trip.getDefaultCurrency());
-            case "quote" -> StringUtils.hasText(value.asText()) ? "> " + value.asText().replace("\n", "\n> ") : "";
-            case "rating" -> rating(value, config.path("max").asInt(5));
-            case "checklist" -> checklist(value);
-            case "image", "gallery" -> images(value, config, media, "gallery".equals(type));
-            case "divider" -> "---";
-            default -> value.isTextual() ? value.asText() : "";
-        };
-        if (!StringUtils.hasText(content)) return false;
-        if (StringUtils.hasText(title) && !"divider".equals(type)) out.append("## ").append(title).append("\n\n");
-        out.append(content.trim()).append("\n\n");
-        return true;
-    }
-
-    private String tripInfo(Trip trip, TripStop stop, ObjectNode data, String blockId) {
-        List<String> pieces = new ArrayList<>();
-        pieces.add(data.path("_context").path("occurredOn").asText());
-        if (stop != null) pieces.add(stop.getCityName());
-        pieces.add(trip.getTitle());
-        JsonNode blockData = data.path(blockId);
-        addIfText(pieces, blockData.path("weather"));
-        addIfText(pieces, blockData.path("mood"));
-        return "> " + String.join(" · ", pieces);
-    }
-
-    private String route(JsonNode config, List<TripStop> stops, List<ItineraryItem> itinerary) {
-        if ("trip".equals(config.path("source").asText())) {
-            return stops.stream().map(TripStop::getCityName).filter(StringUtils::hasText)
-                    .collect(Collectors.joining(" → "));
-        }
-        return itinerary.stream().map(ItineraryItem::getTitle).filter(StringUtils::hasText)
-                .collect(Collectors.joining(" → "));
-    }
-
-    private String itinerary(List<ItineraryItem> items) {
-        return items.stream().map(item -> {
-            String time = item.getStartTime() == null ? "" : item.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm "));
-            String address = StringUtils.hasText(item.getAddress()) ? "（" + item.getAddress() + "）" : "";
-            return "- " + time + item.getTitle() + address;
-        }).collect(Collectors.joining("\n"));
-    }
-
-    private String expenseSummary(List<Expense> expenses, Map<Long, String> categoryNames, String currency) {
-        if (expenses.isEmpty()) return "";
-        Map<String, BigDecimal> grouped = new LinkedHashMap<>();
-        for (Expense expense : expenses) {
-            String name = categoryNames.getOrDefault(expense.getBudgetCategoryId(), "其他");
-            grouped.merge(name, expense.getAmount(), BigDecimal::add);
-        }
-        StringBuilder result = new StringBuilder();
-        BigDecimal total = BigDecimal.ZERO;
-        for (Map.Entry<String, BigDecimal> item : grouped.entrySet()) {
-            result.append("- ").append(item.getKey()).append("：")
-                    .append(currency).append(' ').append(item.getValue().stripTrailingZeros().toPlainString()).append('\n');
-            total = total.add(item.getValue());
-        }
-        return result.append("\n**合计：").append(currency).append(' ')
-                .append(total.stripTrailingZeros().toPlainString()).append("**").toString();
-    }
-
-    private String rating(JsonNode value, int max) {
-        int score = Math.max(0, Math.min(max, value.asInt(0)));
-        return score == 0 ? "" : "★".repeat(score) + "☆".repeat(Math.max(0, max - score)) + "（" + score + "/" + max + "）";
-    }
-
-    private String checklist(JsonNode value) {
-        if (!value.isArray()) return "";
-        List<String> rows = new ArrayList<>();
-        for (JsonNode item : value) {
-            if (item.isTextual()) rows.add("- [ ] " + item.asText());
-            else if (item.isObject() && StringUtils.hasText(item.path("text").asText()))
-                rows.add("- [" + (item.path("checked").asBoolean() ? "x" : " ") + "] " + item.path("text").asText());
-        }
-        return String.join("\n", rows);
-    }
-
-    private String images(JsonNode value, JsonNode config, Map<Long, MediaService.MediaView> media, boolean multiple) {
-        List<Long> ids = new ArrayList<>();
-        JsonNode source = value.isObject() && value.has("mediaIds") ? value.path("mediaIds") : value;
-        if (source.isArray()) {
-            for (JsonNode node : source) if (node.canConvertToLong()) ids.add(node.asLong());
-        }
-        else if (source.canConvertToLong()) ids.add(source.asLong());
-        if (!multiple && ids.size() > 1) ids = ids.subList(0, 1);
-        String size = IMAGE_SIZES.contains(config.path("imageSize").asText()) ? config.path("imageSize").asText() : "medium";
-        String align = IMAGE_ALIGNS.contains(config.path("align").asText()) ? config.path("align").asText() : "center";
-        String layout = config.path("layout").asText();
-
-        List<MediaService.MediaView> items = new ArrayList<>();
-        for (Long id : ids) {
-            MediaService.MediaView item = media.get(id);
-            if (item == null) throw BusinessException.badRequest("模板选择的图片不属于当前日记");
-            items.add(item);
-        }
-        // 选了排布方式且确实是多张，才合成一个图组；否则维持一张一个 figure 的老行为
-        if (multiple && items.size() > 1 && GALLERY_LAYOUTS.contains(layout)) {
-            return gallery(items, layout, size, align);
-        }
-        return items.stream().map(item -> figure(item, size, align)).collect(Collectors.joining("\n\n"));
-    }
-
-    /**
-     * 单张图片的受控 HTML。和前端 JournalMedia.buildFigure 生成的是同一套标记，
-     * 改动 class 契约时两边必须一起改。没有图注就不输出 figcaption——
-     * 用文件名兜底会让「1000002837.jpg」直接印在正文里。
-     */
-    private String figure(MediaService.MediaView item, String size, String align) {
-        String caption = item.caption();
-        String safe = escapeHtml(StringUtils.hasText(caption) ? caption : "旅行照片");
-        return "<figure class=\"journal-figure journal-figure--" + size + " journal-figure--" + align + "\">\n"
-                + "  <img src=\"" + item.displayUrl() + "\" alt=\"" + safe + "\" loading=\"lazy\">\n"
-                + (StringUtils.hasText(caption) ? "  <figcaption>" + escapeHtml(caption) + "</figcaption>\n" : "")
-                + "</figure>";
-    }
-
-    /** 多张图片的图组。cols 用默认 3 列，需要别的列数由用户在编辑器里调。 */
-    private String gallery(List<MediaService.MediaView> items, String layout, String size, String align) {
-        StringBuilder markup = new StringBuilder("<figure class=\"journal-gallery journal-gallery--" + layout);
-        if ("grid".equals(layout) || "masonry".equals(layout)) markup.append(" journal-gallery--cols-3");
-        markup.append(" journal-figure--").append(size).append(" journal-figure--").append(align).append("\">\n");
-        for (MediaService.MediaView item : items) {
-            String alt = escapeHtml(StringUtils.hasText(item.caption()) ? item.caption() : "旅行照片");
-            markup.append("  <img src=\"").append(item.displayUrl()).append("\" alt=\"").append(alt).append("\" loading=\"lazy\">\n");
-        }
-        return markup.append("</figure>").toString();
-    }
-
-    private JsonNode blockValue(JsonNode blockData) {
-        return blockData.isObject() && blockData.has("value") ? blockData.path("value") : blockData;
-    }
-
-    /** 校验标记为必填的区块确实填了内容。 */
-    private void validateRequiredBlock(JsonNode block, ObjectNode data) {
-        if (!block.path("required").asBoolean(false)) return;
-        String type = block.path("type").asText();
-        if (Set.of("trip-info", "route", "itinerary", "expense-summary", "divider").contains(type)) return;
-        JsonNode raw = data.path(block.path("id").asText());
-        JsonNode value = blockValue(raw);
+    private JsonNode blockValue(JsonNode raw){return raw.isObject()&&raw.has("value")?raw.path("value"):raw;}
+    private void validateRequired(JsonNode def,ObjectNode values){
+        if(!def.path("required").asBoolean())return;
+        String type=def.path("type").asText();
+        if(Set.of("trip-info","route","itinerary","expense-summary","divider").contains(type))return;
+        JsonNode raw=values.path(def.path("id").asText()),value=blockValue(raw);
         boolean filled;
-        if (Set.of("image", "gallery").contains(type)) {
-            JsonNode mediaIds = raw.isObject() ? raw.path("mediaIds") : raw;
-            filled = (mediaIds.isArray() && !mediaIds.isEmpty()) || mediaIds.canConvertToLong();
-        } else if ("rating".equals(type)) {
-            filled = value.asInt(0) > 0;
-        } else if ("checklist".equals(type)) {
-            filled = value.isArray() && !value.isEmpty();
-        } else {
-            filled = value.isTextual() && StringUtils.hasText(value.asText());
-        }
-        if (!filled) throw BusinessException.badRequest("请填写模板区块：“" + block.path("title").asText("未命名区块") + "”");
+        if(Set.of("image","gallery").contains(type)){
+            JsonNode ids=raw.isObject()?raw.path("mediaIds"):raw;
+            filled=(ids.isArray()&&!ids.isEmpty())||ids.canConvertToLong();
+        }else if("rating".equals(type))filled=value.asInt(value.path("value").asInt())>0;
+        else if("checklist".equals(type))filled=value.isArray()&&!value.isEmpty();
+        else filled=value.isTextual()&&StringUtils.hasText(value.asText());
+        if(!filled)throw BusinessException.badRequest("请填写模板区块：“"+def.path("title").asText("未命名区块")+"”");
     }
-
-    private void addIfText(List<String> values, JsonNode node) {
-        if (node.isTextual() && StringUtils.hasText(node.asText())) values.add(node.asText().trim());
-    }
-
-    /** 转义 HTML 特殊字符。模板生成的 figure 标签会直接进正文，用户填的内容必须先转义。 */
-    private String escapeHtml(String value) {
-        return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    private void putText(ObjectNode target,String field,JsonNode value){
+        if(value.isTextual()&&StringUtils.hasText(value.asText()))target.put(field,value.asText().trim());
     }
 }

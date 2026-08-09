@@ -1,6 +1,7 @@
 package com.thx.traveljournal.journal.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
@@ -16,6 +17,7 @@ import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
 import com.thx.traveljournal.trip.mapper.TripStopMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,47 +25,40 @@ import org.springframework.util.StringUtils;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Set;
 
 /**
- * 日记服务，负责日记的增删改查、发布撤回，以及正文和模板数据的校验。
- *
- * <p>正文里的图片必须是站内已上传的媒体地址（{@code /api/media/{id}/display}），
- * 外链图片一律拒绝，防止前台展示时把请求打到第三方站点。</p>
+ * 日记服务，负责日记的增删改查、发布撤回，以及 Block 文档和媒体归属校验。
  */
 @Service
 public class JournalService {
-    /** 匹配 Markdown 图片语法 {@code ![说明](地址)}，捕获组 1 是图片地址。 */
-    private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
-            "!\\[[^\\]]*]\\(([^\\s)]+)(?:\\s+\"[^\"]*\")?\\)");
-    /** 匹配正文里的 {@code <img>} 标签，捕获组 1 是 src 地址。 */
-    private static final Pattern HTML_IMAGE = Pattern.compile(
-            "<img\\s+[^>]*src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>", Pattern.CASE_INSENSITIVE);
     private final JournalMapper mapper;
     private final TripMapper tripMapper;
     private final TripStopMapper stopMapper;
     private final JournalMediaMapper journalMediaMapper;
     private final JournalTemplateMapper templateMapper;
+    private final JournalDocumentService documentService;
     /** 删除日记时用来级联清理图片；单元测试用简化构造器时为 null，此时跳过图片清理。 */
     private final MediaService mediaService;
 
     @Autowired
     public JournalService(JournalMapper mapper, TripMapper tripMapper, TripStopMapper stopMapper,
                           JournalMediaMapper journalMediaMapper, JournalTemplateMapper templateMapper,
-                          MediaService mediaService) {
+                          MediaService mediaService, JournalDocumentService documentService) {
         this.mapper = mapper;
         this.tripMapper = tripMapper;
         this.stopMapper = stopMapper;
         this.journalMediaMapper = journalMediaMapper;
         this.templateMapper = templateMapper;
         this.mediaService = mediaService;
+        this.documentService = documentService;
     }
 
     /** 单元测试用的简化构造器，不涉及模板和图片存储。 */
     public JournalService(JournalMapper mapper, TripMapper tripMapper, TripStopMapper stopMapper,
                           JournalMediaMapper journalMediaMapper) {
-        this(mapper, tripMapper, stopMapper, journalMediaMapper, null, null);
+        this(mapper, tripMapper, stopMapper, journalMediaMapper, null, null,
+                new JournalDocumentService(new ObjectMapper()));
     }
 
     /**
@@ -95,7 +90,6 @@ public class JournalService {
     public JournalEntry create(JournalEntry entry) {
         entry.setStatus("DRAFT");
         entry.setPublishedAt(null);
-        if (entry.getTemplateDetached() == null) entry.setTemplateDetached(false);
         validate(entry, false);
         mapper.insert(entry);
         return entry;
@@ -156,8 +150,8 @@ public class JournalService {
 
     /** 统计日记下的图片张数，供前端在删除确认弹窗里提示「将同时删除 N 张图片」。 */
     public long mediaCount(Long id) {
-        return journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, id));
+        return journalMediaMapper.selectCount(new QueryWrapper<JournalMedia>()
+                .eq("journal_entry_id", id));
     }
 
     /**
@@ -173,55 +167,36 @@ public class JournalService {
             TripStop stop = stopMapper.selectById(entry.getTripStopId());
             if (stop == null || !entry.getTripId().equals(stop.getTripId())) throw BusinessException.badRequest("城市不属于当前旅行");
         }
-        if (publishing && !StringUtils.hasText(entry.getContentMarkdown())) {
-            throw BusinessException.badRequest("发布前必须填写日记正文");
-        }
-        validateMarkdownImages(entry.getContentMarkdown());
+        entry.setContentJson(documentService.validate(entry.getContentJson(), publishing));
+        validateDocumentMedia(entry);
         validateTemplate(entry);
         if (entry.getCoverMediaId() != null) {
-            long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                    .eq(JournalMedia::getJournalEntryId, entry.getId())
-                    .eq(JournalMedia::getMediaAssetId, entry.getCoverMediaId()));
+            long count = journalMediaMapper.selectCount(new QueryWrapper<JournalMedia>()
+                    .eq("journal_entry_id", entry.getId())
+                    .eq("media_asset_id", entry.getCoverMediaId()));
             if (entry.getId() != null && count == 0) throw BusinessException.badRequest("封面图片不属于当前日记");
         }
     }
 
-    /** 校验正文里的图片全部来自站内已上传媒体，Markdown 语法和 img 标签两种写法都要查。 */
-    private void validateMarkdownImages(String markdown) {
-        if (!StringUtils.hasText(markdown)) return;
-        validateImageMatches(MARKDOWN_IMAGE.matcher(markdown));
-        validateImageMatches(HTML_IMAGE.matcher(markdown));
+    /** Block 只保存媒体 id；这里保证它们确实属于当前日记。 */
+    private void validateDocumentMedia(JournalEntry entry) {
+        Set<Long> mediaIds = documentService.mediaIds(entry.getContentJson());
+        if (mediaIds.isEmpty()) return;
+        if (entry.getId() == null) throw BusinessException.badRequest("请先保存草稿，再插入图片");
+        long count = journalMediaMapper.selectCount(new QueryWrapper<JournalMedia>()
+                .eq("journal_entry_id", entry.getId())
+                .in("media_asset_id", mediaIds));
+        if (count != mediaIds.size()) throw BusinessException.badRequest("正文包含不属于当前日记的图片");
     }
 
-    private void validateImageMatches(Matcher matcher) {
-        while (matcher.find()) {
-            String url = matcher.group(1);
-            if (!url.matches("/api/media/\\d+/(display|thumbnail)")) {
-                throw BusinessException.badRequest("日记图片必须使用已上传媒体的站内地址");
-            }
-        }
-    }
-
-    /**
-     * 校验模板相关字段。没有选模板时把模板版本、填写数据和快照一起清空，避免残留脏数据；
-     * 选了模板则补齐版本号和定义快照，保证模板日后被改动也不影响已写好的日记。
-     */
+    /** 模板只记录正文最初来自哪个蓝图；实例化以后 Block 文档独立编辑。 */
     private void validateTemplate(JournalEntry entry) {
         if (entry.getTemplateId() == null) {
             entry.setTemplateVersion(null);
-            entry.setTemplateData(null);
-            entry.setTemplateSnapshot(null);
-            entry.setTemplateDetached(false);
             return;
         }
         JournalTemplate template = templateMapper == null ? null : templateMapper.selectById(entry.getTemplateId());
         if (template == null) throw BusinessException.badRequest("日记模板不存在");
         if (entry.getTemplateVersion() == null) entry.setTemplateVersion(template.getVersion());
-        if (entry.getTemplateSnapshot() == null) entry.setTemplateSnapshot(template.getDefinitionJson().deepCopy());
-        if (entry.getTemplateData() != null && !entry.getTemplateData().isObject())
-            throw BusinessException.badRequest("模板填写数据格式不正确");
-        if (entry.getTemplateSnapshot() != null && !entry.getTemplateSnapshot().isObject())
-            throw BusinessException.badRequest("模板快照格式不正确");
-        if (entry.getTemplateDetached() == null) entry.setTemplateDetached(false);
     }
 }

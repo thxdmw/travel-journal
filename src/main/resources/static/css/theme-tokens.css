@@ -43,7 +43,7 @@
 [data-scheme="dark"] .map-box .leaflet-control-zoom a { background: var(--tj-surface) !important; color: var(--tj-text); }
 [data-scheme="dark"] .hero-photo::after { background: linear-gradient(90deg, color-mix(in srgb, var(--tj-bg) 45%, transparent), transparent 32%); }
 /* 暗色下把图片稍微压暗，避免整页发闷时图片刺眼 */
-[data-scheme="dark"] .markdown-body img,
+[data-scheme="dark"] .journal-document img,
 [data-scheme="dark"] .card-photo { filter: brightness(.92); }
 
 /* ================================================================ 页面背景 */
@@ -189,17 +189,17 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 .card-body h3,
 .page-title h1,
 .hero h1,
-.markdown-body h2,
-.markdown-body h3 { font-weight: var(--tj-typography-heading-weight); }
-.markdown-body p { margin-bottom: var(--tj-typography-paragraph-spacing); }
+.journal-document h2,
+.journal-document h3 { font-weight: var(--tj-typography-heading-weight); }
+.journal-document p { margin-bottom: var(--tj-typography-paragraph-spacing); }
 
 [data-typography-heading-style="underline"] .section-title,
-[data-typography-heading-style="underline"] .markdown-body h2 {
+[data-typography-heading-style="underline"] .journal-document h2 {
   padding-bottom: .3em;
   border-bottom: 2px solid var(--tj-accent);
 }
 [data-typography-heading-style="underline"] .section-title::before { display: none; }
-[data-typography-heading-style="bar"] .markdown-body h2 {
+[data-typography-heading-style="bar"] .journal-document h2 {
   padding-left: .6em;
   border-left: 4px solid var(--tj-accent);
 }
@@ -277,8 +277,8 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 /* 日记正文的宽度策略 */
 [data-layout-journal-layout="wide"] .article { width: min(var(--tj-content-width, 1200px), calc(100% - 40px)); }
 [data-layout-journal-layout="immersive"] .article-head { min-height: 62vh; display: flex; flex-direction: column; justify-content: flex-end; }
-[data-layout-journal-layout="immersive"] .markdown-body { width:min(var(--tj-journal-reading-width,860px),100%); margin:0 auto; }
-[data-layout-journal-layout="scrapbook"] .markdown-body { font-family: var(--tj-serif); }
+[data-layout-journal-layout="immersive"] .journal-document { width:min(var(--tj-article-width,760px),100%); margin:0 auto; }
+[data-layout-journal-layout="scrapbook"] .journal-document { font-family: var(--tj-serif); }
 [data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(odd) { transform: rotate(-1.1deg); }
 [data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(even) { transform: rotate(.9deg); }
 
@@ -286,7 +286,7 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 /* 关键约定：只在 figure 自己没写对应修饰类时才生效。
    逐张选过的版式永远优先，主题只负责「没选过的那些」。
    这也是「图片过大导致排版失控」的正解——给一个合理的全局默认高度上限。 */
-.markdown-body { --figure-max-h: min(var(--tj-image-max-height, 75vh), 100%); }
+.journal-document { --figure-max-h: min(var(--tj-image-max-height, 75vh), 100%); }
 
 [data-image-width="small"]  .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 42%; }
 [data-image-width="medium"] .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 68%; }

@@ -408,8 +408,8 @@
       const article = ref(null);
       const lightbox = ref(null);
       const progress = ref(0);
-      const html = computed(() => data.value ? DOMPurify.sanitize(marked.parse(data.value.contentMarkdown || '', { breaks: true })) : '');
-      const readingMinutes = computed(() => Math.max(1,Math.ceil(String(data.value?.contentMarkdown||'').replace(/<[^>]+>|[#>*_`\[\]()-]/g,'').replace(/\s/g,'').length/500)));
+      const html = computed(() => data.value ? window.JournalBlocks.render(data.value.contentJson, data.value.media) : '');
+      const readingMinutes = computed(() => Math.max(1,Math.ceil(window.JournalBlocks.wordCount(data.value?.contentJson)/500)));
       const current = computed(() => lightbox.value ? lightbox.value.items[lightbox.value.index] : null);
       // 灯箱统一按「一组」打开：正文里的多图块是一组，零散单图整篇算一组，
       // 正文后的图片库整体算一组，这样左右键都能翻。
@@ -459,7 +459,7 @@
         <div v-if="preview" class="preview-banner">草稿预览 · 这篇日记尚未发布，链接会过期</div>
         <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div>
           <div class="reading-scale"><button type="button" aria-label="减小正文字号" :disabled="scaleIndex===0" @click="stepScale(-1)">A−</button><span>{{scaleLabel}}</span><button type="button" aria-label="增大正文字号" :disabled="scaleIndex===scaleMax" @click="stepScale(1)">A+</button></div></header>
-        <article ref="article" class="markdown-body" v-html="html" @click="openArticleImage"></article>
+        <article ref="article" class="journal-document" v-html="html" @click="openArticleImage"></article>
         <nav class="article-nav"><router-link v-if="data.previousSlug" :to="'/journals/'+data.previousSlug">← 上一篇</router-link><span v-else></span><router-link v-if="data.nextSlug" :to="'/journals/'+data.nextSlug">下一篇 →</router-link></nav>
         <teleport to="body"><div v-if="lightbox" class="photo-lightbox" role="dialog" aria-modal="true" @click.self="lightbox=null">
           <button type="button" class="lightbox-close" aria-label="关闭大图" @click="lightbox=null">×</button>

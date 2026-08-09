@@ -3,17 +3,17 @@
  *
  * 之所以单独成文件：这套样式原本在 public.css 和 admin.css 里各抄了一份，
  * 改一处忘另一处就会出现「预览和线上不一样」。后台的实时预览元素本身带
- * .preview.markdown-body，版式面板的预览台在 .figure-stage__page 上带 .markdown-body，
- * 所以只要都挂上 .markdown-body，一份规则就能服务三个地方。
+ * .preview.journal-document，版式面板的预览台在 .figure-stage__page 上带 .journal-document，
+ * 所以只要都挂上 .journal-document，一份规则就能服务三个地方。
  *
  * 上下文差异走 CSS 变量，不要再复制选择器。
  */
-/* 注意别在这里声明 --body-size：本文件在 public.css 之后加载，同为 .markdown-body
+/* 注意别在这里声明 --body-size：本文件在 public.css 之后加载，同为 .journal-document
    单类选择器会盖掉前台设的 17px。默认值写在下面 font 的 var() 兜底里。 */
-.markdown-body { --figure-max-h: min(720px, 75vh); --figure-cursor: zoom-in; --figure-gap: 10px; }
-/* 预览台的 .markdown-body 在内层的 __page 上，所以这里用后代选择器而不是同元素 */
-.preview.markdown-body,
-.figure-stage .markdown-body { --figure-max-h: min(560px, 60vh); --figure-cursor: pointer; }
+.journal-document { --figure-max-h: min(720px, 75vh); --figure-cursor: zoom-in; --figure-gap: 10px; }
+/* 预览台的 .journal-document 在内层的 __page 上，所以这里用后代选择器而不是同元素 */
+.preview.journal-document,
+.figure-stage .journal-document { --figure-max-h: min(560px, 60vh); --figure-cursor: pointer; }
 
 /*
  * 正文排版。这一段必须在公开端和后台预览之间共用，否则就会出现
@@ -33,29 +33,29 @@
  * 同样注意 font 简写会把 line-height 一起写死，外部再单独写 line-height
  * 会被本文件覆盖（本文件在 public.css 之后加载）。
  */
-.markdown-body { font:var(--body-size,15px)/var(--body-leading,var(--tj-body-line-height,1.75)) var(--tj-serif); color:#343633; }
-.markdown-body p { margin:.68em 0; }
-.markdown-body h2 { margin:1.35em 0 .5em; color:var(--tj-primary); line-height:1.4; }
-.markdown-body h3 { margin:1.08em 0 .42em; color:var(--tj-primary); line-height:1.45; }
-.markdown-body blockquote { margin:.9em 0; padding:12px 18px; border-left:3px solid var(--tj-accent); background:var(--tj-surface-soft); color:#65625c; }
-.markdown-body blockquote > :first-child { margin-top:0; }
-.markdown-body blockquote > :last-child { margin-bottom:0; }
-.markdown-body ul,
-.markdown-body ol { margin:.72em 0; padding-left:1.55em; }
-.markdown-body li + li { margin-top:.18em; }
-.markdown-body code { padding:2px 5px; border-radius:4px; background:var(--tj-surface-soft); font-size:.9em; }
-.markdown-body pre { padding:14px 16px; overflow-x:auto; border-radius:8px; background:var(--tj-surface-soft); }
-.markdown-body pre code { padding:0; background:none; }
-.markdown-body table { width:100%; margin:1.15em 0; border-collapse:collapse; font-size:.94em; }
-.markdown-body th,
-.markdown-body td { padding:8px 12px; border:1px solid var(--tj-border); text-align:left; }
-.markdown-body th { background:var(--tj-surface-soft); color:var(--tj-primary); }
-.markdown-body hr { margin:1.8em 0; border:0; border-top:1px solid var(--tj-border); }
+.journal-document { font:var(--body-size,15px)/var(--body-leading,var(--tj-body-line-height,1.75)) var(--tj-serif); color:#343633; }
+.journal-document p { margin:.68em 0; }
+.journal-document h2 { margin:1.35em 0 .5em; color:var(--tj-primary); line-height:1.4; }
+.journal-document h3 { margin:1.08em 0 .42em; color:var(--tj-primary); line-height:1.45; }
+.journal-document blockquote { margin:.9em 0; padding:12px 18px; border-left:3px solid var(--tj-accent); background:var(--tj-surface-soft); color:#65625c; }
+.journal-document blockquote > :first-child { margin-top:0; }
+.journal-document blockquote > :last-child { margin-bottom:0; }
+.journal-document ul,
+.journal-document ol { margin:.72em 0; padding-left:1.55em; }
+.journal-document li + li { margin-top:.18em; }
+.journal-document code { padding:2px 5px; border-radius:4px; background:var(--tj-surface-soft); font-size:.9em; }
+.journal-document pre { padding:14px 16px; overflow-x:auto; border-radius:8px; background:var(--tj-surface-soft); }
+.journal-document pre code { padding:0; background:none; }
+.journal-document table { width:100%; margin:1.15em 0; border-collapse:collapse; font-size:.94em; }
+.journal-document th,
+.journal-document td { padding:8px 12px; border:1px solid var(--tj-border); text-align:left; }
+.journal-document th { background:var(--tj-surface-soft); color:var(--tj-primary); }
+.journal-document hr { margin:1.8em 0; border:0; border-top:1px solid var(--tj-border); }
 
 /* 浮动环绕的图片要在正文结束前收住，否则后面的段落会顶上来。 */
-.markdown-body::after { content:""; display:block; clear:both; }
+.journal-document::after { content:""; display:block; clear:both; }
 
-.markdown-body img {
+.journal-document img {
   display:block;
   box-sizing:border-box;
   max-width:100%;
@@ -65,7 +65,7 @@
   cursor:var(--figure-cursor,zoom-in);
 }
 /* 裸 Markdown 图片语法 ![](…) 生成的图 */
-.markdown-body > img { width:auto; max-width:min(100%,680px); max-height:var(--figure-max-h); margin:1.4em auto; }
+.journal-document > img { width:auto; max-width:min(100%,680px); max-height:var(--figure-max-h); margin:1.4em auto; }
 
 /* ================================================================ 单图 */
 
@@ -267,9 +267,12 @@
 .journal-gallery { width:var(--figure-width,68%); margin:30px auto; clear:both; --gallery-cols:3; }
 .journal-gallery img { display:block; box-sizing:border-box; width:100%; height:auto; margin:0; border-radius:var(--tj-image-radius,8px); box-shadow:var(--tj-shadow-soft); cursor:var(--figure-cursor,zoom-in); }
 .journal-gallery figcaption { margin-top:10px; color:var(--tj-muted); text-align:center; font:13px/1.6 var(--tj-sans); }
+.journal-gallery--cols-1 { --gallery-cols:1; }
 .journal-gallery--cols-2 { --gallery-cols:2; }
 .journal-gallery--cols-3 { --gallery-cols:3; }
 .journal-gallery--cols-4 { --gallery-cols:4; }
+.journal-gallery--cols-5 { --gallery-cols:5; }
+.journal-gallery--cols-6 { --gallery-cols:6; }
 
 /*
  * 会裁剪的布局统一写 aspect-ratio:var(--gallery-ratio, 本布局默认值)：
@@ -360,7 +363,7 @@
 .journal-carousel__track.is-dragging { cursor:grabbing; scroll-snap-type:none; scroll-behavior:auto; }
 .journal-carousel__track.is-dragging img { pointer-events:none; }
 .journal-carousel__track img { flex:0 0 88%; scroll-snap-align:center; aspect-ratio:var(--gallery-ratio,3/2); object-fit:cover; }
-.journal-carousel--strip .journal-carousel__track { scroll-snap-type:x proximity; }
+.journal-carousel--strip .journal-carousel__track { scroll-snap-type:none; scroll-behavior:auto; }
 /* 胶片条按高度排，保持原始比例，所以显式清掉 aspect-ratio */
 .journal-carousel--strip .journal-carousel__track img { flex:0 0 auto; width:auto; height:220px; aspect-ratio:auto; scroll-snap-align:start; }
 .journal-carousel__nav {
@@ -417,8 +420,8 @@
 [data-image-style="paper"] .journal-gallery:not([class*="--frame-"]) img { padding:7px; border:1px solid var(--tj-border); background:var(--tj-surface); }
 [data-image-style="rounded"] .journal-figure:not([class*="--radius-"]) img,
 [data-image-style="rounded"] .journal-gallery:not([class*="--radius-"]) img { border-radius:calc(var(--tj-image-radius,8px) + 5px); }
-[data-image-shadow="none"] .markdown-body :not([class*="--frame-"]) > img { box-shadow:none; }
-[data-image-shadow="floating"] .markdown-body :not([class*="--frame-"]) > img { box-shadow:var(--tj-shadow); }
+[data-image-shadow="none"] .journal-document :not([class*="--frame-"]) > img { box-shadow:none; }
+[data-image-shadow="floating"] .journal-document :not([class*="--frame-"]) > img { box-shadow:var(--tj-shadow); }
 .journal-figure--caption-overlay figcaption { border-radius:0 0 var(--tj-image-radius,8px) var(--tj-image-radius,8px); }
 
 /* ================================================================ 窄屏 */
@@ -432,13 +435,13 @@
   .journal-figure--caption-side { grid-template-columns:1fr; gap:10px; }
   .journal-figure--caption-side figcaption { text-align:center; }
   .journal-figure img { max-height:70vh; }
-  .markdown-body p { margin:.58em 0; }
-  .markdown-body h2 { margin:1.15em 0 .4em; }
-  .markdown-body h3 { margin:.92em 0 .34em; }
-  .markdown-body blockquote { margin:.72em 0; padding:10px 14px; }
-  .markdown-body ul,
-  .markdown-body ol { margin:.6em 0; }
-  .markdown-body hr { margin:1.45em 0; }
+  .journal-document p { margin:.58em 0; }
+  .journal-document h2 { margin:1.15em 0 .4em; }
+  .journal-document h3 { margin:.92em 0 .34em; }
+  .journal-document blockquote { margin:.72em 0; padding:10px 14px; }
+  .journal-document ul,
+  .journal-document ol { margin:.6em 0; }
+  .journal-document hr { margin:1.45em 0; }
   /*
    * 多图排版在窄屏「不换结构，只缩尺寸」。
    *

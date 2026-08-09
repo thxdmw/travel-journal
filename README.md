@@ -7,19 +7,21 @@
 - 单管理员登录、退出、修改密码和昵称
 - 旅行、城市停靠点、行程管理
 - 分类预算、实际支出和超支汇总
-- Markdown 旅行日记、草稿、发布、撤回和区块化日记模板
-- 日记模板用示例数据预览成稿效果，搭建模板时实时可见，每种区块带说明并可选数据取值范围
-- 编辑与预览可锁定同步滚动，工具栏覆盖标题、强调、列表、链接、代码和表格
+- 结构化旅行日记、草稿、发布、更新发布、撤回和区块化日记模板
+- 以 Blocks JSON 作为正文唯一数据源，不保存 Markdown、任意 HTML 或第二套预览文本
+- 26 种可视化内容块，覆盖正文、提示、信息清单、表格、同行者、地点、美食、住宿、交通、天气、图片组和明信片等旅行场景
+- 日记模板生成可继续独立编辑的内容块；模板版本用于标识来源，后续修改模板不会覆盖已写正文
 - 后台侧边栏可折叠为图标条
-- JPEG、PNG、WebP 图片上传、缩略图、正文插图、图片库拖拽排序和图注
-- 所见即所得的图片版式面板：尺寸、对齐、文字环绕、通栏出血、裁剪比例与焦点、画框、圆角、色调、交互动效、图注位置，插入后点预览即可重新编辑
+- JPEG、PNG、WebP 图片选择、拖放或粘贴上传，支持缩略图预览、多选插入、图注、封面、批量删除和拖拽排序
+- 图片设置采用正文画布预览，按“内容、版式、外观、图注”分组；只展示当前排版真正生效的设置
+- 图片尺寸支持小图、中等、大图、正文宽度与通栏出血，并在预览中用文字栏参照展示实际占位
 - 九种画框：无框、细描边、相纸白边、浮起阴影、宝丽来、手账胶带、胶片边框、旅行明信片，全部纯 CSS 绘制不依赖图片素材
 - 暖色、复古、黑白三档色调，以及悬停浮起、缓慢放大、轻微倾斜三种动效，减少动态效果时自动关闭
-- 并排、网格、瀑布流、拼贴、杂志、故事流、错落画廊、轮播、胶片条和前后对比十种多图展示模式，灯箱支持同组翻页
+- 并排、网格、瀑布流、拼贴、杂志、故事流、错落画廊、轮播、胶片条和前后对比十种多图展示模式，灯箱支持同组翻页；胶片条支持触控、鼠标拖动和滚轮浏览
 - 图片全部由作者安排在正文里，公开端不再在文末自动重复一遍图片墙
 - 地点搜索、地图选点、逆地理编码、旅行路线和可筛选城市足迹地图
 - 公开首页、旅行列表和日记详情
-- 桌面端和手机端响应式布局
+- 桌面端和手机端响应式布局；移动端图片设置固定预览并使用 Tab 切换，兼容安全区、动态浏览器底栏和软键盘可视视口
 - 远行手记与三亚海风预设、可视化主题 DIY，以及全站/旅行/日记三级主题覆盖
 
 ## 技术栈
@@ -28,7 +30,7 @@
 - Spring Security Session、BCrypt、CSRF
 - MyBatis-Plus、PostgreSQL、Flyway
 - MinIO Java SDK、Thumbnailator、Apache Tika
-- Vue 3、Vue Router、Element Plus、Axios、Leaflet、marked、DOMPurify 浏览器版
+- Vue 3、Vue Router、Element Plus、Axios、Leaflet 浏览器版
 - Maven、Docker 多阶段构建
 
 PostgreSQL 和 MinIO 由使用者自行管理，本项目不创建或托管这两个服务。
@@ -99,16 +101,27 @@ mvn spring-boot:run
 - 健康检查：http://localhost:8080/actuator/health
 - OpenAPI：http://localhost:8080/swagger-ui.html
 
-## 图片与 Markdown
+## 区块日记与图片
 
-新日记需要先保存为草稿再上传图片。插入时可以选择小、中、大、通栏以及左、中、右对齐，编辑器会写入受控的站内 HTML：
+新日记需要先保存为草稿再上传图片。正文保存在 `journal_entry.content_json`，协议由 `schemaVersion` 和 `blocks` 组成：
 
-~~~markdown
-<figure class="journal-figure journal-figure--medium journal-figure--center">
-  <img src="/api/media/123/display" alt="海边落日" loading="lazy">
-  <figcaption>海边落日</figcaption>
-</figure>
+~~~json
+{
+  "schemaVersion": 1,
+  "blocks": [
+    {
+      "id": "block_example_01",
+      "type": "image",
+      "version": 1,
+      "title": "今日照片",
+      "data": { "mediaId": 123, "caption": "海边落日" },
+      "settings": { "size": "medium", "align": "center", "frame": "paper" }
+    }
+  ]
+}
 ~~~
+
+前端编辑、模板生成、后端校验、公开渲染和备份都读写同一份 JSON。后端拒绝未知区块、重复标识、非法图片设置及不属于当前日记的媒体编号。
 
 正文不保存 MinIO 对象键或临时预签名地址。媒体接口会检查日记是否公开：
 
@@ -123,7 +136,7 @@ mvn spring-boot:run
 
 后台“日记模板”内置城市一日游、多日旅行总结、美食探店、景点打卡、图片日记和旅途随笔。系统模板可复制为个人模板，再自由添加、复制、删除和排序区块。
 
-模板生成时会读取当前旅行的城市路线、当天行程、支出和已上传图片。生成结果仍是 Markdown/受控 HTML，可以继续自由编辑；日记会保存模板版本、填写数据和模板快照，后续修改模板不会破坏历史日记。
+模板生成时会读取当前旅行的城市路线、当天行程、支出和已上传图片。生成结果是普通 Blocks JSON，可以继续自由编辑；日记仅保存模板编号和生成时版本，不保留第二套模板运行态正文。
 
 ## 主题设计
 
@@ -147,6 +160,11 @@ mvn spring-boot:run
 - src/main/resources/static/admin/index.html：管理端
 - src/main/resources/static/js/public-app.js：公开页面
 - src/main/resources/static/js/admin-app.js：管理后台
+- src/main/resources/static/js/common/journal-blocks.js：区块协议、默认值和统一渲染器
+- src/main/resources/static/js/common/journal-block-editor.js：可视化区块编辑组件
+- src/main/resources/static/js/common/journal-media.js：轮播、胶片条、对比和图片灯箱行为
+- src/main/resources/static/css/journal-blocks.css：区块公开样式
+- src/main/resources/static/css/journal-media.css：后台与公开端共用的图片版式
 - src/main/resources/static/css/themes/travel-classic.css：默认主题变量
 
 前端依赖使用锁定版本的 CDN 地址。主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
@@ -235,6 +253,7 @@ mc mirror minio/travel-journal /backup/travel-journal
 - 旅行日期校验
 - 预算汇总和超支判断
 - 日记草稿与发布校验
+- Blocks JSON 协议、扩展区块与图片外观设置校验
 - 主题 Token 白名单与危险颜色值校验
 - 图片上传处理
 - 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行）
@@ -244,6 +263,9 @@ mc mirror minio/travel-journal /backup/travel-journal
 ~~~bash
 node --check src/main/resources/static/js/common/api.js
 node --check src/main/resources/static/js/common/theme.js
+node --check src/main/resources/static/js/common/journal-blocks.js
+node --check src/main/resources/static/js/common/journal-block-editor.js
+node --check src/main/resources/static/js/common/journal-media.js
 node --check src/main/resources/static/js/public-app.js
 node --check src/main/resources/static/js/admin-app.js
 ~~~
@@ -266,4 +288,4 @@ src/main/java/com/thx/traveljournal/
 └── trip
 ~~~
 
-完整需求、接口和视觉规范见 travel-journal-development-spec.md。
+日记区块协议、图片设置语义和扩展约定见 [docs/journal-editor.md](docs/journal-editor.md)。

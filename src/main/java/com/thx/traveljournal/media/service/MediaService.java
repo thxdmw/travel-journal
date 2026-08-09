@@ -10,6 +10,7 @@ import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.config.AppProperties;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
+import com.thx.traveljournal.journal.service.JournalDocumentService;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.entity.MediaAsset;
 import com.thx.traveljournal.media.mapper.JournalMediaMapper;
@@ -18,7 +19,6 @@ import com.thx.traveljournal.media.mapper.MediaVisibilityMapper;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.mapper.TripMapper;
 import io.minio.*;
-import io.minio.Http;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
@@ -32,22 +32,17 @@ import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Map;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.HexFormat;
-import java.util.TimeZone;
 import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -71,6 +66,7 @@ public class MediaService {
     private final JournalMediaMapper journalMediaMapper;
     private final MediaVisibilityMapper visibilityMapper;
     private final JournalMapper journalMapper;
+    private final JournalDocumentService documentService;
     private final TripMapper tripMapper;
     private final com.thx.traveljournal.trip.mapper.TripStopMapper tripStopMapper;
     private final MinioClient minioClient;
@@ -253,8 +249,7 @@ public class MediaService {
         JournalMedia relation = requireRelation(relationId);
         MediaAsset asset = requireAsset(relation.getMediaAssetId());
         JournalEntry journal = requireJournal(relation.getJournalEntryId());
-        String marker = "/api/media/" + asset.getId() + "/";
-        if (journal.getContentMarkdown() != null && journal.getContentMarkdown().contains(marker)) {
+        if (documentService.mediaIds(journal.getContentJson()).contains(asset.getId())) {
             throw BusinessException.conflict("正文仍引用该图片，请先从正文移除");
         }
         journalMediaMapper.deleteById(relationId);

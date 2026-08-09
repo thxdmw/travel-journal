@@ -31,8 +31,9 @@ public class JournalEntry extends BaseEntity {
     private String slug;
     /** 摘要，展示在列表卡片上 */
     private String excerpt;
-    /** Markdown 正文；其中的图片只允许使用站内地址 /api/media/{id}/display */
-    private String contentMarkdown;
+    /** 结构化日记正文，格式为 schemaVersion + blocks；这是正文的唯一数据源 */
+    @TableField(typeHandler = JsonNodeTypeHandler.class)
+    private JsonNode contentJson;
     /** 状态：DRAFT 草稿、PUBLISHED 已发布；只有已发布的日记及其图片对访客可见 */
     private String status;
     /** 日记记录的事情发生的日期，不是写作日期 */
@@ -50,14 +51,6 @@ public class JournalEntry extends BaseEntity {
     /** 生成时的模板版本号，用于识别模板后续是否有改动 */
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer templateVersion;
-    /** 模板各区块的填写数据，JSON 对象 */
-    @TableField(typeHandler = JsonNodeTypeHandler.class, updateStrategy = FieldStrategy.ALWAYS)
-    private JsonNode templateData;
-    /** 生成时的模板定义快照，保证模板日后被改动也不影响已写好的日记 */
-    @TableField(typeHandler = JsonNodeTypeHandler.class, updateStrategy = FieldStrategy.ALWAYS)
-    private JsonNode templateSnapshot;
-    /** 正文是否已脱离模板自由编辑，为真时不再被模板重新生成覆盖 */
-    private Boolean templateDetached;
 
     /**
      * 标签名列表。存在关联表里，不是本表字段，所以标注 exist=false 让 MyBatis-Plus 跳过。

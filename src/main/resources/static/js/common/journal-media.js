@@ -1,14 +1,6 @@
 /*
- * 日记正文里图片块的运行时行为，公开端和后台实时预览共用。
- *
- * 正文是 Markdown + 受控 HTML，经 marked + DOMPurify 之后由 v-html 塞进页面，
- * 所以事件不能写在正文里，只能在渲染完成后扫一遍 DOM 补上。
- *
- * 约定：
- *   - row / grid / masonry / mosaic 纯 CSS，这里不管。
- *   - carousel / filmstrip / compare 需要额外结构，由 enhance() 重排出来。
- *     重排前它们就是普通的竖向堆叠图片，不会坏页面。
- *   - 重排只动运行时 DOM，正文字符串不受影响；teardown() 能原样还原。
+ * Block 图片组件的运行时增强，公开端和后台实时预览共用。
+ * 常规排版使用 CSS；轮播、胶片条和对比组件在渲染后补充交互结构。
  */
 (() => {
   'use strict';
@@ -50,18 +42,15 @@
     track.append(...images);
     shell.append(track);
 
-    /*
-     * 箭头两种模式都要有。桌面端鼠标滚轮只滚纵向，横向轨道的滚动条又被
-     * scrollbar-width:none 藏掉了，没有箭头就等于完全滚不动——
-     * 胶片条以前就漏了这一组按钮，PC 上只能看到第一屏。
-     * 圆点只有轮播才给：胶片条是连续浏览，不是一张一页。
-     */
-    const prev = navButton('prev', strip ? '向左查看' : '上一张');
-    const next = navButton('next', strip ? '向右查看' : '下一张');
-    shell.append(prev, next);
-    // 胶片条每张宽度不一，按可视宽度翻更自然；轮播仍然按整张对齐
-    prev.addEventListener('click', () => strip ? nudge(track, -1) : step(track, -1));
-    next.addEventListener('click', () => strip ? nudge(track, 1) : step(track, 1));
+    /* 轮播保留翻页按钮和圆点；胶片条依靠触控、鼠标拖动和滚轮连续浏览。 */
+    let prev = null, next = null;
+    if (!strip) {
+      prev = navButton('prev', '上一张');
+      next = navButton('next', '下一张');
+      shell.append(prev, next);
+      prev.addEventListener('click', () => step(track, -1));
+      next.addEventListener('click', () => step(track, 1));
+    }
 
     let dots = null;
     if (!strip) {
@@ -83,8 +72,10 @@
     function sync() {
       const index = currentIndex(track);
       if (dots) Array.from(dots.children).forEach((dot, i) => dot.setAttribute('aria-current', String(i === index)));
-      prev.disabled = track.scrollLeft <= 2;
-      next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 2;
+      if (prev && next) {
+        prev.disabled = track.scrollLeft <= 2;
+        next.disabled = track.scrollLeft >= track.scrollWidth - track.clientWidth - 2;
+      }
     }
     track.addEventListener('scroll', sync, { passive: true });
     // 图片是懒加载的，尺寸落定后箭头的可用状态才准
@@ -105,6 +96,7 @@
     function down(event) {
       if (event.pointerType !== 'mouse' || event.button !== 0) return;
       dragging = true; moved = 0;
+      track.setPointerCapture?.(event.pointerId);
       startX = event.clientX;
       startLeft = track.scrollLeft;
       track.classList.add('is-dragging');
@@ -113,13 +105,14 @@
       if (!dragging) return;
       const delta = event.clientX - startX;
       moved = Math.max(moved, Math.abs(delta));
-      track.scrollLeft = startLeft - delta;
+      track.scrollLeft = startLeft - delta * 1.12;
       if (moved > 3) event.preventDefault();
     }
-    function up() {
+    function up(event) {
       if (!dragging) return;
       dragging = false;
       track.classList.remove('is-dragging');
+      track.releasePointerCapture?.(event.pointerId);
     }
     function click(event) {
       if (moved > 5) { event.preventDefault(); event.stopPropagation(); }
@@ -127,9 +120,16 @@
     }
     track.addEventListener('pointerdown', down);
     track.addEventListener('pointermove', move);
+    function wheel(event) {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      if (track.scrollWidth <= track.clientWidth) return;
+      event.preventDefault();
+      track.scrollLeft += event.deltaY;
+    }
     track.addEventListener('pointerup', up);
     track.addEventListener('pointercancel', up);
     track.addEventListener('pointerleave', up);
+    track.addEventListener('wheel', wheel, { passive: false });
     track.addEventListener('click', click, true);
     return () => {
       track.removeEventListener('pointerdown', down);
@@ -137,16 +137,12 @@
       track.removeEventListener('pointerup', up);
       track.removeEventListener('pointercancel', up);
       track.removeEventListener('pointerleave', up);
+      track.removeEventListener('wheel', wheel);
       track.removeEventListener('click', click, true);
     };
   }
 
   /** 按可视宽度翻一屏，用于每张宽度不固定的胶片条。 */
-  function nudge(track, direction) {
-    track.scrollBy({ left: direction * track.clientWidth * 0.82,
-                     behavior: reducedMotion.matches ? 'auto' : 'smooth' });
-  }
-
   function navButton(direction, label) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -305,7 +301,7 @@
   function groupOf(image) {
     if (!(image instanceof HTMLImageElement)) return [];
     const block = image.closest('.journal-gallery');
-    const scope = block || image.closest('.markdown-body');
+    const scope = block || image.closest('.journal-document');
     if (!scope) return [image];
     return Array.from(scope.querySelectorAll('img'));
   }
@@ -320,120 +316,5 @@
    * 约定：每个轴的默认值一律不输出 class，沿用主题的 data-image-* 设置。
    * 这样改动之前写的日记一个字都不用动。
    */
-  const GALLERY_MODES = ['row', 'grid', 'masonry', 'mosaic', 'magazine', 'story', 'staggered',
-                         'carousel', 'filmstrip', 'compare'];
-  /**
-   * 保持原始比例的排布方式：这些模式下裁剪比例和焦点没有意义，
-   * 后台面板会据此隐藏那两项。和 journal-media.css 里「不设 aspect-ratio」的布局一一对应。
-   */
-  const FREE_RATIO_MODES = ['masonry', 'filmstrip', 'story', 'staggered'];
-  const AXES = [
-    { key: 'ratio', prefix: 'journal-figure--ratio-', values: ['16x9', '4x3', '1x1', '3x4'] },
-    { key: 'focus', prefix: 'journal-figure--focus-', values: ['top', 'bottom'] },
-    { key: 'frame', prefix: 'journal-figure--frame-', values: ['none', 'line', 'paper', 'float', 'polaroid', 'tape', 'film', 'postcard'] },
-    { key: 'radius', prefix: 'journal-figure--radius-', values: ['none', 'soft', 'round'] },
-    { key: 'tone', prefix: 'journal-figure--tone-', values: ['warm', 'vintage', 'mono'] },
-    { key: 'effect', prefix: 'journal-figure--effect-', values: ['lift', 'zoom', 'tilt'] },
-    { key: 'captionPos', prefix: 'journal-figure--caption-', values: ['left', 'overlay', 'side', 'none'] }
-  ];
-  const SIZES = ['small', 'medium', 'large', 'full', 'bleed'];
-  const ALIGNS = ['left', 'center', 'right'];
-
-  /** 正文里一整段图片块，用于定位和替换。没有嵌套 figure，所以非贪婪匹配就够。 */
-  const FIGURE_BLOCK = /<figure class="journal-(?:figure|gallery)[\s\S]*?<\/figure>/g;
-
-  function escapeHtml(value) {
-    return String(value == null ? '' : value)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  function unescapeHtml(value) {
-    return String(value == null ? '' : value)
-      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'").replace(/&amp;/g, '&');
-  }
-
-  /** 把版式状态拼成写进正文的受控 HTML。预览台和真正插入用的是同一个函数。 */
-  function buildFigure(state) {
-    const items = (state.items || []).filter(item => item && item.displayUrl);
-    if (!items.length) return '';
-    const multi = items.length > 1 && GALLERY_MODES.includes(state.mode);
-    const classes = [];
-    if (multi) {
-      classes.push('journal-gallery', 'journal-gallery--' + state.mode);
-      if (['grid', 'masonry'].includes(state.mode)) classes.push('journal-gallery--cols-' + (state.cols || 3));
-    } else {
-      classes.push('journal-figure');
-    }
-    if (SIZES.includes(state.size)) classes.push('journal-figure--' + state.size);
-    if (ALIGNS.includes(state.align)) classes.push('journal-figure--' + state.align);
-    // 环绕只在居左/居右且不是通栏时成立
-    if (state.wrap && ['left', 'right'].includes(state.align) && !['full', 'bleed'].includes(state.size)) {
-      classes.push('journal-figure--wrap');
-    }
-    AXES.forEach(axis => {
-      if (axis.values.includes(state[axis.key])) classes.push(axis.prefix + state[axis.key]);
-    });
-
-    const caption = String(state.caption || '').trim();
-    const body = items.map(item => {
-      const alt = escapeHtml(item.alt || caption || '旅行照片');
-      return '  <img src="' + item.displayUrl + '" alt="' + alt + '" loading="lazy">';
-    }).join('\n');
-    return '<figure class="' + classes.join(' ') + '">\n' + body + '\n'
-      + (caption ? '  <figcaption>' + escapeHtml(caption) + '</figcaption>\n' : '')
-      + '</figure>';
-  }
-
-  /**
-   * 把正文里的一段图片块读回版式状态，供「点预览里的图重新编辑」用。
-   * 只认本编辑器自己生成的格式；认不出来就返回 null，由调用方提示用户手改，
-   * 绝不猜着改，免得把手工编辑过的正文写坏。
-   */
-  function parseFigure(markup) {
-    const classMatch = /^<figure class="([^"]*)"/.exec(markup);
-    if (!classMatch) return null;
-    const classes = classMatch[1].split(/\s+/).filter(Boolean);
-    const urls = [];
-    const alts = [];
-    const imgPattern = /<img\s+src="([^"]+)"\s+alt="([^"]*)"[^>]*>/g;
-    let match;
-    while ((match = imgPattern.exec(markup))) { urls.push(match[1]); alts.push(unescapeHtml(match[2])); }
-    if (!urls.length) return null;
-
-    const captionMatch = /<figcaption>([\s\S]*?)<\/figcaption>/.exec(markup);
-    const mode = GALLERY_MODES.find(name => classes.includes('journal-gallery--' + name));
-    const state = {
-      mode: mode || 'single',
-      items: urls.map((url, index) => ({ displayUrl: url, alt: alts[index] })),
-      size: SIZES.find(name => classes.includes('journal-figure--' + name)) || 'medium',
-      align: ALIGNS.find(name => classes.includes('journal-figure--' + name)) || 'center',
-      wrap: classes.includes('journal-figure--wrap'),
-      cols: Number((classes.find(name => name.startsWith('journal-gallery--cols-')) || '').replace('journal-gallery--cols-', '')) || 3,
-      caption: captionMatch ? unescapeHtml(captionMatch[1]).trim() : ''
-    };
-    AXES.forEach(axis => {
-      state[axis.key] = axis.values.find(value => classes.includes(axis.prefix + value)) || '';
-    });
-    return state;
-  }
-
-  /** 按出现顺序列出正文里全部图片块的 [start,end) 区间，索引与预览里的块一一对应。 */
-  function figureRanges(markdown) {
-    const ranges = [];
-    const pattern = new RegExp(FIGURE_BLOCK.source, 'g');
-    let match;
-    while ((match = pattern.exec(markdown))) {
-      ranges.push({ start: match.index, end: match.index + match[0].length, markup: match[0] });
-    }
-    return ranges;
-  }
-
-  window.JournalMedia = {
-    applyResponsiveImages,
-    enhance, teardown, groupOf,
-    buildFigure, parseFigure, figureRanges,
-    GALLERY_MODES, FREE_RATIO_MODES, SIZES, ALIGNS
-  };
+  window.JournalMedia = { applyResponsiveImages, enhance, teardown, groupOf };
 })();

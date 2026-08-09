@@ -139,7 +139,7 @@ button, input, textarea { font: inherit; }
 .timeline-item p { margin:8px 0 0; color:var(--tj-muted); line-height:1.7; }
 .timeline-item small { color:var(--tj-muted); }
 
-.article { width:min(var(--tj-journal-reading-width,860px),100%); margin:auto; }
+.article { width:min(var(--tj-article-width,760px),100%); margin:auto; }
 .article-head { text-align:center; padding:22px 0 28px; }
 .article-head h1 { margin:10px 0; color:var(--tj-primary); font:700 clamp(34px,5vw,52px)/1.35 var(--tj-serif); }
 .article-excerpt { max-width:620px; margin:14px auto; color:var(--tj-muted); font:16px/1.8 var(--tj-serif); }
@@ -153,7 +153,7 @@ button, input, textarea { font: inherit; }
  * 读者可以在日记详情里上下调一档，选择存在 localStorage。
  * 手机上字号直接决定一屏能看到多少内容，这个开关比任何默认值都管用。
  */
-.markdown-body { --body-size:calc(17px * var(--reading-scale,1)); }
+.journal-document { --body-size:calc(17px * var(--reading-scale,1)); }
 .reading-scale { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:14px; }
 .reading-scale button { width:30px; height:30px; display:grid; place-items:center; padding:0; border:1px solid var(--tj-border); border-radius:8px; color:var(--tj-primary); background:var(--tj-surface); font-size:13px; line-height:1; }
 .reading-scale button:disabled { opacity:.35; }
@@ -245,7 +245,7 @@ button, input, textarea { font: inherit; }
    * 字号直接收，行高按主题值乘个系数收——不要写死具体数字，
    * 否则主题外观里的「正文行高」在手机上就永远不起作用了。
    */
-  .markdown-body {
+  .journal-document {
     --body-size:calc(15.5px * var(--reading-scale,1));
     --body-leading:clamp(1.58,calc(var(--tj-body-line-height,1.75) * 0.92),1.68);
   }
