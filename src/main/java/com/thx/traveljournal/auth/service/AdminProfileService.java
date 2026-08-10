@@ -75,15 +75,29 @@ public class AdminProfileService {
         return user;
     }
 
+    /**
+     * 切换全站主题。
+     *
+     * <p>两种意图共用这一个入口：{@code mode=AUTO} 是「跟随季节」，
+     * 其余情况是作者挑定了某一套，那就锁成 FIXED，之后春夏秋冬更替都不再动它。
+     * 切到 AUTO 时不清掉 themeKey——那是作者上次挑的那套，之后切回固定模式还用得上。</p>
+     */
     @Transactional
-    public AdminUser updateTheme(String username, String themeKey) {
+    public AdminUser updateTheme(String username, String themeKey, String mode) {
+        AdminUser user = requireByUsername(username);
+        if (ThemePresetService.MODE_AUTO.equalsIgnoreCase(mode)) {
+            user.setThemeMode(ThemePresetService.MODE_AUTO);
+            mapper.updateById(user);
+            return user;
+        }
         if (themePresetService == null) {
             if (!THEMES.contains(themeKey)) throw BusinessException.badRequest("主题不存在");
         } else {
             themeKey = themePresetService.validateSelection(themeKey);
+            if (themeKey == null) throw BusinessException.badRequest("请选择一套主题，或改为跟随季节");
         }
-        AdminUser user = requireByUsername(username);
         user.setThemeKey(themeKey);
+        user.setThemeMode(ThemePresetService.MODE_FIXED);
         mapper.updateById(user);
         return user;
     }

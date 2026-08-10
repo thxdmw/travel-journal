@@ -27,7 +27,12 @@ public class ThemePreset extends BaseEntity {
     private String baseThemeKey;
     /** 主题预览图地址 */
     private String previewImageUrl;
-    /** 主题配置，JSON 对象，含 colors、typography、shape、layout、image、motion 六组设置 */
+    /**
+     * 主题配置，JSON 对象。除了 colors、typography、shape、layout、card、background、image、
+     * gallery、motion、effects、map、hero 这些视觉参数，还包含 Theme Pack V2 的
+     * decorations、stickers、dividers、ambient、blockStyles、interactions——
+     * 后者决定的是页面的性格而不只是长相。可调项全表见 ThemePresetService.SCHEMA。
+     */
     @TableField(typeHandler = JsonNodeTypeHandler.class)
     private JsonNode definitionJson;
     /** 是否为系统预设；系统预设不可直接修改或删除，需先复制 */

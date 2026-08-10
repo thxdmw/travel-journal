@@ -432,6 +432,30 @@
       }
       function updateProgress(){const height=document.documentElement.scrollHeight-window.innerHeight;progress.value=height>0?Math.min(100,Math.max(0,window.scrollY/height*100)):0;}
       /*
+       * 今日路线。
+       *
+       * 读完一篇日记之后，「那天到底是怎么走的」是最自然的下一个问题。路线点由
+       * 服务端算好：优先用当天的随手记（实际去过），没有随手记时回落到当天的城市和
+       * 行程（计划要去）。两者的可信度不一样，所以下面的说法和线型都跟着变。
+       */
+      const routeEl=ref(null),replaying=ref(false),replayIndex=ref(-1);
+      let routeMap=null,routeControl=null;
+      const routePoints=computed(()=>data.value?.route||[]);
+      const routeIsReal=computed(()=>routePoints.value[0]?.source==='moment');
+      const routeTitle=computed(()=>routeIsReal.value?'这一天走过的路':'这一天的安排');
+      const replayLabel=computed(()=>replaying.value?'停止回放':(routeIsReal.value?'▶ 回放这一天':'▶ 依次看一遍'));
+      function setupRoute(){
+        if(!routePoints.value.length||!routeEl.value||routeMap)return;
+        routeMap=createMap(routeEl.value,[],{});
+        if(!routeMap)return;
+        routeControl=window.DayRoute?.render(routeMap,routePoints.value,{
+          source:routePoints.value[0]?.source,
+          onState:state=>{replaying.value=state.playing;replayIndex.value=state.index;}
+        });
+      }
+      function toggleReplay(){routeControl?.play();}
+      function teardownRoute(){routeControl?.destroy();routeControl=null;routeMap?.remove();routeMap=null;}
+      /*
        * 阅读字号档位。手机上字号直接决定一屏能读到多少，交给读者自己定最实在。
        * 只改 --reading-scale 这一个变量，正文、图注和标题都跟着走。
        */
@@ -447,10 +471,11 @@
       applyScale();
       // 正文是 v-html 塞进来的，轮播和前后对比的结构只能在渲染之后补
       watch(html, () => nextTick(() => { window.JournalMedia.teardown(article.value); window.JournalMedia.enhance(article.value); }));
-      onMounted(async () => { try { data.value = props.preview ? await api.preview(route.params.token) : await api.journal(route.params.slug); } catch (e) { previewFailed.value = true; throw e; } setScopedTheme(data.value.theme); window.addEventListener('keydown', onKeydown);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(()=>{updateProgress();window.JournalMedia.enhance(article.value);}); });
-      onBeforeUnmount(() => {window.JournalMedia.teardown(article.value);window.removeEventListener('keydown', onKeydown);window.removeEventListener('scroll',updateProgress);clearScopedTheme();});
+      onMounted(async () => { try { data.value = props.preview ? await api.preview(route.params.token) : await api.journal(route.params.slug); } catch (e) { previewFailed.value = true; throw e; } setScopedTheme(data.value.theme); window.addEventListener('keydown', onKeydown);window.addEventListener('scroll',updateProgress,{passive:true});nextTick(()=>{updateProgress();window.JournalMedia.enhance(article.value);setupRoute();}); });
+      onBeforeUnmount(() => {window.JournalMedia.teardown(article.value);window.removeEventListener('keydown', onKeydown);window.removeEventListener('scroll',updateProgress);teardownRoute();clearScopedTheme();});
       return { data, article, html, lightbox, current, progress, readingMinutes, preview: props.preview, previewFailed,
                scaleIndex, scaleLabel, scaleMax: SCALES.length - 1, stepScale,
+               routeEl, routePoints, routeTitle, routeIsReal, replaying, replayIndex, replayLabel, toggleReplay,
                openLightbox, openArticleImage, stepLightbox };
     },
     template: `
@@ -460,6 +485,18 @@
         <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div>
           <div class="reading-scale"><button type="button" aria-label="减小正文字号" :disabled="scaleIndex===0" @click="stepScale(-1)">A−</button><span>{{scaleLabel}}</span><button type="button" aria-label="增大正文字号" :disabled="scaleIndex===scaleMax" @click="stepScale(1)">A+</button></div></header>
         <article ref="article" class="journal-document" v-html="html" @click="openArticleImage"></article>
+        <section v-if="routePoints.length" class="day-route">
+          <header><h2>{{routeTitle}}</h2>
+            <p v-if="!routeIsReal" class="day-route-hint">这条线来自当天的行程安排，不是实际走过的轨迹。</p>
+            <button type="button" class="day-route-play" :class="{playing:replaying}" @click="toggleReplay">{{replayLabel}}</button>
+          </header>
+          <div ref="routeEl" class="day-route-map"></div>
+          <ol class="day-route-list">
+            <li v-for="(point,index) in routePoints" :key="point.order" :class="{'is-active':replayIndex===index}">
+              <time>{{point.time||'—'}}</time><strong>{{point.title}}</strong><span v-if="point.note">{{point.note}}</span>
+            </li>
+          </ol>
+        </section>
         <nav class="article-nav"><router-link v-if="data.previousSlug" :to="'/journals/'+data.previousSlug">← 上一篇</router-link><span v-else></span><router-link v-if="data.nextSlug" :to="'/journals/'+data.nextSlug">下一篇 →</router-link></nav>
         <teleport to="body"><div v-if="lightbox" class="photo-lightbox" role="dialog" aria-modal="true" @click.self="lightbox=null">
           <button type="button" class="lightbox-close" aria-label="关闭大图" @click="lightbox=null">×</button>

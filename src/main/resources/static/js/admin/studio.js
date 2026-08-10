@@ -70,6 +70,7 @@
   const Theme = {
     setup() {
       const themes=ref([]),changing=ref(''),saving=ref(false),editor=ref(false),editing=ref(null),previewFrame=ref(null),previewMode=ref('desktop'),importInput=ref(null);
+      const siteState=ref(null);
       const history=ref([]),historyIndex=ref(-1);
       let historyTimer=null,restoring=false,originalSnapshot='';
       // 预览 iframe 的模拟视口宽度。前台 public.css 的断点是按视口宽度判断的，
@@ -120,7 +121,14 @@
         motion:{level:'subtle',hover:'lift',entrance:true,scrollReveal:false},
         effects:{particles:'none',grain:false,lightLeak:false,vignette:false},
         map:{style:'auto',routeColor:'#C76D4B',routeWidth:3,markerStyle:'dot',animateRoute:false},
-        hero:{mediaId:null}};
+        // Theme Pack V2：决定页面性格的那几层
+        decorations:{corner:'none',pageEdge:'none',headerOrnament:'none',opacity:0.35},
+        stickers:{density:'none',items:[]},
+        dividers:{style:'line',glyph:'none'},
+        ambient:{glow:'none',drift:'none',intensity:0.4},
+        blockStyles:{callout:'plain',quote:'plain',timeline:'line',stats:'plain',locationCard:'plain'},
+        interactions:{stickerClick:'none',imageHover:'none',heroEntrance:'none'},
+        hero:{mediaId:null,shape:'none',overlay:'none'}};
 
       /**
        * 高级自定义的控件表。一个 token 一行，模板用 v-for 渲染，
@@ -193,24 +201,122 @@
           {key:'routeColor',label:'路线颜色',type:'color'},
           {key:'routeWidth',label:'路线粗细',type:'number',min:1,max:8,step:1},
           {key:'animateRoute',label:'路线绘制动画',type:'switch'}
+        ]},
+        {key:'decorations',label:'页面装饰',hint:'用来填补页面的空旷，不是用来填满页面；透明度默认压得很低',fields:[
+          {key:'corner',label:'页面角落',type:'select',options:[['none','无'],['vine','藤蔓'],['wave','海浪'],['leaf','落叶'],['frost','霜花'],['stamp','邮戳'],['compass','指南针']]},
+          {key:'pageEdge',label:'页边点缀',type:'select',options:[['none','无'],['petal','花瓣'],['sun','太阳'],['leaf','落叶'],['snow','雪花'],['star','星星']]},
+          {key:'headerOrnament',label:'标题纹样',type:'select',options:[['none','无'],['line','短线'],['compass','指南针'],['ticket','车票'],['arch','拱形'],['wave','波浪']]},
+          {key:'opacity',label:'装饰浓度',type:'number',min:0.05,max:1,step:0.05}
+        ]},
+        {key:'stickers',label:'主题贴纸',hint:'位置只能从固定的几个区域里选，这样手机上不会错位；贴纸列表在下面单独编辑',fields:[
+          {key:'density',label:'贴纸密度',type:'select',options:[['none','不显示'],['low','少量'],['medium','适中']]}
+        ]},
+        {key:'dividers',label:'章节分隔线',fields:[
+          {key:'style',label:'线条样式',type:'select',options:[['line','细线'],['dashed','虚线'],['dotted','点线'],['ornament','两端渐隐'],['wave','波浪'],['torn','撕纸边']]},
+          {key:'glyph',label:'中间符号',type:'select',options:[['none','无'],['sakura','🌸 樱花'],['sun','☀ 太阳'],['leaf','🍂 落叶'],['snow','❄ 雪花'],['compass','✧ 指南针'],['plane','✈ 飞机'],['stamp','❖ 邮戳'],['wave','〜 波浪'],['star','✦ 星星']]}
+        ]},
+        {key:'ambient',label:'环境氛围',hint:'比粒子更安静的一层：一片很淡的光，或者一分钟才移动一点点的云',fields:[
+          {key:'glow',label:'光晕',type:'select',options:[['none','无'],['sun','阳光'],['moon','月光'],['lantern','灯光'],['dawn','晨曦']]},
+          {key:'drift',label:'缓慢移动层',type:'select',options:[['none','无'],['clouds','云'],['mist','薄雾'],['fireflies','萤火']]},
+          {key:'intensity',label:'氛围强度',type:'number',min:0,max:1,step:0.05}
+        ]},
+        {key:'blockStyles',label:'内容块皮肤',hint:'同一种内容块在不同主题里可以长得不一样',fields:[
+          {key:'callout',label:'提示卡片',type:'select',options:[['plain','默认'],['paper','纸片'],['tape','胶带'],['ticket','票根'],['frame','双线框']]},
+          {key:'quote',label:'引用',type:'select',options:[['plain','默认'],['mark','大引号'],['card','卡片'],['handwritten','手写感']]},
+          {key:'timeline',label:'时间线',type:'select',options:[['line','竖线'],['dots','圆点'],['stamps','邮戳时间'],['tickets','车票时间']]},
+          {key:'stats',label:'数字亮点',type:'select',options:[['plain','默认'],['badge','药丸'],['ticket','票根']]},
+          {key:'locationCard',label:'地点卡片',type:'select',options:[['plain','默认'],['postcard','明信片'],['label','标签条'],['passport','护照页']]}
+        ]},
+        {key:'interactions',label:'互动',hint:'只能从预先写好的这几种里选，主题配置里永远不会出现脚本',fields:[
+          {key:'stickerClick',label:'点击贴纸',type:'select',options:[['none','无反应'],['pop','弹一下'],['wiggle','摇一摇'],['drift','飘走'],['heart-pop','心跳']]},
+          {key:'imageHover',label:'鼠标经过照片',type:'select',options:[['none','无'],['tilt','轻微倾斜'],['zoom','轻微放大'],['lift','浮起'],['stamp','按下去']]},
+          {key:'heroEntrance',label:'封面入场',type:'select',options:[['none','无'],['float','上浮'],['fade','淡入'],['drift','横向滑入']]}
+        ]},
+        {key:'hero',label:'首页封面',fields:[
+          {key:'shape',label:'底边形状',type:'select',options:[['none','平直'],['wave','波浪'],['arch','拱形'],['torn','撕纸'],['tape','胶带']]},
+          {key:'overlay',label:'叠加光',type:'select',options:[['none','无'],['sun','阳光'],['frost','霜白'],['paper','纸感'],['dusk','暮色']]}
         ]}
       ];
+      /*
+       * 贴纸列表单独编辑。
+       *
+       * 它是唯一一个不是「一个键一个值」的配置，所以走不了上面那张控件表。
+       * 位置写死在这份白名单里，主题只能说「贴在页眉右边」，不能写像素坐标——
+       * 绝对坐标在手机上一定会错位，而且每加一个断点就要把所有主题重调一遍。
+       */
+      const STICKER_AREAS=[['hero-left','页眉左'],['hero-right','页眉右'],['page-left','页面左侧'],
+        ['page-right','页面右侧'],['section-gap','章节之间'],['image-corner','图片旁'],['footer','页脚']];
+      const STICKER_ASSETS=[
+        {group:'春',items:[['spring-sakura','樱花'],['spring-sprout','嫩芽'],['spring-bird','小鸟'],['spring-cloud','云朵']]},
+        {group:'夏',items:[['summer-sun','太阳'],['summer-wave','海浪'],['summer-drink','冰饮'],['summer-watermelon','西瓜']]},
+        {group:'秋',items:[['autumn-maple','枫叶'],['autumn-leaf','落叶'],['autumn-coffee','咖啡'],['autumn-ticket','火车票']]},
+        {group:'冬',items:[['winter-snowflake','雪花'],['winter-mug','热咖啡'],['winter-cabin','小屋'],['winter-pine','松树']]},
+        {group:'复古',items:[['retro-stamp','邮票'],['retro-postmark','邮戳'],['retro-plane','飞机'],['retro-passport','护照']]},
+        {group:'经典',items:[['classic-compass','指南针'],['classic-pin','地图针'],['classic-tag','行李牌']]}
+      ];
+      const MAX_STICKERS=10;
+      const stickerItems=computed(()=>form.definitionJson.stickers?.items||[]);
+      function addSticker(){
+        const stickers=form.definitionJson.stickers;
+        if(!Array.isArray(stickers.items))stickers.items=[];
+        if(stickers.items.length>=MAX_STICKERS)return;
+        stickers.items.push({asset:'classic-compass',area:'section-gap'});
+        if(stickers.density==='none')stickers.density='low';
+      }
+      function removeSticker(index){form.definitionJson.stickers.items.splice(index,1);}
+      function stickerPreview(asset){return '/assets/themes/stickers/'+asset+'.svg';}
       const form=reactive({name:'',description:'',baseThemeKey:'travel-classic',previewImageUrl:'',enabled:true,definitionJson:JSON.parse(JSON.stringify(defaultDefinition))});
       const contrast=computed(()=>{const ratio=contrastRatio(form.definitionJson.colors.text,form.definitionJson.colors.background);return{ratio:ratio.toFixed(2),ok:ratio>=4.5};});
       const canUndo=computed(()=>historyIndex.value>0),canRedo=computed(()=>historyIndex.value<history.value.length-1);
       function deep(value){return JSON.parse(JSON.stringify(value));}
       function completeDefinition(input){const result=deep(defaultDefinition);Object.keys(result).forEach(section=>Object.assign(result[section],input?.[section]||{}));return result;}
-      async function load(){try{themes.value=await A.themes(false);}catch(e){fail(e);}}
+      async function load(){
+        try{
+          const result=await Promise.all([A.themes(false),A.siteThemeState()]);
+          themes.value=result[0];siteState.value=result[1];
+        }catch(e){fail(e);}
+      }
+      /*
+       * 全站主题的两种模式。
+       *
+       * 「跟随季节」是默认：8 月自动是盛夏出逃，到了 9 月自己变成秋日远行，作者
+       * 什么都不用做。一旦点了某一套具体主题就锁成 FIXED，之后季节更替不再动它，
+       * 直到重新点「跟随季节」。isActive 判断的是「这张卡片是不是当前生效的那套」，
+       * 在 AUTO 模式下等于当季主题，而不是 session 里存的 themeKey。
+       */
+      const isAuto=computed(()=>siteState.value?.mode!=='FIXED');
+      const activeThemeKey=computed(()=>siteState.value?.theme?.themeKey||session.user?.themeKey);
+      function isActive(item){return !isAuto.value&&activeThemeKey.value===item.themeKey;}
+      /** 「跟随季节」卡片上那行小字：夏 · 盛夏出逃。 */
+      const seasonHint=computed(()=>{
+        const state=siteState.value;if(!state)return '';
+        const name=themes.value.find(item=>item.themeKey===state.seasonThemeKey)?.name;
+        return [state.season,name].filter(Boolean).join(' · ');
+      });
       async function selectTheme(item) {
-        if (session.user?.themeKey === item.themeKey) return;
+        if (isActive(item)) return;
         changing.value = item.themeKey;
         try {
           const updated = await api.auth.changeTheme(item.themeKey);
           session.user = { ...session.user, ...updated };
           applyTheme(item);
-          message('主题已切换为“' + item.name + '”');
+          siteState.value = await A.siteThemeState();
+          message('主题已切换为“' + item.name + '”，季节变化不会再改动它');
         } catch (error) { fail(error); }
         finally { changing.value = ''; }
+      }
+      /** 切回跟随季节：立刻套用当季那一套，并把模式记回服务端。 */
+      async function followSeason(){
+        if(isAuto.value)return;
+        changing.value='__auto__';
+        try{
+          const updated=await api.auth.changeTheme(null,'AUTO');
+          session.user={...session.user,...updated};
+          siteState.value=await A.siteThemeState();
+          applyTheme(siteState.value.theme);
+          message('已切回跟随季节，当前是' + seasonHint.value);
+        }catch(error){fail(error);}
+        finally{changing.value='';}
       }
       function snapshot(){return JSON.stringify({name:form.name,description:form.description,baseThemeKey:form.baseThemeKey,previewImageUrl:form.previewImageUrl,enabled:form.enabled,definitionJson:form.definitionJson});}
       function assignSnapshot(value){restoring=true;const data=typeof value==='string'?JSON.parse(value):value;form.name=data.name;form.description=data.description||'';form.baseThemeKey=data.baseThemeKey||'travel-classic';form.previewImageUrl=data.previewImageUrl||'';form.enabled=data.enabled!==false;form.definitionJson=completeDefinition(data.definitionJson);nextTick(()=>{restoring=false;postPreview();});}
@@ -219,9 +325,9 @@
       function undo(){if(!canUndo.value)return;historyIndex.value--;assignSnapshot(history.value[historyIndex.value]);}
       function redo(){if(!canRedo.value)return;historyIndex.value++;assignSnapshot(history.value[historyIndex.value]);}
       function resetEditor(){assignSnapshot(originalSnapshot);history.value=[originalSnapshot];historyIndex.value=0;}
-      function openEditor(item,forceNew=false){const source=item||themes.value.find(x=>x.themeKey===session.user?.themeKey)||themes.value[0];editing.value=forceNew||source?.builtin?null:source?.id||null;assignSnapshot({name:forceNew?'我的旅行主题':source?.name||'我的旅行主题',description:source?.description||'',baseThemeKey:source?.baseThemeKey||'travel-classic',previewImageUrl:source?.previewImageUrl||'',enabled:true,definitionJson:source?.definitionJson||defaultDefinition});editor.value=true;nextTick(()=>{seedHistory();postPreview();});}
+      function openEditor(item,forceNew=false){const source=item||themes.value.find(x=>x.themeKey===activeThemeKey.value)||themes.value[0];editing.value=forceNew||source?.builtin?null:source?.id||null;assignSnapshot({name:forceNew?'我的旅行主题':source?.name||'我的旅行主题',description:source?.description||'',baseThemeKey:source?.baseThemeKey||'travel-classic',previewImageUrl:source?.previewImageUrl||'',enabled:true,definitionJson:source?.definitionJson||defaultDefinition});editor.value=true;nextTick(()=>{seedHistory();postPreview();});}
       async function duplicateTheme(item){try{const created=await A.duplicateTheme(item.id);await load();openEditor(created,false);message('已复制主题，可以开始设计');}catch(e){fail(e);}}
-      async function saveTheme(){saving.value=true;try{const body={name:form.name,description:form.description,baseThemeKey:form.baseThemeKey,previewImageUrl:form.previewImageUrl||null,enabled:form.enabled,definitionJson:form.definitionJson};const saved=editing.value?await A.updateTheme(editing.value,body):await A.createTheme(body);if(session.user?.themeKey===saved.themeKey)applyTheme(saved);editor.value=false;await load();message('主题已保存');}catch(e){fail(e);}finally{saving.value=false;}}
+      async function saveTheme(){saving.value=true;try{const body={name:form.name,description:form.description,baseThemeKey:form.baseThemeKey,previewImageUrl:form.previewImageUrl||null,enabled:form.enabled,definitionJson:form.definitionJson};const saved=editing.value?await A.updateTheme(editing.value,body):await A.createTheme(body);if(activeThemeKey.value===saved.themeKey)applyTheme(saved);editor.value=false;await load();message('主题已保存');}catch(e){fail(e);}finally{saving.value=false;}}
       async function removeTheme(item){try{await confirm('确定删除主题“'+item.name+'”吗？');await A.deleteTheme(item.id);await load();message('主题已删除');}catch(e){if(e!=='cancel'&&e!=='close')fail(e);}}
       // 把当前设计推给预览 iframe。改一个颜色就会触发一次，所以预览页没能正常加载时
       // （contentWindow 的 origin 变成 null，postMessage 直接抛错）要吞掉异常，
@@ -288,12 +394,24 @@
       watch(previewMode,()=>nextTick(measurePreview));
       onMounted(load);
       onBeforeUnmount(()=>{clearTimeout(historyTimer);previewObserver?.disconnect();});
-      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor};
+      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor,
+        siteState,isAuto,isActive,seasonHint,followSeason,
+        stickerItems,stickerAreas:STICKER_AREAS,stickerAssets:STICKER_ASSETS,addSticker,removeSticker,stickerPreview};
     },
-    template: `<div><div class="page-head"><div><h2>主题外观</h2><p>选择预设，或设计自己的色彩、字体、布局与图片风格；公开网站会同步更新。</p></div><div class="theme-page-actions"><input ref="importInput" type="file" accept="application/json" hidden @change="imported"><el-button @click="chooseImport">导入 JSON</el-button><el-button type="primary" @click="openEditor(null,true)">新建设计</el-button></div></div>
-      <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey" class="panel theme-preview" :class="{selected:session.user?.themeKey===item.themeKey}">
-        <img :src="item.previewImageUrl||'/img/theme-travel-classic-preview.png'" :alt="item.name"><div class="theme-info"><div><div class="theme-card-title"><h3>{{item.name}}</h3><small>{{item.builtin?'系统预设':'我的主题'}} · v{{item.version}}</small></div><p>{{item.description}}</p></div><span v-if="session.user?.themeKey===item.themeKey" class="theme-badge">当前主题</span></div>
-        <footer class="theme-card-actions"><el-button v-if="session.user?.themeKey!==item.themeKey" type="primary" :loading="changing===item.themeKey" @click="selectTheme(item)">使用</el-button><el-button v-if="!item.builtin" @click="openEditor(item)">设计</el-button><el-button @click="duplicateTheme(item)">复制</el-button><el-button @click="exportTheme(item)">导出</el-button><el-button v-if="!item.builtin" type="danger" link @click="removeTheme(item)">删除</el-button></footer>
+    template: `<div><div class="page-head"><div><h2>主题外观</h2><p>让网站跟着四季自己变，或者固定选一套；也可以复制后设计自己的色彩、字体、布局与图片风格。</p></div><div class="theme-page-actions"><input ref="importInput" type="file" accept="application/json" hidden @change="imported"><el-button @click="chooseImport">导入 JSON</el-button><el-button type="primary" @click="openEditor(null,true)">新建设计</el-button></div></div>
+      <article class="panel theme-season-card" :class="{selected:isAuto}">
+        <div class="theme-season-main">
+          <div><h3>跟随季节</h3><p>春夏秋冬各有一套完整视觉，按站点所在地的日期自动轮换，不用手动切。</p></div>
+          <p class="theme-season-now">当前：<strong>{{seasonHint||'…'}}</strong></p>
+        </div>
+        <div class="theme-season-actions">
+          <span v-if="isAuto" class="theme-badge">正在使用</span>
+          <el-button v-else type="primary" :loading="changing==='__auto__'" @click="followSeason">跟随季节</el-button>
+        </div>
+      </article>
+      <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey" class="panel theme-preview" :class="{selected:isActive(item)}">
+        <img :src="item.previewImageUrl||'/img/theme-travel-classic-preview.png'" :alt="item.name"><div class="theme-info"><div><div class="theme-card-title"><h3>{{item.name}}</h3><small>{{item.builtin?'系统预设':'我的主题'}} · v{{item.version}}</small></div><p>{{item.description}}</p></div><span v-if="isActive(item)" class="theme-badge">当前主题</span><span v-else-if="isAuto&&item.themeKey===siteState?.seasonThemeKey" class="theme-badge theme-badge--season">本季正在使用</span></div>
+        <footer class="theme-card-actions"><el-button v-if="!isActive(item)" type="primary" :loading="changing===item.themeKey" @click="selectTheme(item)">固定使用</el-button><el-button v-if="!item.builtin" @click="openEditor(item)">设计</el-button><el-button @click="duplicateTheme(item)">复制</el-button><el-button @click="exportTheme(item)">导出</el-button><el-button v-if="!item.builtin" type="danger" link @click="removeTheme(item)">删除</el-button></footer>
       </article></div>
       <el-dialog v-model="editor" class="theme-designer-dialog" :title="editing?'设计主题':'新建主题'" width="min(1240px,97vw)" destroy-on-close>
         <div class="theme-designer"><section class="theme-controls"><div class="theme-history"><el-button size="small" :disabled="!canUndo" @click="undo">撤销</el-button><el-button size="small" :disabled="!canRedo" @click="redo">重做</el-button><el-button size="small" @click="resetEditor">恢复打开时状态</el-button></div>
@@ -322,6 +440,20 @@
                 <el-switch v-else-if="field.type==='switch'" v-model="form.definitionJson[group.key][field.key]"/>
                 <el-color-picker v-else-if="field.type==='color'" v-model="form.definitionJson[group.key][field.key]"/>
               </label>
+            </div>
+            <div v-if="group.key==='stickers'" class="sticker-editor">
+              <article v-for="(item,index) in stickerItems" :key="index" class="sticker-row">
+                <img :src="stickerPreview(item.asset)" alt="">
+                <el-select v-model="item.asset" filterable>
+                  <el-option-group v-for="pack in stickerAssets" :key="pack.group" :label="pack.group">
+                    <el-option v-for="asset in pack.items" :key="asset[0]" :label="asset[1]" :value="asset[0]"/>
+                  </el-option-group>
+                </el-select>
+                <el-select v-model="item.area"><el-option v-for="area in stickerAreas" :key="area[0]" :label="area[1]" :value="area[0]"/></el-select>
+                <button type="button" class="danger" @click="removeSticker(index)">×</button>
+              </article>
+              <p v-if="!stickerItems.length" class="group-hint">还没有贴纸。加两三张就够了，页面留白本身也是内容。</p>
+              <el-button plain size="small" :disabled="stickerItems.length>=10" @click="addSticker">＋ 添加贴纸</el-button>
             </div>
           </details>
         </section><section class="theme-live"><header><strong>网站实时预览</strong><div><button type="button" :class="{active:previewMode==='desktop'}" @click="previewMode='desktop'">桌面</button><button type="button" :class="{active:previewMode==='mobile'}" @click="previewMode='mobile'">手机</button></div></header><div ref="previewWrap" class="theme-frame-wrap" :class="previewMode"><div class="preview-stage" :style="stageStyle"><iframe ref="previewFrame" :style="frameStyle" src="/?theme-preview=1" title="主题实时预览" @load="postPreview"></iframe></div></div></section></div>

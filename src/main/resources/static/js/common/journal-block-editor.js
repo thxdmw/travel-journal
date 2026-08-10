@@ -3,11 +3,12 @@
   const {ref,watch,nextTick,onMounted,onBeforeUnmount,computed}=Vue;
   const JB=window.JournalBlocks;
   const IMAGE_BLOCKS=['image','gallery','postcard'];
-  const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport'];
-  // 这四种是「一边想一边打字」的内容，直接在正文里编辑；其余 22 种是要填表的，仍然走配置弹窗。
+  const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport',
+    'day-opener','day-summary'];
+  // 这四种是「一边想一边打字」的内容，直接在正文里编辑；其余的是要填表的，仍然走配置弹窗。
   const INLINE_BLOCKS=['paragraph','heading','quote','callout'];
-  // 手机上按 ＋ 先看到的是这几个，不是全部 26 种。正文不在其中——回车就是下一段。
-  const QUICK_BLOCKS=['image','location-card','heading','quote','gallery','route','checklist','divider'];
+  // 手机上按 ＋ 先看到的是这几个，不是全部类型。正文不在其中——回车就是下一段。
+  const QUICK_BLOCKS=['image','chapter','location-card','heading','day-opener','gallery','day-summary','divider'];
   const PLACEHOLDERS={paragraph:'继续写……',heading:'小标题',quote:'想记住的一句话',callout:'写下这条提示'};
   // textarea 跟着内容长高，让正文看起来是连续的一篇，而不是一格格输入框
   const autoGrow=el=>{if(!el||el.tagName!=='TEXTAREA')return;el.style.height='auto';el.style.height=el.scrollHeight+'px';};
@@ -17,7 +18,7 @@
     directives:{grow:{mounted:autoGrow,updated:autoGrow}},
     props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]},travelContext:{type:Object,default:()=>({})},
       uploads:{type:Array,default:()=>[]}},
-    emits:['update:modelValue','retry-upload'],
+    emits:['update:modelValue','retry-upload','discard-upload'],
     setup(props,{emit,expose}){
       const document=ref(JB.normalize(props.modelValue));
       const catalogOpen=ref(false),editorOpen=ref(false),draft=ref(null),editIndex=ref(-1),insertAt=ref(0);
@@ -58,13 +59,20 @@
         if(type==='trip-info')return{enabled:false,fields:['date','city','tripTitle']};
         if(type==='route')return{enabled:false,source:'stops',selectedIds:[]};
         if(['itinerary','timeline','expense-summary'].includes(type))return{enabled:false,selectedIds:[]};
+        // 开场卡和小结默认就开着关联：它们要的东西——城市、第几天、路线、花费——
+        // 全都已经在旅行工作台里了，让作者再抄一遍没有意义
+        if(['day-opener','day-summary'].includes(type))return{enabled:true};
         return{enabled:false,recordId:null};
       }
       function ensureBinding(){
         if(!draft.value||!LINKABLE_BLOCKS.includes(draft.value.type))return;
         draft.value.settings=draft.value.settings||{};
         draft.value.settings.dataBinding=Object.assign(bindingDefaults(draft.value.type),draft.value.settings.dataBinding||{});
+        // 默认就开着关联的块（开场卡、小结）要立刻填一次，否则弹窗打开是空的
+        if(draft.value.settings.dataBinding.enabled){initializeBindingSelection();applyBinding();}
       }
+      /** 这两种块不挑具体记录，它们要的是「这一天的全部」，所以没有可选列表。 */
+      function bindsWholeDay(type){return ['day-opener','day-summary'].includes(type);}
       function shortTime(value){return value?String(value).slice(0,5):'';}
       function recordLabel(item){
         if(!item)return'';
@@ -75,7 +83,7 @@
       }
       function initializeBindingSelection(){
         const binding=dataBinding.value,context=props.travelContext||{};if(!binding)return;
-        if(draft.value.type==='trip-info')return;
+        if(draft.value.type==='trip-info'||bindsWholeDay(draft.value.type))return;
         const records=relatedRecords.value;
         if(['route','itinerary','timeline','expense-summary'].includes(draft.value.type)){
           if(binding.selectedIds?.length)return;
@@ -91,10 +99,58 @@
           binding.recordId=(currentStop||records[0])?.id||null;
         }
       }
+      /** 这一天是这次旅行的第几天。旅行没填开始日期时不猜，直接留空。 */
+      function dayLabel(context){
+        const start=context.trip?.startDate,day=context.occurredOn;
+        if(!start||!day)return '';
+        const diff=Math.round((new Date(day)-new Date(start))/86400000);
+        return diff>=0?('Day '+(diff+1)):'';
+      }
+      /** 当天的行程按时间排一遍，取出经过的地方——就是开场卡上那行「浅草 → 上野 → 银座」。 */
+      function dayRoute(context){
+        const day=context.occurredOn;
+        return (context.itinerary||[])
+          .filter(item=>!day||item.itemDate===day)
+          .slice().sort((a,b)=>String(a.startTime||'').localeCompare(String(b.startTime||'')))
+          .map(item=>item.title).filter(Boolean);
+      }
+      /** 当天花了多少。没有账目就返回 null，让调用方决定要不要显示这一项。 */
+      function daySpend(context){
+        const day=context.occurredOn;
+        const items=(context.expenses||[]).filter(item=>!day||item.expenseDate===day);
+        if(!items.length)return null;
+        const total=items.reduce((sum,item)=>sum+(Number(item.amount)||0),0);
+        const currency=context.budget?.currency||context.trip?.defaultCurrency||'CNY';
+        return (currency==='CNY'?'¥ ':currency+' ')+total.toLocaleString('zh-CN',{maximumFractionDigits:2});
+      }
       function applyBinding(){
         const binding=dataBinding.value,block=draft.value,context=props.travelContext||{};
         if(!binding?.enabled||!block)return;
         const data=block.data;
+        /*
+         * 今日开场卡。
+         *
+         * 城市、第几天、日期、路线、花费全都能从旅行数据推出来，所以这里一次性填齐。
+         * 天气不动——它没有数据源，是作者自己写的那一个字。
+         */
+        if(block.type==='day-opener'){
+          data.city=context.stop?.cityName||context.trip?.title||'';
+          data.dayLabel=dayLabel(context);
+          data.date=context.occurredOn||'';
+          data.route=dayRoute(context);
+          const spend=daySpend(context);
+          // 只覆盖自动算得出的那几项，作者手填的数字（步数之类）留着
+          const manual=(data.metrics||[]).filter(item=>item&&item.label!=='花费');
+          data.metrics=spend?[...manual,{value:spend,label:'花费'}]:manual;
+          return;
+        }
+        /* 今日小结：能自动填的只有花费，其余几项是作者对这一天的判断，只把位置准备好。 */
+        if(block.type==='day-summary'){
+          const items=Array.isArray(data.items)?data.items.filter(item=>item&&item.label!=='今日花费'):[];
+          const spend=daySpend(context);
+          data.items=spend?[...items,{icon:'💴',label:'今日花费',value:spend}]:items;
+          return;
+        }
         if(block.type==='trip-info'){
           const fields=binding.fields||[];
           if(fields.includes('date'))data.date=context.occurredOn||'';
@@ -342,21 +398,33 @@
         if(!items?.length)return;
         const at=focusedIndex.value>=0&&focusedIndex.value<document.value.blocks.length
           ? focusedIndex.value+1 : document.value.blocks.length;
+        const keys=items.map(item=>item.key);
         const block=items.length>1
-          ? JB.createBlock('gallery',{mediaIds:[],pendingKeys:items.map(item=>item.key)})
-          : JB.createBlock('image',{mediaId:null,pendingKey:items[0].key});
+          // pendingOrder 记住用户挑照片时的先后，上传是并发的、谁先传完不一定；
+          // 没有它的话图片组会按上传完成顺序排，和相册里看到的顺序对不上
+          ? JB.createBlock('gallery',{mediaIds:[],pendingKeys:keys.slice(),pendingOrder:keys.slice(),pendingResolved:{}})
+          : JB.createBlock('image',{mediaId:null,pendingKey:keys[0]});
         document.value.blocks.splice(at,0,block);
         focusedIndex.value=at;flushInline();
         nextTick(()=>window.document.querySelector('[data-editor-block-id="'+block.id+'"]')?.scrollIntoView({behavior:'smooth',block:'center'}));
+      }
+      /** 按 pendingOrder 把已完成的照片摆回原来的位置。 */
+      function rebuildGalleryOrder(block){
+        const resolved=block.data.pendingResolved||{};
+        const order=block.data.pendingOrder||Object.keys(resolved);
+        block.data.mediaIds=order.map(key=>resolved[key]).filter(id=>id!=null);
       }
       /** 某一张传完了，把真实 mediaId 填回占位它的那个区块。 */
       function resolvePending(key,mediaId){
         document.value.blocks.forEach(block=>{
           if(block.data.pendingKey===key){block.data.mediaId=mediaId;delete block.data.pendingKey;}
           if(Array.isArray(block.data.pendingKeys)&&block.data.pendingKeys.includes(key)){
-            block.data.mediaIds=[...(block.data.mediaIds||[]),mediaId];
+            block.data.pendingResolved=Object.assign({},block.data.pendingResolved,{[key]:mediaId});
             block.data.pendingKeys=block.data.pendingKeys.filter(item=>item!==key);
-            if(!block.data.pendingKeys.length)delete block.data.pendingKeys;
+            rebuildGalleryOrder(block);
+            if(!block.data.pendingKeys.length){
+              delete block.data.pendingKeys;delete block.data.pendingOrder;delete block.data.pendingResolved;
+            }
           }
         });
         flushInline();
@@ -367,14 +435,21 @@
           if(block.data.pendingKey===key)return false;
           if(Array.isArray(block.data.pendingKeys)&&block.data.pendingKeys.includes(key)){
             block.data.pendingKeys=block.data.pendingKeys.filter(item=>item!==key);
-            if(!block.data.pendingKeys.length){delete block.data.pendingKeys;return (block.data.mediaIds||[]).length>0;}
+            if(Array.isArray(block.data.pendingOrder))
+              block.data.pendingOrder=block.data.pendingOrder.filter(item=>item!==key);
+            rebuildGalleryOrder(block);
+            if(!block.data.pendingKeys.length){
+              delete block.data.pendingKeys;delete block.data.pendingOrder;delete block.data.pendingResolved;
+              return (block.data.mediaIds||[]).length>0;
+            }
           }
           return true;
         });
         flushInline();
       }
       function retryPending(block){pendingKeysOf(block).forEach(key=>{if(pendingUpload(key)?.status==='failed')emit('retry-upload',key);});}
-      function cancelPending(block){pendingKeysOf(block).forEach(key=>key&&dropPending(key));}
+      /** 作者放弃这张照片。除了移除占位块，还要让父组件把本机存的那份副本清掉。 */
+      function cancelPending(block){pendingKeysOf(block).forEach(key=>{if(!key)return;dropPending(key);emit('discard-upload',key);});}
       function insertMedia(ids,preferredType){
         const values=(Array.isArray(ids)?ids:[ids]).filter(Boolean);if(!values.length)return;
         insertAt.value=document.value.blocks.length;
@@ -392,7 +467,7 @@
       return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
         layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,dataBinding,relatedRecords,
         catalogMode,catalogCount,quickItems,isInline,placeholderOf,inlineInput,inlineFocus,inlineEnter,inlineBackspace,inlineArrow,startWriting,canBreak,insertBreak,setHeadingLevel,setCalloutTone,insertQuick,
-        openCatalog,choose,edit,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,
+        openCatalog,choose,edit,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,bindsWholeDay,
         render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding,
         isPending,pendingProgress,pendingFailed,pendingLabel,pendingPreviews,retryPending,cancelPending};
     },
@@ -486,7 +561,8 @@
                 <header><div><strong>旅行数据关联</strong><small>关联会把旅行工作台的数据填入区块；正文仍保存为稳定快照。</small></div>
                   <el-radio-group v-model="dataBinding.enabled" size="small" @change="onBindingModeChange"><el-radio-button :value="false">手动填写</el-radio-button><el-radio-button :value="true">关联数据</el-radio-button></el-radio-group></header>
                 <template v-if="dataBinding.enabled">
-                  <label v-if="draft.type==='trip-info'">选择关联字段
+                  <p v-if="bindsWholeDay(draft.type)" class="travel-data-binding__whole-day">取的是这一天的全部数据：所在城市、当天行程和当天账目，不需要逐条挑选。</p>
+                  <label v-else-if="draft.type==='trip-info'">选择关联字段
                     <el-checkbox-group v-model="dataBinding.fields"><el-checkbox value="date">日记日期</el-checkbox><el-checkbox value="city">所选城市</el-checkbox><el-checkbox value="tripTitle">旅行名称</el-checkbox></el-checkbox-group>
                   </label>
                   <label v-else-if="draft.type==='route'">数据来源
@@ -495,10 +571,10 @@
                   <label v-if="['route','itinerary','timeline','expense-summary'].includes(draft.type)">选择要关联的数据
                     <el-select v-model="dataBinding.selectedIds" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择"><el-option v-for="item in relatedRecords" :key="item.id" :label="recordLabel(item)" :value="item.id"/></el-select>
                   </label>
-                  <label v-else-if="!['trip-info'].includes(draft.type)">选择要关联的数据
+                  <label v-else-if="!['trip-info'].includes(draft.type)&&!bindsWholeDay(draft.type)">选择要关联的数据
                     <el-select v-model="dataBinding.recordId" filterable clearable placeholder="请选择"><el-option v-for="item in relatedRecords" :key="item.id" :label="recordLabel(item)" :value="item.id"/></el-select>
                   </label>
-                  <p v-if="draft.type!=='trip-info'&&!relatedRecords.length" class="travel-data-binding__empty">当前旅行还没有可用于这个组件的数据，可以切回“手动填写”。</p>
+                  <p v-if="draft.type!=='trip-info'&&!bindsWholeDay(draft.type)&&!relatedRecords.length" class="travel-data-binding__empty">当前旅行还没有可用于这个组件的数据，可以切回“手动填写”。</p>
                   <div class="travel-data-binding__actions"><small>手动微调下面的内容不会修改旅行工作台；重新同步会覆盖关联字段。</small><el-button size="small" plain @click="refreshBinding">重新同步</el-button></div>
                 </template>
               </section>
@@ -523,6 +599,27 @@
               <template v-else-if="draft.type==='food'"><div class="form-grid form-grid-2"><label>菜品<el-input v-model="draft.data.dish"/></label><label>店铺<el-input v-model="draft.data.restaurant"/></label><label>价格<el-input v-model="draft.data.price"/></label><label>评分<el-rate v-model="draft.data.rating"/></label></div><label>味道与感受<el-input v-model="draft.data.note" type="textarea" :rows="4"/></label></template>
               <template v-else-if="draft.type==='stay'"><div class="form-grid form-grid-2"><label>住宿名称<el-input v-model="draft.data.name"/></label><label>房型<el-input v-model="draft.data.room"/></label><label>入住晚数<el-input-number v-model="draft.data.nights" :min="1"/></label><label>评分<el-rate v-model="draft.data.rating"/></label></div><label>住宿体验<el-input v-model="draft.data.note" type="textarea" :rows="4"/></label></template>
               <template v-else-if="draft.type==='transport'"><div class="form-grid form-grid-2"><label>交通方式<el-input v-model="draft.data.mode" placeholder="高铁 / 航班 / 自驾"/></label><label>班次<el-input v-model="draft.data.number"/></label><label>出发地<el-input v-model="draft.data.from"/></label><label>目的地<el-input v-model="draft.data.to"/></label><label>耗时<el-input v-model="draft.data.duration"/></label></div><label>乘坐提示<el-input v-model="draft.data.note" type="textarea" :rows="3"/></label></template>
+              <template v-else-if="draft.type==='day-opener'">
+                <p class="setting-explain">开头这一屏是读者看到的第一眼。城市、第几天、路线和花费都从旅行工作台自动取，天气写一个字就够。</p>
+                <div class="form-grid form-grid-2"><label>城市<el-input v-model="draft.data.city" placeholder="东京"/></label><label>第几天<el-input v-model="draft.data.dayLabel" placeholder="Day 4"/></label>
+                  <label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label><label>天气<el-input v-model="draft.data.weather" placeholder="晴"/></label></div>
+                <label>今天走过的地方</label>
+                <div v-for="(item,i) in draft.data.route" :key="i" class="block-row"><el-input v-model="draft.data.route[i]" placeholder="浅草"/><button type="button" @click="removeRow('route',i)">×</button></div>
+                <el-button plain @click="addRow('route','')">＋ 添加一站</el-button>
+                <label>关键数字</label>
+                <div v-for="(item,i) in draft.data.metrics" :key="'m'+i" class="block-row"><el-input v-model="item.value" placeholder="21,430"/><el-input v-model="item.label" placeholder="步"/><button type="button" @click="removeRow('metrics',i)">×</button></div>
+                <el-button plain @click="addRow('metrics',{value:'',label:''})">＋ 添加数字</el-button>
+              </template>
+              <template v-else-if="draft.type==='chapter'">
+                <p class="setting-explain">用时间把一天分成几段，长日记读起来才有节奏。</p>
+                <div class="form-grid form-grid-2"><label>时间<el-input v-model="draft.data.time" placeholder="08:30"/></label><label>这一段叫什么<el-input v-model="draft.data.title" placeholder="清晨"/></label></div>
+                <label>补充一句（可选）<el-input v-model="draft.data.note" placeholder="天还没完全亮"/></label>
+              </template>
+              <template v-else-if="draft.type==='day-summary'">
+                <p class="setting-explain">一天结束时回头看一眼。花费会自动带出来，其余几项写你自己的判断。</p>
+                <div v-for="(item,i) in draft.data.items" :key="i" class="block-complex-row"><el-input v-model="item.icon" maxlength="2" placeholder="🌟"/><el-input v-model="item.label" placeholder="今天最喜欢"/><el-input v-model="item.value" placeholder="浅草的清晨"/><button type="button" @click="removeRow('items',i)">删除</button></div>
+                <el-button plain @click="addRow('items',{icon:'',label:'',value:''})">＋ 添加一条</el-button>
+              </template>
               <template v-else-if="draft.type==='weather'"><div class="form-grid form-grid-2"><label>天气<el-input v-model="draft.data.condition"/></label><label>温度<el-input v-model="draft.data.temperature" placeholder="26°C"/></label><label>体感<el-input v-model="draft.data.feelsLike"/></label><label>风力<el-input v-model="draft.data.wind"/></label></div><label>天气带来的感受<el-input v-model="draft.data.note" type="textarea" :rows="3"/></label></template>
               <template v-else-if="isImageBlock">
                 <el-tabs v-model="imageTab" class="image-setting-tabs">

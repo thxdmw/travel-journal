@@ -179,6 +179,8 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
 .travel-data-binding>label{display:grid;gap:7px;color:var(--tj-primary);font-size:13px}
 .travel-data-binding .el-select{width:100%}
 .travel-data-binding__empty{margin:0;padding:8px 10px;border-radius:7px;color:var(--tj-muted);background:var(--tj-surface-soft);font-size:12px}
+/* 开场卡和小结取的是「这一天的全部」，没有可挑的记录列表，这里说明一句就够 */
+.travel-data-binding__whole-day{margin:0;padding:8px 10px;border-radius:7px;color:var(--tj-primary);background:color-mix(in srgb,var(--tj-accent) 8%,var(--tj-surface));font-size:12px;line-height:1.6}
 .travel-data-binding__actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .travel-data-binding__actions small{max-width:520px}
 @media(max-width:780px){

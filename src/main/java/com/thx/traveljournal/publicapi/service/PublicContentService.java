@@ -9,6 +9,7 @@ import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.journal.service.JournalPreviewService;
 import com.thx.traveljournal.media.service.MediaService;
+import com.thx.traveljournal.moment.service.DayRouteService;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.mapper.JournalMediaMapper;
 import com.thx.traveljournal.publicapi.mapper.PublicAggregateMapper;
@@ -43,6 +44,7 @@ public class PublicContentService {
     private final ThemePresetService themePresetService;
     private final PublicAggregateMapper aggregateMapper;
     private final JournalPreviewService previewService;
+    private final DayRouteService dayRouteService;
 
     public record JournalCard(Long id, String title, String slug, String excerpt, LocalDate occurredOn,
                               String tripTitle, String tripSlug, String cityName, String coverUrl) {}
@@ -55,9 +57,17 @@ public class PublicContentService {
                                java.math.BigDecimal latitude, java.math.BigDecimal longitude,
                                String formattedAddress, String adcode, String coordinateSystem,
                                LocalDate arrivalDate, LocalDate departureDate, int sortOrder) {}
+    /**
+     * 日记详情。
+     *
+     * @param route 这一天的路线。优先来自已整理进这篇日记的随手记（实际去过），
+     *              没有随手记时回落到当天的城市与行程（计划要去）。为空表示这一天
+     *              没有任何可画的点，前端不显示地图。
+     */
     public record JournalDetail(JournalCard journal, JsonNode contentJson,
                                 List<MediaService.MediaView> media, String previousSlug, String nextSlug,
-                                ThemePresetService.ThemeView theme) {}
+                                ThemePresetService.ThemeView theme,
+                                List<DayRouteService.RoutePoint> route) {}
     public record CityMarker(String cityName, String regionName, String countryName,
                              String adcode, String coordinateSystem,
                              java.math.BigDecimal latitude,
@@ -165,7 +175,8 @@ public class PublicContentService {
         Trip trip = tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return new JournalDetail(card(entry, trip, stop), entry.getContentJson(), mediaService.list(entry.getId()),
-                previous, next, themePresetService.effective(entry.getThemeKey(), trip.getThemeKey()));
+                previous, next, themePresetService.effective(entry.getThemeKey(), trip.getThemeKey()),
+                dayRouteService.forJournal(entry));
     }
 
     /**
@@ -180,7 +191,8 @@ public class PublicContentService {
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return new JournalDetail(card(entry, trip, stop), entry.getContentJson(),
                 mediaService.list(entry.getId()), null, null,
-                themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()));
+                themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()),
+                dayRouteService.forJournal(entry));
     }
 
     public List<CityMarker> mapCities() {

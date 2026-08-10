@@ -23,9 +23,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -143,7 +145,7 @@ public class JournalService {
     }
 
     /**
-     * 丢弃一篇什么都没写的草稿，用于「进了编辑器又直接退出」。
+     * 丢弃一篇什么都没写的草稿，用于作者显式放弃。
      *
      * <p>判空放在服务端，不信任前端传来的状态：只要标题、摘要、正文区块、图片里有任何一样非空，
      * 就当作有内容，原样保留并返回 false。</p>
@@ -153,12 +155,44 @@ public class JournalService {
     @Transactional
     public boolean discardIfEmpty(Long id) {
         JournalEntry entry = get(id);
+        if (!isEmptyDraft(entry)) return false;
+        delete(id);
+        return true;
+    }
+
+    /**
+     * 回收放了很久仍然一片空白的草稿。
+     *
+     * <p>编辑器一进页面就会先开一篇空草稿，好让拍照和打字立刻有 id 可用，所以
+     * 「点进去看一眼就退出」会留下垃圾记录。以前是退出时立刻删，但退出瞬间最后一次
+     * 自动保存可能还在路上，服务端此刻看到的空正文并不代表作者真的什么都没写——
+     * 删错一篇正文的代价远高于库里多留一条空记录。所以改成过了静默期再收，
+     * 期间作者随时可能回来接着写。</p>
+     *
+     * @param quietFor 最后一次更新之后至少要静默多久才回收
+     * @return 实际清理掉的条数
+     */
+    @Transactional
+    public int purgeStaleEmptyDrafts(Duration quietFor) {
+        OffsetDateTime deadline = OffsetDateTime.now(ZoneOffset.UTC).minus(quietFor);
+        List<JournalEntry> candidates = mapper.selectList(new LambdaQueryWrapper<JournalEntry>()
+                .eq(JournalEntry::getStatus, "DRAFT")
+                .lt(JournalEntry::getUpdatedAt, deadline));
+        int removed = 0;
+        for (JournalEntry entry : candidates) {
+            if (!isEmptyDraft(entry)) continue;
+            delete(entry.getId());
+            removed++;
+        }
+        return removed;
+    }
+
+    /** 一篇草稿是否连一个字、一张图都没有。封面和图片也算内容。 */
+    private boolean isEmptyDraft(JournalEntry entry) {
         if (!"DRAFT".equals(entry.getStatus())) return false;
         if (StringUtils.hasText(entry.getTitle()) || StringUtils.hasText(entry.getExcerpt())) return false;
         if (entry.getContentJson() != null && entry.getContentJson().path("blocks").size() > 0) return false;
-        if (entry.getCoverMediaId() != null || mediaCount(id) > 0) return false;
-        delete(id);
-        return true;
+        return entry.getCoverMediaId() == null && mediaCount(entry.getId()) == 0;
     }
 
     /**

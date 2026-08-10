@@ -77,8 +77,33 @@
 .journal-companions{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.journal-companions article{padding:1em;border:1px solid var(--tj-border);border-radius:10px}.journal-companions strong,.journal-companions span{display:block}.journal-companions strong{color:var(--tj-primary)}.journal-companions span{margin-top:.15em;color:var(--tj-accent);font-size:.82em}.journal-companions p{margin:.6em 0 0;color:var(--tj-muted);line-height:1.6}
 .journal-place-card,.journal-record-card,.journal-transport,.journal-weather{padding:1em 1.1em;border:1px solid var(--tj-border);border-radius:10px;background:var(--tj-surface-soft)}.journal-place-card header,.journal-record-card header{display:flex;align-items:baseline;justify-content:space-between;gap:1em}.journal-place-card header strong,.journal-record-card header strong{color:var(--tj-primary);font-size:1.1em}.journal-place-card header b,.journal-record-card>div b{color:var(--tj-accent)}.journal-place-card>span,.journal-place-card>small{display:block;margin-top:.3em;color:var(--tj-muted)}.journal-place-card p,.journal-record-card p,.journal-transport p,.journal-weather p{margin:.7em 0 0;line-height:1.65}.journal-record-card header span{color:var(--tj-muted)}.journal-record-card>div{display:flex;gap:1em;margin-top:.55em}.journal-transport{display:grid;gap:.55em}.journal-transport>b{color:var(--tj-accent)}.journal-transport>div{display:flex;align-items:center;gap:.8em;color:var(--tj-primary)}.journal-transport i{color:var(--tj-accent);font-style:normal}.journal-transport small{color:var(--tj-muted)}.journal-weather{display:grid;grid-template-columns:auto auto 1fr;align-items:baseline;gap:.4em 1em}.journal-weather>strong{color:var(--tj-primary);font-size:1.1em}.journal-weather>b{color:var(--tj-accent);font-size:1.35em}.journal-weather>span{color:var(--tj-muted)}.journal-weather>p{grid-column:1/-1}
 
+/* ——— 一天的开头、中间和结尾 ——— */
+/* 开场卡是整篇日记的第一眼，所以给它比正文更大的字号和更明确的层次 */
+.journal-day-opener{display:grid;gap:.35em;padding:1.1em 0 1.2em;border-bottom:1px solid var(--tj-border)}
+.journal-day-opener>strong{color:var(--tj-primary);font:700 clamp(20px,3.4vw,26px)/1.3 var(--tj-serif);letter-spacing:.02em}
+.journal-day-opener>span{color:var(--tj-muted);font-size:.94em}
+.journal-day-opener__route{margin:.5em 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:.45em;color:var(--tj-primary)}
+.journal-day-opener__route i{color:var(--tj-accent);font-style:normal;opacity:.75}
+.journal-day-opener__metrics{margin-top:.75em;display:flex;flex-wrap:wrap;gap:1.4em}
+.journal-day-opener__metrics b{display:block;color:var(--tj-accent);font:700 1.25em var(--tj-serif)}
+.journal-day-opener__metrics span{color:var(--tj-muted);font-size:.8em}
+/* 章节节点：时间在左，标题在右，靠一条细线把一天串起来 */
+.journal-chapter{display:grid;grid-template-columns:auto 1fr;align-items:baseline;gap:.2em .8em;margin-top:.6em;padding-top:.9em;border-top:1px solid color-mix(in srgb,var(--tj-border) 70%,transparent)}
+.journal-chapter time{color:var(--tj-accent);font:700 .95em var(--tj-serif);letter-spacing:.04em}
+.journal-chapter h3{margin:0;color:var(--tj-primary);font:700 1.18em var(--tj-serif)}
+.journal-chapter small{grid-column:2;color:var(--tj-muted)}
+/* 今日小结：一行一件事，图标在左 */
+.journal-day-summary{display:grid;gap:8px}
+.journal-day-summary article{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.8em;padding:.8em 1em;border:1px solid var(--tj-border);border-radius:10px;background:var(--tj-surface-soft)}
+.journal-day-summary b{font-size:1.25em}
+.journal-day-summary span{display:block;color:var(--tj-muted);font-size:.82em}
+.journal-day-summary strong{color:var(--tj-primary)}
+
 @media (max-width:680px) {
   .journal-document { --journal-block-gap:14px; font-size:clamp(15px,4.1vw,17px); }
+  .journal-day-opener__metrics { gap:1em; }
+  .journal-chapter { grid-template-columns:1fr; }
+  .journal-chapter small { grid-column:1; }
   .journal-document .journal-block__title { margin-bottom:.5em; }
   .journal-trip-info { padding:.72em .85em; }
   .journal-postcard { grid-template-columns:1fr; }

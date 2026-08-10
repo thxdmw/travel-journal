@@ -24,8 +24,10 @@ public class AdminUser extends BaseEntity {
     private String displayName;
     /** 头像在对象存储中的键，为空表示未上传头像 */
     private String avatarObjectKey;
-    /** 当前选用的全站主题标识，对应 theme_preset.theme_key */
+    /** 当前选用的全站主题标识，对应 theme_preset.theme_key；theme_mode 为 AUTO 时不生效 */
     private String themeKey;
+    /** 全站主题模式：AUTO 跟随季节自动切换，FIXED 固定用 themeKey 指定的那套 */
+    private String themeMode;
     /** 账号是否启用，停用后无法登录 */
     private Boolean enabled;
     /** 最近一次登录成功时间 */

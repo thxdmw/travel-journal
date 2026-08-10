@@ -49,4 +49,14 @@ public interface MediaVisibilityMapper {
                    'hero', jsonb_build_object('mediaId', #{mediaId}))
         """)
     long countThemeHeroReferences(@Param("mediaId") Long mediaId);
+
+    /**
+     * 统计一张图片被多少条随手记引用。
+     *
+     * <p>随手记整理成日记之后，同一张照片会同时挂在 {@code moment_media} 和
+     * {@code journal_media} 下。删掉那篇日记时原始的随手记还在，照片不能跟着删——
+     * 那是当时按下快门的那一张。</p>
+     */
+    @Select("select count(*) from moment_media mm where mm.media_asset_id = #{mediaId}")
+    long countMomentReferences(@Param("mediaId") Long mediaId);
 }

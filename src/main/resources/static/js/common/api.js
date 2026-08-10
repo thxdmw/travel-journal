@@ -51,7 +51,8 @@
       changePassword: body => http.post('/admin/auth/change-password', body),
       uploadAvatar: form => http.post('/admin/profile/avatar', form),
       updateDisplayName: body => http.put('/admin/profile/display-name', body),
-      changeTheme: themeKey => http.put('/admin/profile/theme', { themeKey })
+      // mode 传 'AUTO' 表示跟随季节，此时 themeKey 可以为空；不传就是锁定这一套
+      changeTheme: (themeKey, mode) => http.put('/admin/profile/theme', { themeKey, mode })
     },
     admin: {
       trips: params => http.get('/admin/trips', { params }),
@@ -91,7 +92,9 @@
       createJournalDraft: body => http.post('/admin/journals/draft', body || {}),
       // 草稿自动保存：字段可以不全，后端按草稿标准校验（允许空标题、空正文）
       saveJournalDraft: (id, body) => http.patch('/admin/journals/' + id + '/draft', body),
-      // 进了编辑器又什么都没写就退出时调用，是否真的删由后端判断
+      // 作者显式放弃一篇空草稿时调用，是否真的删由后端判断。
+      // 退出编辑器时不再自动调它——那一刻最后一次保存可能还在路上，看着空的未必真是空的；
+      // 真正没人动过的空草稿由服务端满 24 小时后统一回收。
       discardEmptyJournal: id => http.delete('/admin/journals/' + id + '/discard-empty'),
       deleteJournal: id => http.delete('/admin/journals/' + id),
       journalMediaCount: id => http.get('/admin/journals/' + id + '/media-count'),
@@ -124,7 +127,27 @@
       deleteTemplate: id => http.delete('/admin/journal-templates/' + id),
       duplicateTemplate: id => http.post('/admin/journal-templates/' + id + '/duplicate'),
       generateTemplate: (id, body) => http.post('/admin/journal-templates/' + id + '/generate', body),
+      // ——— 随手记 ———
+      // 写入路径全部字段可选：只要知道属于哪次旅行就能落库，其余之后补。
+      // 「二十秒记完」这件事经不起任何一次校验失败。
+      moments: (tripId, day, unsorted) => http.get('/admin/moments', { params: { tripId, day, unsorted } }),
+      moment: id => http.get('/admin/moments/' + id),
+      unsortedMoments: tripId => http.get('/admin/moments/unsorted-count', { params: { tripId } }),
+      createMoment: body => http.post('/admin/moments', body),
+      updateMoment: (id, body) => http.put('/admin/moments/' + id, body),
+      deleteMoment: id => http.delete('/admin/moments/' + id),
+      addMomentPhoto: (id, form) => http.post('/admin/moments/' + id + '/media', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000
+      }),
+      removeMomentPhoto: (id, mediaId) => http.delete('/admin/moments/' + id + '/media/' + mediaId),
+      momentRoute: (tripId, day) => http.get('/admin/moments/route', { params: { tripId, day } }),
+      // AI 润色是否可用（取决于服务端有没有配 key）；不可用时前端不显示那个选项
+      momentAiStatus: () => http.get('/admin/moments/ai-status'),
+      // 把一天的随手记整理成日记草稿。replace 为空表示追加，不会冲掉已经写好的部分
+      composeMoments: body => http.post('/admin/moments/compose', body),
       themes: (enabledOnly = false) => http.get('/admin/themes', { params: { enabledOnly } }),
+      // 全站主题当前是跟随季节还是固定，以及此刻实际生效的是哪一套
+      siteThemeState: () => http.get('/admin/themes/site-state'),
       createTheme: body => http.post('/admin/themes', body),
       updateTheme: (id, body) => http.put('/admin/themes/' + id, body),
       deleteTheme: id => http.delete('/admin/themes/' + id),

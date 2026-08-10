@@ -147,14 +147,61 @@
     targets.forEach(el => { el.classList.add('tj-reveal'); observer.observe(el); });
   }
 
+  // ------------------------------------------------------------------ 贴纸
+  /*
+   * 主题贴纸。
+   *
+   * 位置来自一份很短的白名单（hero-left、section-gap 之类），主题只表达
+   * 「放在页眉右边」这种意图，真正贴在哪由 CSS 决定——绝对坐标在手机上一定会错位。
+   * 素材名只允许小写字母、数字和短横线（后端也校验一遍），拼出来的路径固定指向
+   * /assets/themes/stickers/ 下的 SVG，主题配置里不会出现任意 URL。
+   */
+  const STICKER_AREAS = ['hero-left', 'hero-right', 'page-left', 'page-right',
+    'section-gap', 'image-corner', 'footer'];
+  const SAFE_ASSET = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+  function syncStickers() {
+    document.querySelectorAll('.tj-sticker').forEach(el => el.remove());
+    const definition = window.TravelTheme?.current()?.definitionJson || {};
+    const config = definition.stickers || {};
+    if (config.density === 'none' || !config.density) return;
+    if (!Array.isArray(config.items) || !config.items.length) return;
+    const host = layer();
+    config.items.forEach(item => {
+      const asset = String(item?.asset || '');
+      const area = String(item?.area || '');
+      if (!SAFE_ASSET.test(asset) || !STICKER_AREAS.includes(area)) return;
+      const element = document.createElement('img');
+      element.className = 'tj-sticker tj-sticker--' + area;
+      element.src = '/assets/themes/stickers/' + asset + '.svg';
+      element.alt = '';
+      element.setAttribute('aria-hidden', 'true');
+      // 贴纸互动也走白名单：主题只能说「点一下弹一下」，不能带任何脚本
+      const click = document.documentElement.dataset.interactionsStickerClick;
+      if (click && click !== 'none') {
+        element.dataset.interaction = click;
+        element.addEventListener('click', () => {
+          element.classList.remove('is-playing');
+          void element.offsetWidth;               // 重启动画，连点两下也有反馈
+          element.classList.add('is-playing');
+        });
+      }
+      host.appendChild(element);
+    });
+  }
+
   function sync() {
     syncParticles();
     syncScrollReveal();
+    syncStickers();
   }
 
   // <html> 上的 data-* 一变就重新同步，主题切换不需要刷新页面
   new MutationObserver(sync).observe(document.documentElement,
-    { attributes: true, attributeFilter: ['data-effects-particles', 'data-motion-scroll-reveal'] });
+    { attributes: true, attributeFilter: ['data-effects-particles', 'data-motion-scroll-reveal',
+      'data-stickers-density', 'data-interactions-sticker-click'] });
+  // 贴纸列表不是 data-* 属性（它是个数组），所以额外听一次主题应用完成
+  window.addEventListener('travel-theme-applied', syncStickers);
 
   window.addEventListener('resize', () => { resize(); if (currentKind !== 'none') start(currentKind); });
   // 切到后台标签就停，别在看不见的地方空转耗电

@@ -68,8 +68,8 @@
         occurredOn:form.occurredOn
       }));
       let travelDataRequest=0,localTimer=null,remoteTimer=null,fallbackTimer=null;
-      // 这篇草稿是不是本次会话新开的——只有它才可能在退出时被当作空草稿丢掉
-      let createdHere=false;
+      // 上传是并发的，这个单调递增的序号记住每张照片是第几个被选中的
+      let uploadSeq=0;
 
       async function loadTravelData(tripId){
         const request=++travelDataRequest;
@@ -86,6 +86,7 @@
        * 传完的把 pendingKey 抹掉即可；没传完的整块不提交——否则服务器上会留下一个
        * 没有图片的空图块，刷新之后既看不到进度也传不下去了。
        */
+      const PENDING_FIELDS=['pendingKey','pendingKeys','pendingOrder','pendingResolved'];
       function cleanContent(){
         const source=form.contentJson?.blocks||[];
         const blocks=source.filter(block=>{
@@ -93,9 +94,9 @@
           if(block.data?.pendingKeys?.length)return (block.data.mediaIds||[]).length>0;
           return true;
         }).map(block=>{
-          if(!block.data?.pendingKey&&!block.data?.pendingKeys)return block;
+          if(!PENDING_FIELDS.some(field=>block.data?.[field]!=null))return block;
           const copy=JSON.parse(JSON.stringify(block));
-          delete copy.data.pendingKey;delete copy.data.pendingKeys;
+          PENDING_FIELDS.forEach(field=>delete copy.data[field]);
           return copy;
         });
         return {schemaVersion:1,blocks:blocks};
@@ -121,7 +122,7 @@
         if(!tripId){ElementPlus.ElMessage.warning('请先建立一次旅行，再开始写日记');return false;}
         try{
           const created=await A.createJournalDraft({tripId:tripId,occurredOn:form.occurredOn||today()});
-          id.value=created.id;createdHere=true;
+          id.value=created.id;
           Object.assign(form,{tripId:created.tripId,slug:created.slug,occurredOn:created.occurredOn,status:created.status});
           router.replace({path:'/journals/'+created.id,query:route.query.from?{from:route.query.from}:{}});
           autoSaveState.value='saved';
@@ -173,20 +174,41 @@
         if(remoteTimer)clearTimeout(remoteTimer);
         remoteTimer=setTimeout(()=>{remoteTimer=null;autoSave();},3000);
       }
+      /*
+       * 写请求串行队列。
+       *
+       * 自动保存、手动保存、发布、更新发布都会把整篇正文全量写上去。一旦两个请求
+       * 同时在路上，先发的那个晚一步到达服务端就会用旧正文盖掉新正文——在信号
+       * 不好的地铁或山里，这种时序错位并不罕见。所以所有写操作排一条链，
+       * 前一个落地了才发下一个。
+       */
+      let saveChain=Promise.resolve();
+      function enqueue(task){
+        // 前一个失败也要让后面的继续排，否则一次网络抖动会让这一篇彻底不再保存
+        const next=saveChain.then(task,task);
+        saveChain=next.then(()=>{},()=>{});
+        return next;
+      }
+      /** 正文的击键攒在 300ms 去抖里，任何一次保存之前都要先把它压到 form 上。 */
+      function flushEditor(){blockEditor.value?.flushInline();}
       /** 静默的服务端草稿保存。校验交给后端的草稿标准，前端不再拦空标题。 */
       async function autoSave(){
-        if(!id.value||!dirty.value||saving.value||form.status!=='DRAFT')return false;
+        if(!id.value||!dirty.value||form.status!=='DRAFT')return false;
         if(!navigator.onLine){autoSaveState.value='offline';return false;}
-        saving.value=true;autoSaveState.value='saving';
-        const snapshot=body();
-        try{
-          await A.saveJournalDraft(id.value,snapshot);
-          // 保存期间作者可能又敲了几个字，那就还是脏的，留给下一轮
-          if(JSON.stringify(snapshot)===JSON.stringify(body()))dirty.value=false;
-          autoSaveState.value='saved';await LD.remove(id.value);
-          return true;
-        }catch(e){autoSaveState.value=navigator.onLine?'failed':'offline';return false;}
-        finally{saving.value=false;}
+        return enqueue(async()=>{
+          // 排队期间可能已经被前一次保存带走了，或者作者已经发布
+          if(!dirty.value||form.status!=='DRAFT')return false;
+          saving.value=true;autoSaveState.value='saving';
+          const snapshot=body();
+          try{
+            await A.saveJournalDraft(id.value,snapshot);
+            // 保存期间作者可能又敲了几个字，那就还是脏的，留给下一轮
+            if(JSON.stringify(snapshot)===JSON.stringify(body()))dirty.value=false;
+            autoSaveState.value='saved';await LD.remove(id.value);
+            return true;
+          }catch(e){autoSaveState.value=navigator.onLine?'failed':'offline';return false;}
+          finally{saving.value=false;}
+        });
       }
       /** 手动保存，会把提示说出来；发布、预览链接这类操作前也先走它。 */
       async function save(silent=false){
@@ -195,31 +217,41 @@
           return false;
         }
         if(!await ensureDraft())return false;
-        blockEditor.value?.flushInline();await nextTick();
+        flushEditor();await nextTick();
         if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;}
-        saving.value=true;autoSaveState.value='saving';
-        try{
-          await A.saveJournalDraft(id.value,body());
-          dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);
-          if(!silent)message('草稿已保存');return true;
-        }catch(e){autoSaveState.value='failed';fail(e);return false;}finally{saving.value=false;}
+        return enqueue(async()=>{
+          saving.value=true;autoSaveState.value='saving';
+          try{
+            await A.saveJournalDraft(id.value,body());
+            dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);
+            if(!silent)message('草稿已保存');return true;
+          }catch(e){autoSaveState.value='failed';fail(e);return false;}finally{saving.value=false;}
+        });
       }
       /** 发布走严格校验：这里先在前端把缺的字段指出来，后端还会再拦一道。 */
       async function publish(){
-        blockEditor.value?.flushInline();await nextTick();
+        flushEditor();await nextTick();
         if(!await validateForm(formRef)){metaCollapsed.value=false;return;}
         if(!await save(true))return;
-        try{await A.publishJournal(id.value);form.status='PUBLISHED';await nextTick();dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);message('日记已发布');}catch(e){fail(e);}
+        return enqueue(async()=>{
+          try{await A.publishJournal(id.value);form.status='PUBLISHED';await nextTick();dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);message('日记已发布');}catch(e){fail(e);}
+        });
       }
       async function updatePublished(){
-        blockEditor.value?.flushInline();await nextTick();
+        flushEditor();await nextTick();
         if(!await validateForm(formRef)){metaCollapsed.value=false;return;}
-        saving.value=true;
-        try{await A.updateJournal(id.value,body());await nextTick();dirty.value=false;
-          autoSaveState.value='saved';await LD.remove(id.value);message('公开文章已更新');
-        }catch(e){fail(e);autoSaveState.value='failed';}finally{saving.value=false;}
+        return enqueue(async()=>{
+          saving.value=true;
+          try{await A.updateJournal(id.value,body());await nextTick();dirty.value=false;
+            autoSaveState.value='saved';await LD.remove(id.value);message('公开文章已更新');
+          }catch(e){fail(e);autoSaveState.value='failed';}finally{saving.value=false;}
+        });
       }
-      async function unpublish(){try{await A.unpublishJournal(id.value);form.status='DRAFT';await nextTick();dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);message('日记已撤回');}catch(e){fail(e);}}
+      async function unpublish(){
+        return enqueue(async()=>{
+          try{await A.unpublishJournal(id.value);form.status='DRAFT';await nextTick();dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);message('日记已撤回');}catch(e){fail(e);}
+        });
+      }
       /*
        * 选完照片立刻插进正文，上传在后台跑。
        *
@@ -231,9 +263,38 @@
         const list=Array.from(files||[]).filter(x=>x.type&&x.type.startsWith('image/'));
         if(!list.length||!await ensureDraft())return;
         const tasks=list.map(file=>reactive({key:'up_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
-          name:file.name,file:file,preview:URL.createObjectURL(file),progress:0,status:'waiting'}));
+          name:file.name,file:file,preview:URL.createObjectURL(file),progress:0,status:'waiting',seq:uploadSeq++}));
         uploads.value.push(...tasks);
         blockEditor.value?.insertPending(tasks);
+        // 先把照片本身落进 IndexedDB 再开始传：File 只活在内存里，浏览器一被系统
+        // 杀掉就没了。存下来之后即使这次没传成，重新打开还能接着传。
+        await Promise.all(tasks.map(task=>LD.queuePhoto(id.value,task.key,task.file,task.name)));
+        await runUploadQueue(tasks);
+      }
+      /*
+       * 把上次没传完的照片捡回来。
+       *
+       * 进编辑器时跑一次。正文里那些 pendingKey 占位块是随草稿一起存下来的，
+       * 这里按 key 对上号，就能接着上传并把 mediaId 填回原来的位置。
+       * 队列里已经没有对应占位块的（作者后来删掉了那一段），顺手清掉。
+       */
+      async function resumePendingUploads(){
+        if(!id.value)return;
+        const queued=await LD.pendingPhotos(id.value);
+        if(!queued.length)return;
+        const keys=new Set();
+        (form.contentJson?.blocks||[]).forEach(block=>{
+          if(block.data?.pendingKey)keys.add(block.data.pendingKey);
+          (block.data?.pendingKeys||[]).forEach(key=>keys.add(key));
+        });
+        const orphans=queued.filter(item=>!keys.has(item.key));
+        orphans.forEach(item=>LD.dropPhoto(item.key));
+        const resumable=queued.filter(item=>keys.has(item.key));
+        if(!resumable.length)return;
+        const tasks=resumable.map(item=>reactive({key:item.key,name:item.name,file:item.blob,
+          preview:URL.createObjectURL(item.blob),progress:0,status:'waiting',seq:uploadSeq++}));
+        uploads.value.push(...tasks);
+        ElementPlus.ElMessage.info('有 '+tasks.length+' 张照片上次没传完，正在继续');
         await runUploadQueue(tasks);
       }
       async function runUploadQueue(tasks){
@@ -246,8 +307,28 @@
         uploading.value=false;
         const failed=uploads.value.filter(task=>task.status==='failed').length;
         if(failed)ElementPlus.ElMessage.warning(failed+' 张照片没传上去，可以在正文里点重试');
+        // 服务端的 sortOrder 是按请求到达顺序写的，和挑选顺序对不上；
+        // 一批传完之后按本地顺序回写一次，下次打开这篇日记看到的才是同一个次序
+        if(tasks.some(task=>task.status==='done'))await syncMediaOrder();
         // 传完的任务留在队列里没意义，但要等占位块都换成真图之后再清
         uploads.value=uploads.value.filter(task=>task.status!=='done');
+      }
+      /** 把图片管理器里当前的顺序告诉服务端，失败了不打扰作者——下次重排还会再试。 */
+      async function syncMediaOrder(){
+        if(!id.value||!media.value.length)return;
+        try{await A.reorderMedia(id.value,media.value.map(item=>item.relationId));}catch(_){}
+      }
+      /**
+       * 把传完的照片放回它在这一批里的位置。
+       *
+       * 并发上传下完成顺序是乱的：选了三张，第三张最小最先传完，直接 push 的话
+       * 图片管理器里就成了「3、1、2」。seq 是挑选时分配的单调序号，插到第一个
+       * 序号比它大的元素前面，列表顺序就和相册里看到的一致。
+       */
+      function insertUploaded(task,item){
+        item.uploadSeq=task.seq;
+        const at=media.value.findIndex(x=>x.uploadSeq!=null&&x.uploadSeq>task.seq);
+        if(at<0)media.value.push(item);else media.value.splice(at,0,item);
       }
       async function sendUpload(task){
         task.status='uploading';task.progress=0;
@@ -256,15 +337,33 @@
           const item=await A.uploadMedia(id.value,data,event=>{
             if(event.total)task.progress=Math.min(99,Math.round(event.loaded*100/event.total));
           });
-          media.value.push(item);
+          insertUploaded(task,item);
           task.status='done';task.progress=100;
           blockEditor.value?.resolvePending(task.key,item.id);
+          // 服务器上已经有这张了，本机那份副本就没必要再占空间
+          LD.dropPhoto(task.key);
           URL.revokeObjectURL(task.preview);
         }catch(e){task.status='failed';}
       }
       function retryUpload(key){
         const task=uploads.value.find(item=>item.key===key);
         if(task&&task.status==='failed')runUploadQueue([task]);
+      }
+      /** 作者把占位块删掉了，本机存的那张也一起清掉，不然它会一直躺在队列里。 */
+      function discardUpload(key){
+        uploads.value=uploads.value.filter(item=>item.key!==key);
+        LD.dropPhoto(key);
+      }
+      /*
+       * 网络回来了就把失败的那几张重新排上。
+       *
+       * 旅行中最常见的是「进了地铁 → 传失败 → 出站有信号」这一串，让作者自己
+       * 回来点重试很不合理——他这时通常已经在看风景了。
+       */
+      function onOnline(){
+        const failed=uploads.value.filter(task=>task.status==='failed');
+        if(failed.length)runUploadQueue(failed);
+        if(dirty.value)autoSave();
       }
       function picked(event){upload(event.target.files);event.target.value='';}
       /** 触摸设备先问拍照还是相册；鼠标设备没有相机这一说，直接开文件选择。 */
@@ -349,37 +448,85 @@
         const tab=TAB_ORDER.includes(route.query.from)?route.query.from:'journals';
         router.push({path:'/trips/'+form.tripId,query:{tab}});
       }
-      /** 页面要走了：本机快照必须落下去，服务端能赶上就赶上。 */
-      function flushAll(){
-        if(pageLoading.value||!id.value)return;
-        if(localTimer){clearTimeout(localTimer);localTimer=null;}
-        if(dirty.value)LD.put(id.value,body());
-        if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;autoSave();}
+      /*
+       * 页面正在关闭时的最后一次提交。
+       *
+       * pagehide 之后普通的 XHR 会被浏览器直接掐掉，所以走 fetch(keepalive)——
+       * 它允许请求在文档卸载后继续发出去。用它而不是 sendBeacon，是因为这条接口
+       * 是 PATCH 且需要带 CSRF 头，sendBeacon 只能发 POST 且改不了请求头。
+       */
+      function keepaliveSave(){
+        const token=(window.document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)||[])[1];
+        const headers={'Content-Type':'application/json'};
+        if(token)headers['X-XSRF-TOKEN']=decodeURIComponent(token);
+        try{
+          fetch('/api/admin/journals/'+id.value+'/draft',
+            {method:'PATCH',credentials:'include',keepalive:true,headers:headers,body:JSON.stringify(body())})
+            .catch(()=>{});
+        }catch(_){}
       }
-      function onHidden(){if(window.document.visibilityState==='hidden')flushAll();}
-      onMounted(()=>{
-        load();
+      /**
+       * 页面要走了：本机快照必须落下去，服务端能赶上就赶上。
+       *
+       * @param closing 页面是不是真的要卸载了。true 走 keepalive——那是最后一次机会；
+       *                false（只是切到后台）走正常的排队保存，页面还活着，没必要
+       *                绕过队列去和正在路上的那次保存抢时序。
+       */
+      function flushAll(closing){
+        if(pageLoading.value||!id.value)return;
+        // 最后这几个字还攒在正文的 300ms 去抖里，不先压下来就既进不了本机快照
+        // 也进不了服务端——「写完最后一句话直接锁屏」正好会踩中这个窗口
+        flushEditor();
+        if(localTimer){clearTimeout(localTimer);localTimer=null;}
+        if(!dirty.value)return;
+        // 本机快照总是先落：即使服务端那次没成功或时序错乱，下次打开还能恢复
+        LD.put(id.value,body());
+        if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;}
+        if(form.status!=='DRAFT'||!navigator.onLine)return;
+        if(closing)keepaliveSave();else autoSave();
+      }
+      function onPageHide(){flushAll(true);}
+      function onHidden(){if(window.document.visibilityState==='hidden')flushAll(false);}
+      onMounted(async()=>{
+        await load();
+        // 上次没传完的照片接着传。放在 load 之后，正文里的占位块这时才对得上号
+        resumePendingUploads();
         // 一直不停手打字时的兜底，比原来 20 秒轮询更省，因为停手 3 秒就已经存过了
         fallbackTimer=setInterval(autoSave,45000);
-        window.addEventListener('pagehide',flushAll);
+        window.addEventListener('pagehide',onPageHide);
         window.addEventListener('visibilitychange',onHidden);
+        window.addEventListener('online',onOnline);
       });
       onBeforeUnmount(async()=>{
         clearInterval(fallbackTimer);
-        window.removeEventListener('pagehide',flushAll);
+        window.removeEventListener('pagehide',onPageHide);
         window.removeEventListener('visibilitychange',onHidden);
+        window.removeEventListener('online',onOnline);
+        // 父组件的 onBeforeUnmount 比子组件先跑，所以正文那 300ms 去抖里的击键
+        // 这时还没上来，必须先主动压一次再取 body()
+        flushEditor();
         if(localTimer)clearTimeout(localTimer);
         if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;}
         const journalId=id.value;if(!journalId)return;
-        if(dirty.value&&form.status==='DRAFT'){try{await A.saveJournalDraft(journalId,body());await LD.remove(journalId);}catch(_){LD.put(journalId,body());}}
-        // 进来看了一眼就走：让后端确认确实什么都没写，再把这条空草稿收掉
-        if(createdHere){try{await A.discardEmptyJournal(journalId);}catch(_){}}
+        if(dirty.value&&form.status==='DRAFT'){
+          const snapshot=body();
+          // 排在队尾，别和还在路上的自动保存抢；写失败就留在本机等下次打开恢复
+          try{await enqueue(()=>A.saveJournalDraft(journalId,snapshot));await LD.remove(journalId);}
+          catch(_){LD.put(journalId,snapshot);}
+        }
+        /*
+         * 这里不再删「看起来是空的」草稿。
+         *
+         * 退出瞬间最后一次保存可能还没落库，服务端此刻看到的空正文并不代表作者
+         * 真的什么都没写；删错一篇正文的代价远高于库里多一条空记录。真正的空草稿
+         * 交给服务端的定时清理，满 24 小时没人动过再收，见 EmptyDraftCleaner。
+         */
       });
       return{form,formRef,rules,id,trips,stops,media,templates,themes,travelContext,pageLoading,saving,uploading,dirty,
         fileInput,cameraInput,blockEditor,metaCollapsed,metaOpen,mediaOpen,photoSheet,wordCount,contextLine,excerptHint,templateDialog,selectedTemplate,templateData,templateBlocks,
         generating,previewLink,autoSaveState,autoSaveLabel,autoSave,tagInput,previewOpen,previewHtml,articlePreviewEl,openArticlePreview,
         save,publish,updatePublished,unpublish,picked,capture,dropped,pasted,setCover,saveCaption,removeMedia,
-        selectedMedia,allSelected,dragOver,uploads,mediaSort,retryUpload,applyMediaSort,toggleSelect,toggleSelectAll,insertSelected,onDragStart,onDragOver,onDragEnd,onDrop,sortByCaptureTime,removeSelected,
+        selectedMedia,allSelected,dragOver,uploads,mediaSort,retryUpload,discardUpload,applyMediaSort,toggleSelect,toggleSelectAll,insertSelected,onDragStart,onDragOver,onDragEnd,onDrop,sortByCaptureTime,removeSelected,
         selectTemplate,openTemplate,generateFromTemplate,makePreviewLink,openPublished,addTag,removeTag,backToTrip,statusLabel};
     },
     template:`
@@ -427,7 +574,7 @@
 
         <div class="editor-grid block-editor-layout">
           <section class="editor-column editor-column--write"><div class="editor-label">日记内容 <small>点击区块之间的 ＋ 添加</small></div>
-            <journal-block-editor ref="blockEditor" v-model="form.contentJson" :media="media" :uploads="uploads" :travel-context="travelContext" @retry-upload="retryUpload"/></section>
+            <journal-block-editor ref="blockEditor" v-model="form.contentJson" :media="media" :uploads="uploads" :travel-context="travelContext" @retry-upload="retryUpload" @discard-upload="discardUpload"/></section>
           <aside class="editor-column media-column" :class="{'is-open':mediaOpen}"><div class="editor-label">图片管理 <small>点击图片可放大预览</small><button type="button" class="media-close" @click="mediaOpen=false">收起</button></div>
             <label class="upload-box" :class="{uploading}" @dragover.prevent @drop.prevent="dropped">
               <input ref="fileInput" type="file" multiple accept="image/jpeg,image/png,image/webp" @change="picked">

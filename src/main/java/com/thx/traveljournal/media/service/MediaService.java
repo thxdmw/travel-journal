@@ -84,6 +84,11 @@ public class MediaService {
                             String thumbnailUrl, String mediumUrl, String displayUrl,
                             OffsetDateTime capturedAt, BigDecimal gpsLatitude, BigDecimal gpsLongitude) {}
 
+    /** 单张图片的展示信息，供不走 journal_media 关系的场景（比如随手记）使用。 */
+    public MediaView viewOf(Long mediaAssetId) {
+        return toView(null, requireAsset(mediaAssetId), null, null);
+    }
+
     /** 按排序号列出某篇日记的全部图片。 */
     public List<MediaView> list(Long journalId) {
         requireJournal(journalId);
@@ -322,6 +327,46 @@ public class MediaService {
     }
 
     /**
+     * 存一张不挂在任何日记下的图片，随手记的照片走这条路。
+     *
+     * <p>随手记有自己的关系表（{@code moment_media}），归属由调用方建立。这里只负责
+     * 「把文件安全地放进对象存储并登记成 media_asset」这一段，好让 media 模块
+     * 不必反过来认识 moment 模块。</p>
+     *
+     * @param keyPrefix 对象键前缀，调用方按业务组织目录
+     */
+    @Transactional
+    public MediaView storeLoose(MultipartFile file, String keyPrefix) {
+        return toView(null, storeImage(file, keyPrefix), null, null);
+    }
+
+    /**
+     * 把一张已经存在的图片挂到某篇日记下。
+     *
+     * <p>随手记整理成日记时用：照片本身不重新上传，只是多建一条引用关系。
+     * 已经挂过就直接返回原来那条，重复整理同一天不会产生重复图片。</p>
+     */
+    @Transactional
+    public MediaView attachExisting(Long journalId, Long mediaAssetId, String caption) {
+        requireJournal(journalId);
+        requireAsset(mediaAssetId);
+        JournalMedia existing = journalMediaMapper.selectOne(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId)
+                .eq(JournalMedia::getMediaAssetId, mediaAssetId).last("limit 1"));
+        if (existing != null) return toView(existing);
+        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId));
+        if (count >= properties.upload().maxImagesPerJournal()) throw BusinessException.badRequest("单篇日记图片数量已达上限");
+        JournalMedia relation = new JournalMedia();
+        relation.setJournalEntryId(journalId);
+        relation.setMediaAssetId(mediaAssetId);
+        relation.setCaption(caption);
+        relation.setSortOrder((int) count);
+        journalMediaMapper.insert(relation);
+        return toView(relation);
+    }
+
+    /**
      * 图片跳转响应可以被浏览器缓存多久（秒）。
      *
      * <p>取预签名有效期的 70%：跳转到的地址在 TTL 之后就失效了，留出余量避免
@@ -474,7 +519,10 @@ public class MediaService {
             long tripRefs = tripMapper.selectCount(new LambdaQueryWrapper<Trip>().eq(Trip::getCoverMediaId, assetId));
             // 主题封面存在 definition_json 里，不是外键，容易漏判——漏了就会把还在用的封面删掉
             long themeRefs = visibilityMapper.countThemeHeroReferences(assetId);
-            if (journalRefs > 0 || tripRefs > 0 || themeRefs > 0) continue;
+            // 整理成日记之后照片会被日记和随手记同时引用。删掉那篇日记时，原始的
+            // 随手记还在，照片就不能跟着走——那是当时按下快门的那一张。
+            long momentRefs = visibilityMapper.countMomentReferences(assetId);
+            if (journalRefs > 0 || tripRefs > 0 || themeRefs > 0 || momentRefs > 0) continue;
             MediaAsset asset = assetMapper.selectById(assetId);
             if (asset == null) continue;
             removeObjectQuietly(asset.getBucketName(), asset.getOriginalObjectKey());

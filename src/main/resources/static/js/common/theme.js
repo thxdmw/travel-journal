@@ -18,7 +18,8 @@
     'typography-paragraphSpacing':'em', 'shape-borderWidth':'px',
     'layout-sectionGap':'', 'card-opacity':'', 'card-blur':'px',
     'background-intensity':'', 'image-maxHeight':'vh', 'gallery-columns':'',
-    'gallery-gap':'px', 'map-routeWidth':'px'
+    'gallery-gap':'px', 'map-routeWidth':'px',
+    'decorations-opacity':'', 'ambient-intensity':''
   };
   const kebab = name => name.replace(/[A-Z]/g, ch => '-' + ch.toLowerCase());
   /** 切换主题前要清掉的变量。数值项直接从 numericUnits 推导，避免两处各写一遍漏掉。 */
@@ -40,8 +41,12 @@
   };
   function fontStack(name, fallback) { return fontStacks[name] || fontStacks[fallback]; }
 
-  /** 走通用映射的区块。colors 单独处理（要派生阴影等），其余全部按约定铺开。 */
-  const genericSections = ['card', 'background', 'image', 'gallery', 'motion', 'effects', 'map', 'layout', 'typography', 'shape'];
+  /**
+   * 走通用映射的区块。colors 单独处理（要派生阴影等），其余全部按约定铺开。
+   * 后面五个是 Theme Pack V2 新增的：装饰、分隔线、氛围、Block 皮肤和互动。
+   */
+  const genericSections = ['card', 'background', 'image', 'gallery', 'motion', 'effects', 'map', 'layout',
+    'typography', 'shape', 'decorations', 'dividers', 'ambient', 'blockStyles', 'interactions', 'stickers', 'hero'];
   /** 切换主题前要清掉的 data-* 属性前缀，避免上一套主题的枚举值残留 */
   const managedDataPrefixes = genericSections.concat('colors');
 
@@ -55,7 +60,8 @@
       const values = definition[section];
       if (!values || typeof values !== 'object') return;
       Object.entries(values).forEach(([key, value]) => {
-        if (value == null || key === 'mediaId') return;
+        // mediaId 要拼成 url()，贴纸列表要生成 DOM，两者都走各自的专用逻辑
+        if (value == null || key === 'mediaId' || typeof value === 'object') return;
         const name = section + '-' + key;
         if (typeof value === 'number') {
           const unit = numericUnits[name];
@@ -185,8 +191,18 @@
       localStorage.setItem('travel-theme', theme.themeKey || theme.baseThemeKey);
       localStorage.setItem('travel-theme-config', JSON.stringify(theme));
     }
+    /*
+     * 贴纸不能只靠 data-* 表达：它是一个列表，每一项都要变成页面上的一个元素。
+     * 所以这里只把主题存下来并广播一声，具体铺进 DOM 的事交给 theme-effects.js——
+     * theme.js 保持「只写 CSS 变量和属性、不碰 DOM 结构」这条边界。
+     */
+    active = theme;
+    window.dispatchEvent(new CustomEvent('travel-theme-applied', { detail:theme }));
     return theme;
   }
+
+  /** 当前生效的主题，供需要读取 stickers 这类结构化配置的模块使用。 */
+  function current() { return active; }
 
   function stored() {
     try {
@@ -197,5 +213,7 @@
     }
   }
 
-  window.TravelTheme = { apply, normalize, stored, supportedBases };
+  let active = null;
+
+  window.TravelTheme = { apply, normalize, stored, current, supportedBases };
 })();

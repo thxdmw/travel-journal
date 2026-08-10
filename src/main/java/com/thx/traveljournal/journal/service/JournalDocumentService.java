@@ -31,7 +31,9 @@ public class JournalDocumentService {
             "heading", "paragraph", "quote", "rating", "checklist", "trip-info",
             "route", "itinerary", "timeline", "expense-summary", "image", "gallery",
             "postcard", "divider", "callout", "facts", "pros-cons", "table", "link-card",
-            "stats", "companions", "location-card", "food", "stay", "transport", "weather");
+            "stats", "companions", "location-card", "food", "stay", "transport", "weather",
+            // 一天的开头、中间和结尾。三个都能从旅行数据自动填出来，作者不用重复录入
+            "day-opener", "chapter", "day-summary");
     private static final Set<String> IMAGE_SIZES = Set.of("small", "medium", "large", "full", "bleed");
     private static final Set<String> IMAGE_ALIGNS = Set.of("left", "center", "right");
     private static final Set<String> GALLERY_LAYOUTS = Set.of(
@@ -167,6 +169,12 @@ public class JournalDocumentService {
                     || StringUtils.hasText(data.path("note").asText());
             case "weather" -> StringUtils.hasText(data.path("condition").asText())
                     || StringUtils.hasText(data.path("note").asText());
+            case "day-opener" -> StringUtils.hasText(data.path("city").asText())
+                    || StringUtils.hasText(data.path("date").asText())
+                    || (data.path("route").isArray() && !data.path("route").isEmpty());
+            case "chapter" -> StringUtils.hasText(data.path("title").asText())
+                    || StringUtils.hasText(data.path("time").asText());
+            case "day-summary" -> data.path("items").isArray() && !data.path("items").isEmpty();
             default -> false;
         };
     }

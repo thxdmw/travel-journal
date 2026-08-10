@@ -1,0 +1,470 @@
+/*
+ * Theme Pack V2 的视觉实现。
+ *
+ * theme-tokens.css 管的是「页面长什么样」——颜色、字号、圆角、间距。
+ * 这个文件管的是「页面有没有性格」：装饰、贴纸、分隔线、氛围层、Block 皮肤
+ * 和几个可交互的小动作。两者分开是因为前者几乎每个页面都要读，后者只在
+ * 主题显式开启时才有内容，默认全是空的。
+ *
+ * 读的都是 theme.js 铺在 <html> 上的 data-* 属性，主题一换就整体跟着变，
+ * 不需要刷新页面。可调项的定义见 ThemePresetService.SCHEMA。
+ *
+ * 一条贯穿始终的原则：这些东西是用来填补页面的空旷感的，不是用来填满页面的。
+ * 所以透明度都压得很低，数量也少——正文永远比装饰重要。
+ */
+
+:root {
+  --tj-decoration-opacity: .35;
+  --tj-ambient-intensity: .4;
+}
+
+/* ============================================================ 页面装饰 */
+/* 四角线稿。用伪元素画在 body 上，不占文档流，也不会被内容推走。 */
+[data-decorations-corner]:not([data-decorations-corner="none"]) body::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  width: min(28vw, 260px);
+  aspect-ratio: 1;
+  right: 0;
+  bottom: 0;
+  opacity: var(--tj-decoration-opacity);
+  background-repeat: no-repeat;
+  background-position: bottom right;
+  background-size: contain;
+}
+[data-decorations-corner="vine"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%237FA86B' stroke-width='3'%3E%3Cpath d='M200 200C160 190 130 165 115 130'/%3E%3Cpath d='M130 160c-18 4-30-6-32-22 16-4 28 6 32 22z'/%3E%3Cpath d='M120 120c14-10 14-26 4-38-12 10-14 26-4 38z'/%3E%3Cpath d='M160 180c-16 8-30 2-36-12 15-8 30-2 36 12z'/%3E%3C/svg%3E");
+}
+[data-decorations-corner="wave"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%232E9BC9' stroke-width='4' stroke-linecap='round'%3E%3Cpath d='M0 150c20-16 40-16 60 0s40 16 60 0 40-16 60 0'/%3E%3Cpath d='M0 175c20-16 40-16 60 0s40 16 60 0 40-16 60 0'/%3E%3C/svg%3E");
+}
+[data-decorations-corner="leaf"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cpath d='M190 40C120 40 70 78 70 128c0 22 11 39 28 44 5-50 38-83 82-94-39 22-66 55-71 99 55 0 94-44 94-105 0-14-4-25-13-32z' fill='%23C67A3E'/%3E%3C/svg%3E");
+}
+[data-decorations-corner="frost"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23A9C8DC' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M200 120h-60M170 90v60M200 160h-40M180 140v40M200 60h-90M140 30v60'/%3E%3C/svg%3E");
+}
+[data-decorations-corner="stamp"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23A8402F' stroke-width='3'%3E%3Ccircle cx='130' cy='130' r='60'/%3E%3Ccircle cx='130' cy='130' r='44' stroke-dasharray='6 6'/%3E%3Cpath d='M86 130h88M90 106h80M90 154h80'/%3E%3C/svg%3E");
+}
+[data-decorations-corner="compass"] body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23264A3D' stroke-width='3'%3E%3Ccircle cx='130' cy='130' r='58'/%3E%3Cpath d='M158 102l-36 12-12 36 36-12z' fill='%23C76D4B' stroke='none'/%3E%3Cpath d='M130 60v14M130 186v-14M60 130h14M200 130h-14'/%3E%3C/svg%3E");
+}
+
+/* 标题旁的纹样。跟着 h2 走，所以每个章节都会带上，不需要作者手动插。 */
+[data-decorations-header-ornament]:not([data-decorations-header-ornament="none"]) .journal-document h2::before {
+  content: "";
+  display: block;
+  width: 46px;
+  height: 12px;
+  margin-bottom: 10px;
+  opacity: calc(var(--tj-decoration-opacity) + .3);
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+[data-decorations-header-ornament="line"] .journal-document h2::before {
+  height: 3px;
+  background: var(--tj-accent);
+  border-radius: 2px;
+}
+[data-decorations-header-ornament="wave"] .journal-document h2::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 12' fill='none' stroke='%232E9BC9' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M2 8c5-6 10-6 15 0s10 6 15 0 10-6 14 0'/%3E%3C/svg%3E");
+}
+[data-decorations-header-ornament="compass"] .journal-document h2::before {
+  width: 20px;
+  height: 20px;
+  background-image: url("/assets/themes/stickers/classic-compass.svg");
+}
+[data-decorations-header-ornament="ticket"] .journal-document h2::before {
+  width: 26px;
+  height: 18px;
+  background-image: url("/assets/themes/stickers/autumn-ticket.svg");
+}
+[data-decorations-header-ornament="arch"] .journal-document h2::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 12' fill='none' stroke='%23888' stroke-width='3'%3E%3Cpath d='M2 11c0-12 44-12 44 0'/%3E%3C/svg%3E");
+  filter: saturate(0);
+}
+
+/* 页边零星点缀。密度刻意很低——它是用来打破空白的，不是用来铺满的。 */
+[data-decorations-page-edge]:not([data-decorations-page-edge="none"]) .journal-document > .journal-block:nth-child(4n+3)::before,
+[data-decorations-page-edge]:not([data-decorations-page-edge="none"]) .journal-document > .journal-block:nth-child(7n+5)::after {
+  content: "";
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  opacity: var(--tj-decoration-opacity);
+  background-repeat: no-repeat;
+  background-size: contain;
+  pointer-events: none;
+}
+[data-decorations-page-edge]:not([data-decorations-page-edge="none"]) .journal-document > .journal-block { position: relative; }
+[data-decorations-page-edge]:not([data-decorations-page-edge="none"]) .journal-document > .journal-block::before { left: -38px; top: 6px; }
+[data-decorations-page-edge]:not([data-decorations-page-edge="none"]) .journal-document > .journal-block::after { right: -38px; bottom: 6px; }
+[data-decorations-page-edge="petal"] .journal-document > .journal-block::before,
+[data-decorations-page-edge="petal"] .journal-document > .journal-block::after { background-image: url("/assets/themes/stickers/spring-sakura.svg"); }
+[data-decorations-page-edge="sun"] .journal-document > .journal-block::before,
+[data-decorations-page-edge="sun"] .journal-document > .journal-block::after { background-image: url("/assets/themes/stickers/summer-sun.svg"); }
+[data-decorations-page-edge="leaf"] .journal-document > .journal-block::before,
+[data-decorations-page-edge="leaf"] .journal-document > .journal-block::after { background-image: url("/assets/themes/stickers/autumn-leaf.svg"); }
+[data-decorations-page-edge="snow"] .journal-document > .journal-block::before,
+[data-decorations-page-edge="snow"] .journal-document > .journal-block::after { background-image: url("/assets/themes/stickers/winter-snowflake.svg"); }
+[data-decorations-page-edge="star"] .journal-document > .journal-block::before,
+[data-decorations-page-edge="star"] .journal-document > .journal-block::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 0l3 9 9 3-9 3-3 9-3-9-9-3 9-3z' fill='%23E8944A'/%3E%3C/svg%3E");
+}
+/* 文字栏两侧放不下点缀时直接不显示，宁可空一点也不要压在正文上 */
+@media (max-width: 1100px) {
+  .journal-document > .journal-block::before,
+  .journal-document > .journal-block::after { display: none; }
+}
+
+/* ================================================================ 贴纸 */
+/*
+ * 位置是一份白名单，主题只说意图（「页眉右边」），真正贴在哪由这里决定。
+ * 换成绝对坐标的话，每加一个断点就要把所有主题重新调一遍。
+ */
+.tj-sticker {
+  position: fixed;
+  width: clamp(38px, 5vw, 64px);
+  height: auto;
+  opacity: .78;
+  pointer-events: none;
+  user-select: none;
+  z-index: 2;
+}
+[data-stickers-density="medium"] .tj-sticker { opacity: .9; }
+.tj-sticker--hero-left     { left: clamp(8px, 4vw, 64px);  top: 12vh; }
+.tj-sticker--hero-right    { right: clamp(8px, 4vw, 64px); top: 16vh; }
+.tj-sticker--page-left     { left: clamp(4px, 2vw, 28px);  top: 52vh; }
+.tj-sticker--page-right    { right: clamp(4px, 2vw, 28px); top: 42vh; }
+.tj-sticker--section-gap   { right: 12vw; bottom: 34vh; }
+.tj-sticker--image-corner  { right: 8vw;  top: 34vh; }
+.tj-sticker--footer        { left: 10vw;  bottom: 6vh; }
+/* 手机上只留两张，屏幕就那么大，多了就是挡字 */
+@media (max-width: 860px) {
+  .tj-sticker { width: 34px; opacity: .6; }
+  .tj-sticker--page-left,
+  .tj-sticker--page-right,
+  .tj-sticker--image-corner { display: none; }
+}
+
+/* ============================================================ 白名单互动 */
+/*
+ * 主题配置里只能出现下面这些名字，不能出现任何脚本。主题是可以导入导出的 JSON，
+ * 一旦允许里面写代码，导入别人的主题就等于执行别人的脚本。
+ */
+.tj-sticker[data-interaction] { pointer-events: auto; cursor: pointer; }
+.tj-sticker[data-interaction="pop"].is-playing        { animation: tj-pop 420ms ease; }
+.tj-sticker[data-interaction="wiggle"].is-playing     { animation: tj-wiggle 520ms ease; }
+.tj-sticker[data-interaction="drift"].is-playing      { animation: tj-drift 900ms ease; }
+.tj-sticker[data-interaction="heart-pop"].is-playing  { animation: tj-heart-pop 620ms ease; }
+@keyframes tj-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.28) rotate(-6deg); }
+  100% { transform: scale(1); }
+}
+@keyframes tj-wiggle {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-12deg); }
+  60% { transform: rotate(9deg); }
+}
+@keyframes tj-drift {
+  0% { transform: translate(0, 0) rotate(0); opacity: .78; }
+  100% { transform: translate(24px, -46px) rotate(24deg); opacity: 0; }
+}
+@keyframes tj-heart-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.4); }
+  70% { transform: scale(.92); }
+  100% { transform: scale(1); }
+}
+
+/* 图片悬停。只在有鼠标的设备上生效，手机上没有 hover 这一说。 */
+@media (hover: hover) {
+  [data-interactions-image-hover="tilt"]  .journal-figure img:hover { transform: rotate(-1.2deg) scale(1.02); }
+  [data-interactions-image-hover="zoom"]  .journal-figure img:hover { transform: scale(1.04); }
+  [data-interactions-image-hover="lift"]  .journal-figure img:hover { transform: translateY(-6px); box-shadow: var(--tj-shadow); }
+  [data-interactions-image-hover="stamp"] .journal-figure img:hover { transform: scale(.985) rotate(.6deg); filter: contrast(1.06) saturate(.94); }
+  [data-interactions-image-hover]:not([data-interactions-image-hover="none"]) .journal-figure img {
+    transition: transform var(--tj-motion-time, 240ms) ease, box-shadow var(--tj-motion-time, 240ms) ease, filter var(--tj-motion-time, 240ms) ease;
+  }
+}
+
+/* 首页封面入场 */
+[data-interactions-hero-entrance="float"] .hero-photo { animation: tj-hero-float 900ms ease both; }
+[data-interactions-hero-entrance="fade"]  .hero-photo { animation: tj-hero-fade 800ms ease both; }
+[data-interactions-hero-entrance="drift"] .hero-photo { animation: tj-hero-drift 1100ms ease both; }
+@keyframes tj-hero-float { from { transform: translateY(22px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes tj-hero-fade  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tj-hero-drift { from { transform: translateX(-28px) scale(1.02); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ============================================================ 章节分隔线 */
+/* divider 区块本来只是一条 <hr>，这里让它带上主题的语气 */
+[data-dividers-style] .journal-block--divider hr {
+  position: relative;
+  border: 0;
+  height: 1px;
+  margin: calc(1.6em * var(--tj-layout-section-gap, 1)) 0;
+  background: var(--tj-border);
+}
+[data-dividers-style="dashed"] .journal-block--divider hr { background: none; border-top: 2px dashed var(--tj-border); }
+[data-dividers-style="dotted"] .journal-block--divider hr { background: none; border-top: 3px dotted var(--tj-border); }
+[data-dividers-style="wave"]   .journal-block--divider hr {
+  height: 10px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 10' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 6c4-5 8-5 12 0s8 5 12 0 8-5 12 0'/%3E%3C/svg%3E") repeat-x center / 48px 10px;
+  opacity: .55;
+}
+[data-dividers-style="torn"]   .journal-block--divider hr {
+  height: 8px;
+  background: linear-gradient(-45deg, transparent 33.4%, var(--tj-border) 33.4% 66.6%, transparent 66.6%) repeat-x 0 0 / 12px 8px;
+  opacity: .7;
+}
+[data-dividers-style="ornament"] .journal-block--divider hr {
+  background: linear-gradient(90deg, transparent, var(--tj-border) 18%, var(--tj-border) 82%, transparent);
+}
+/* 分隔线中间那个符号。glyph 是枚举，这里把它映射成具体字符——
+   主题配置里存不了任意文本，就不会有人往这儿塞东西。 */
+[data-dividers-glyph]:not([data-dividers-glyph="none"]) .journal-block--divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+[data-dividers-glyph]:not([data-dividers-glyph="none"]) .journal-block--divider hr { flex: 1; }
+[data-dividers-glyph]:not([data-dividers-glyph="none"]) .journal-block--divider::after {
+  order: 1;
+  margin: 0 14px;
+  font-size: 15px;
+  line-height: 1;
+  opacity: .8;
+}
+[data-dividers-glyph]:not([data-dividers-glyph="none"]) .journal-block--divider hr:first-of-type { order: 0; }
+[data-dividers-glyph="sakura"]  .journal-block--divider::after { content: "🌸"; }
+[data-dividers-glyph="sun"]     .journal-block--divider::after { content: "☀"; }
+[data-dividers-glyph="leaf"]    .journal-block--divider::after { content: "🍂"; }
+[data-dividers-glyph="snow"]    .journal-block--divider::after { content: "❄"; }
+[data-dividers-glyph="compass"] .journal-block--divider::after { content: "✧"; }
+[data-dividers-glyph="plane"]   .journal-block--divider::after { content: "✈"; }
+[data-dividers-glyph="stamp"]   .journal-block--divider::after { content: "❖"; }
+[data-dividers-glyph="wave"]    .journal-block--divider::after { content: "〜"; }
+[data-dividers-glyph="star"]    .journal-block--divider::after { content: "✦"; }
+
+/* ============================================================== 氛围层 */
+/* 比粒子更安静的一层：一片很淡的光，或者极慢地飘过去的云。 */
+[data-ambient-glow]:not([data-ambient-glow="none"]) body::after,
+[data-ambient-drift]:not([data-ambient-drift="none"]) .tj-effect-layer::before {
+  pointer-events: none;
+}
+[data-ambient-glow]:not([data-ambient-glow="none"]) .tj-effect-layer {
+  background-repeat: no-repeat;
+  opacity: calc(var(--tj-ambient-intensity) * .9);
+}
+[data-ambient-glow="sun"] .tj-effect-layer {
+  background-image: radial-gradient(46% 32% at 84% 4%, color-mix(in srgb, #F5D547 62%, transparent), transparent 72%);
+}
+[data-ambient-glow="moon"] .tj-effect-layer {
+  background-image: radial-gradient(34% 26% at 12% 8%, color-mix(in srgb, #C6D8E8 60%, transparent), transparent 72%);
+}
+[data-ambient-glow="lantern"] .tj-effect-layer {
+  background-image: radial-gradient(30% 24% at 88% 76%, color-mix(in srgb, #E8944A 58%, transparent), transparent 72%);
+}
+[data-ambient-glow="dawn"] .tj-effect-layer {
+  background-image: linear-gradient(180deg, color-mix(in srgb, #F4B6C4 42%, transparent), transparent 34%);
+}
+/* 缓慢移动的那一层。周期都在一分钟以上，慢到几乎察觉不到它在动。 */
+[data-ambient-drift]:not([data-ambient-drift="none"]) .tj-effect-layer::before {
+  content: "";
+  position: absolute;
+  inset: -20% -60%;
+  opacity: calc(var(--tj-ambient-intensity) * .55);
+}
+[data-ambient-drift="clouds"] .tj-effect-layer::before {
+  background:
+    radial-gradient(26% 16% at 20% 22%, #fff, transparent 70%),
+    radial-gradient(20% 12% at 62% 12%, #fff, transparent 70%),
+    radial-gradient(30% 18% at 86% 30%, #fff, transparent 70%);
+  animation: tj-cloud-drift 140s linear infinite;
+}
+[data-ambient-drift="mist"] .tj-effect-layer::before {
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--tj-surface) 70%, transparent) 50%, transparent 80%);
+  animation: tj-cloud-drift 90s linear infinite;
+}
+[data-ambient-drift="fireflies"] .tj-effect-layer::before {
+  background:
+    radial-gradient(2px 2px at 22% 38%, #F7E3A1, transparent),
+    radial-gradient(2px 2px at 68% 22%, #F7E3A1, transparent),
+    radial-gradient(2px 2px at 46% 74%, #F7E3A1, transparent),
+    radial-gradient(2px 2px at 84% 60%, #F7E3A1, transparent);
+  animation: tj-firefly 9s ease-in-out infinite alternate;
+}
+@keyframes tj-cloud-drift { from { transform: translateX(-8%); } to { transform: translateX(8%); } }
+@keyframes tj-firefly { from { opacity: .2; transform: translateY(0); } to { opacity: .8; transform: translateY(-14px); } }
+
+/* ========================================================== Block 皮肤 */
+/* 同一个内容块在不同主题里长得不一样。默认（plain）就是各 Block 自己的样式。 */
+[data-block-styles-callout="paper"] .journal-callout {
+  border: 0;
+  background: var(--tj-surface);
+  box-shadow: 2px 3px 0 color-mix(in srgb, var(--tj-primary) 16%, transparent);
+  transform: rotate(-.35deg);
+}
+[data-block-styles-callout="tape"] .journal-callout { position: relative; }
+[data-block-styles-callout="tape"] .journal-callout::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 74px;
+  height: 20px;
+  transform: translateX(-50%) rotate(-2deg);
+  background: color-mix(in srgb, var(--tj-sand) 78%, transparent);
+  opacity: .85;
+}
+[data-block-styles-callout="ticket"] .journal-callout {
+  border: 0;
+  background:
+    radial-gradient(circle at 0 50%, transparent 9px, var(--tj-surface-soft) 9px) left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% 50%, transparent 9px, var(--tj-surface-soft) 9px) right / 51% 100% no-repeat;
+}
+[data-block-styles-callout="frame"] .journal-callout {
+  border: 3px double var(--tj-border);
+  background: transparent;
+}
+
+[data-block-styles-quote="mark"] .journal-document blockquote { position: relative; padding-left: 2.4em; }
+[data-block-styles-quote="mark"] .journal-document blockquote::before {
+  content: "\201C";
+  position: absolute;
+  left: 0;
+  top: -.16em;
+  font: 700 3em var(--tj-serif);
+  color: color-mix(in srgb, var(--tj-accent) 42%, transparent);
+}
+[data-block-styles-quote="card"] .journal-document blockquote {
+  padding: 1.1em 1.3em;
+  border-left: 0;
+  border-radius: var(--tj-radius);
+  background: var(--tj-surface-soft);
+  box-shadow: var(--tj-shadow-soft);
+}
+[data-block-styles-quote="handwritten"] .journal-document blockquote {
+  border-left: 0;
+  font-style: italic;
+  letter-spacing: .02em;
+  transform: rotate(-.5deg);
+}
+
+[data-block-styles-timeline="dots"] .journal-timeline li::before { border-radius: 50%; }
+[data-block-styles-timeline="stamps"] .journal-timeline time,
+[data-block-styles-timeline="tickets"] .journal-timeline time {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 2px solid color-mix(in srgb, var(--tj-accent) 60%, transparent);
+  color: var(--tj-accent);
+}
+[data-block-styles-timeline="stamps"] .journal-timeline time { border-radius: 50%; border-style: dashed; }
+[data-block-styles-timeline="tickets"] .journal-timeline time { border-radius: 3px; background: var(--tj-surface-soft); }
+
+[data-block-styles-stats="badge"] .journal-stats > div {
+  border-radius: 99px;
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--tj-accent) 12%, transparent);
+}
+[data-block-styles-stats="ticket"] .journal-stats > div {
+  border: 2px dashed var(--tj-border);
+  border-radius: 4px;
+  background: var(--tj-surface-soft);
+}
+
+[data-block-styles-location-card="postcard"] .journal-place-card {
+  border: 1px solid var(--tj-border);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--tj-primary) 12%, transparent);
+}
+[data-block-styles-location-card="label"] .journal-place-card {
+  border-left: 5px solid var(--tj-accent);
+  border-radius: 0 var(--tj-radius) var(--tj-radius) 0;
+}
+[data-block-styles-location-card="passport"] .journal-place-card {
+  border: 2px solid color-mix(in srgb, var(--tj-accent) 55%, transparent);
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 9px, color-mix(in srgb, var(--tj-accent) 5%, transparent) 9px 10px),
+    var(--tj-surface);
+}
+
+/* ========================================================== 首页封面 */
+[data-hero-shape="wave"] .hero-photo {
+  -webkit-mask: linear-gradient(#000, #000) top / 100% calc(100% - 26px) no-repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 26' preserveAspectRatio='none'%3E%3Cpath d='M0 0c20 20 40 20 60 0s40-20 60 0V0z' fill='%23000'/%3E%3C/svg%3E") bottom / 100% 26px no-repeat;
+  mask: linear-gradient(#000, #000) top / 100% calc(100% - 26px) no-repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 26' preserveAspectRatio='none'%3E%3Cpath d='M0 0c20 20 40 20 60 0s40-20 60 0V0z' fill='%23000'/%3E%3C/svg%3E") bottom / 100% 26px no-repeat;
+}
+[data-hero-shape="arch"] .hero-photo { border-radius: 50% 50% var(--tj-radius) var(--tj-radius) / 18% 18% 0 0; overflow: hidden; }
+[data-hero-shape="torn"] .hero-photo {
+  -webkit-mask: linear-gradient(#000, #000) top / 100% calc(100% - 10px) no-repeat,
+    linear-gradient(-45deg, transparent 33.4%, #000 33.4% 66.6%, transparent 66.6%) bottom / 16px 10px repeat-x;
+  mask: linear-gradient(#000, #000) top / 100% calc(100% - 10px) no-repeat,
+    linear-gradient(-45deg, transparent 33.4%, #000 33.4% 66.6%, transparent 66.6%) bottom / 16px 10px repeat-x;
+}
+[data-hero-shape="tape"] .hero-photo { position: relative; }
+[data-hero-shape="tape"] .hero-photo::after {
+  content: "";
+  position: absolute;
+  top: -12px;
+  left: 8%;
+  width: 110px;
+  height: 26px;
+  transform: rotate(-4deg);
+  background: color-mix(in srgb, var(--tj-sand) 70%, transparent);
+}
+[data-hero-overlay]:not([data-hero-overlay="none"]) .hero-photo { position: relative; }
+[data-hero-overlay]:not([data-hero-overlay="none"]) .hero-photo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+[data-hero-overlay="sun"]   .hero-photo::before { background: radial-gradient(52% 40% at 82% 10%, color-mix(in srgb, #F5D547 46%, transparent), transparent 70%); }
+[data-hero-overlay="frost"] .hero-photo::before { background: linear-gradient(180deg, color-mix(in srgb, #E7F1F8 46%, transparent), transparent 56%); }
+[data-hero-overlay="paper"] .hero-photo::before { background: color-mix(in srgb, var(--tj-sand) 22%, transparent); mix-blend-mode: multiply; }
+[data-hero-overlay="dusk"]  .hero-photo::before { background: linear-gradient(180deg, transparent 42%, color-mix(in srgb, var(--tj-primary) 46%, transparent)); }
+
+/* ============================================================== 离线横幅 */
+/*
+ * 旅行中信号断断续续是常态，所以断网时必须明确说一句「东西存在哪」，
+ * 否则作者只能对着一个安静的页面猜自己写的还在不在。
+ */
+.tj-offline-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + var(--browser-bottom-inset, 0px));
+  z-index: 4000;
+  max-width: min(92vw, 460px);
+  padding: 10px 16px;
+  border-radius: 99px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: #fff;
+  background: rgba(32, 34, 36, .92);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .22);
+  transform: translate(-50%, 22px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .22s ease, transform .22s ease, visibility .22s;
+}
+.tj-offline-banner.is-visible { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+/* 编辑器手机端底部有工具栏，横幅要让开它，不然会压在「照片」按钮上 */
+@media (max-width: 860px) {
+  .editor-page ~ .tj-offline-banner,
+  body:has(.editor-toolbar) .tj-offline-banner { bottom: calc(76px + var(--browser-bottom-inset, 0px)); }
+}
+
+/* 系统级「减少动态效果」永远优先。装饰可以留，动起来的部分一律停下。 */
+@media (prefers-reduced-motion: reduce) {
+  .tj-effect-layer::before,
+  .tj-sticker,
+  .hero-photo { animation: none !important; }
+}

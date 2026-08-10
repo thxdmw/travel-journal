@@ -5,27 +5,37 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="远行手记——记录旅途中值得记住的城市、照片和故事">
   <title>远行手记</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.11.1/dist/index.css">
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/css/themes/travel-classic.css?v=7">
-  <link rel="stylesheet" href="/css/public.css?v=14">
+  <link rel="stylesheet" href="/css/public.css?v=15">
   <link rel="stylesheet" href="/css/theme-tokens.css?v=3">
+  <!-- Theme Pack V2：装饰、贴纸、分隔线、氛围与 Block 皮肤。排在 tokens 之后，
+       因为它是在基础视觉之上叠一层性格，冲突时应该由它说了算 -->
+  <link rel="stylesheet" href="/css/theme-pack.css?v=1">
   <link rel="stylesheet" href="/css/journal-media.css?v=12">
-  <link rel="stylesheet" href="/css/journal-blocks.css?v=3">
+  <link rel="stylesheet" href="/css/journal-blocks.css?v=4">
   <link rel="stylesheet" href="/css/custom-cursor.css?v=6">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#264A3D">
+  <link rel="apple-touch-icon" href="/img/app-icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="远行手记">
 </head>
 <body>
 <div id="app" v-cloak></div>
-<script src="https://cdn.jsdelivr.net/npm/vue@3.5.21/dist/vue.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/vue-router@4.5.1/dist/vue-router.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/axios@1.11.0/dist/axios.min.js"></script>
+<script src="/vendor/vue/vue.global.prod.js"></script>
+<script src="/vendor/vue/vue-router.global.prod.js"></script>
+<script src="/vendor/axios/axios.min.js"></script>
 <script src="/vendor/leaflet/leaflet.js"></script>
-<script src="/js/common/theme.js?v=3"></script>
-<script src="/js/common/theme-effects.js?v=1"></script>
-<script src="/js/common/api.js?v=11"></script>
+<script src="/js/common/theme.js?v=4"></script>
+<script src="/js/common/theme-effects.js?v=2"></script>
+<script src="/js/common/api.js?v=15"></script>
 <script src="/js/common/journal-media.js?v=7"></script>
-<script src="/js/common/journal-blocks.js?v=3"></script>
-<script src="/js/public-app.js?v=13"></script>
+<script src="/js/common/journal-blocks.js?v=4"></script>
+<script src="/js/common/day-route.js?v=1"></script>
+<script src="/js/public-app.js?v=14"></script>
 <script src="/js/common/custom-cursor.js?v=6"></script>
+<script src="/js/common/pwa.js?v=1"></script>
 </body>
 </html>

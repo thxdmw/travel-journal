@@ -3,13 +3,14 @@
   const { createApp, ref, computed, watch } = Vue;
   const { api, session, loadSession, applyTheme, fail } = window.AdminShared;
   const { Login, Dashboard, Trips, TripWorkspace, JournalEditor,
-    TemplateManager, Theme, Profile, TagManager } = window.AdminPages;
+    TemplateManager, Theme, Profile, TagManager, Moments } = window.AdminPages;
 
   const routes=[
     {path:'/login',component:Login,meta:{public:true,title:'登录'}},
     {path:'/',component:Dashboard,meta:{title:'管理首页'}},
     {path:'/trips',component:Trips,meta:{title:'旅行管理'}},
     {path:'/trips/:id',component:TripWorkspace,meta:{title:'旅行工作台'}},
+    {path:'/moments',component:Moments,meta:{title:'随手记'}},
     {path:'/journals/:id',component:JournalEditor,meta:{title:'编辑旅行日记',full:true}},
     {path:'/templates',component:TemplateManager,meta:{title:'日记模板'}},
     {path:'/tags',component:TagManager,meta:{title:'标签管理'}},
@@ -38,7 +39,7 @@
       <aside class="admin-sidebar" :class="{open:drawer,collapsed}"><button class="sidebar-close" type="button" aria-label="收起侧边栏" @click="drawer=false">×</button>
         <div class="sidebar-brand">远行手记<small>TRAVEL JOURNAL</small></div>
         <button class="sidebar-collapse" type="button" :aria-pressed="collapsed" :title="collapsed?'展开侧边栏':'折叠侧边栏'" :aria-label="collapsed?'展开侧边栏':'折叠侧边栏'" @click="collapsed=!collapsed">{{collapsed?'»':'«'}}</button>
-        <nav class="side-nav"><router-link to="/" title="管理首页" @click="drawer=false"><i aria-hidden="true">⌂</i><span>管理首页</span></router-link><router-link to="/trips" title="旅行管理" @click="drawer=false"><i aria-hidden="true">▣</i><span>旅行管理</span></router-link><router-link to="/templates" title="日记模板" @click="drawer=false"><i aria-hidden="true">▤</i><span>日记模板</span></router-link><router-link to="/tags" title="标签管理" @click="drawer=false"><i aria-hidden="true">◇</i><span>标签管理</span></router-link><router-link to="/themes" title="主题外观" @click="drawer=false"><i aria-hidden="true">◈</i><span>主题外观</span></router-link><router-link to="/profile" title="个人资料" @click="drawer=false"><i aria-hidden="true">◎</i><span>个人资料</span></router-link><a href="/" target="_blank" title="查看网站" @click="drawer=false"><i aria-hidden="true">↗</i><span>查看网站</span></a></nav>
+        <nav class="side-nav"><router-link to="/" title="管理首页" @click="drawer=false"><i aria-hidden="true">⌂</i><span>管理首页</span></router-link><router-link to="/trips" title="旅行管理" @click="drawer=false"><i aria-hidden="true">▣</i><span>旅行管理</span></router-link><router-link to="/moments" title="随手记" @click="drawer=false"><i aria-hidden="true">✎</i><span>随手记</span></router-link><router-link to="/templates" title="日记模板" @click="drawer=false"><i aria-hidden="true">▤</i><span>日记模板</span></router-link><router-link to="/tags" title="标签管理" @click="drawer=false"><i aria-hidden="true">◇</i><span>标签管理</span></router-link><router-link to="/themes" title="主题外观" @click="drawer=false"><i aria-hidden="true">◈</i><span>主题外观</span></router-link><router-link to="/profile" title="个人资料" @click="drawer=false"><i aria-hidden="true">◎</i><span>个人资料</span></router-link><a href="/" target="_blank" title="查看网站" @click="drawer=false"><i aria-hidden="true">↗</i><span>查看网站</span></a></nav>
         <div class="sidebar-user" :title="session.user?.displayName"><div class="sidebar-avatar"><img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="头像"><span v-else>{{session.user?.displayName?.slice(0,1) || '旅'}}</span></div><div><div>{{session.user?.displayName}}</div><small>{{session.user?.username}}</small></div></div></aside>
       <main class="admin-main"><template v-if="!full"><header class="admin-topbar"><el-button class="mobile-toggle" @click="drawer=!drawer">☰</el-button><h1>{{route.meta.title}}</h1><div class="top-actions"><el-button link @click="logout">退出登录</el-button></div></header><div class="admin-content"><router-view></router-view></div></template><router-view v-else></router-view></main>
     </div>`

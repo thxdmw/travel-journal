@@ -1,19 +1,23 @@
 # Travel Journal（远行手记）
 
-一个面向个人使用的旅行管理与公开展示网站。项目采用单体 Spring Boot 工程，Vue 3 浏览器全局版页面随 Jar 一起发布，不需要 Node.js 或独立前端构建。
+一个会随四季变化、帮你随手记录并重新回到旅途现场的个人旅行日记。项目采用单体 Spring Boot 工程，Vue 3 浏览器全局版页面随 Jar 一起发布，不需要 Node.js 或独立前端构建。
 
 ## 功能
 
 - 单管理员登录、退出、修改密码和昵称
 - 旅行、城市停靠点、行程管理
 - 分类预算、实际支出和超支汇总
+- 随手记：路上二十秒记一条（一句话、几张照片、一个地点），晚上一键整理成带开场、章节和照片的日记草稿
 - 结构化旅行日记、草稿、发布、更新发布、撤回和区块化日记模板
 - 以 Blocks JSON 作为正文唯一数据源，不保存 Markdown、任意 HTML 或第二套预览文本
 - 正文里直接连续写作：段落、小标题、引用和提示卡不弹窗，回车分段、退格合并，段内换行有独立按钮（手机键盘没有 Shift）
 - 发布前可就地预览整篇文章，用的是和公开页面同一套渲染
 - 打开编辑器即建草稿，标题和 slug 可以留到发布前再补；停手自动保存，正文快照存本机 IndexedDB
-- 照片选完立刻插入正文并显示上传进度，并发上传、单张失败可重试
-- 26 种可视化内容块，覆盖正文、提示、信息清单、表格、同行者、地点、美食、住宿、交通、天气、图片组和明信片等旅行场景
+- 照片选完立刻插入正文并显示上传进度，并发上传但保持挑选顺序，单张失败可重试
+- 照片本身也进 IndexedDB：断网拍照、浏览器被系统杀掉，重新打开照片还在，有网自动续传
+- 可「添加到桌面」的 PWA，离线仍能打开编辑器接着写
+- 29 种可视化内容块，覆盖正文、提示、信息清单、表格、同行者、地点、美食、住宿、交通、天气、图片组和明信片等旅行场景
+- 今日开场卡、章节节点和今日小结，城市、第几天、路线和花费从旅行工作台自动填
 - 日记模板生成可继续独立编辑的内容块；模板版本用于标识来源，后续修改模板不会覆盖已写正文
 - 后台侧边栏可折叠为图标条
 - JPEG、PNG、WebP 图片选择、拖放或粘贴上传，支持缩略图预览、多选插入、图注、封面、批量删除和拖拽排序
@@ -24,9 +28,13 @@
 - 并排、网格、瀑布流、拼贴、杂志、故事流、错落画廊、轮播、胶片条和前后对比十种多图展示模式，灯箱支持同组翻页；胶片条支持触控、鼠标拖动和滚轮浏览
 - 图片全部由作者安排在正文里，公开端不再在文末自动重复一遍图片墙
 - 地点搜索、地图选点、逆地理编码、旅行路线和可筛选城市足迹地图
+- 日记页附带当天路线，可以按时间「回放这一天」，每个点带上当时写的话和拍的照片
 - 公开首页、旅行列表和日记详情
 - 桌面端和手机端响应式布局；移动端图片设置固定预览并使用 Tab 切换，兼容安全区、动态浏览器底栏和软键盘可视视口
-- 远行手记与三亚海风预设、可视化主题 DIY，以及全站/旅行/日记三级主题覆盖
+- 六套系统主题（远行经典、复古、春夏秋冬），可跟随季节自动轮换，也可固定用某一套
+- 主题不只是配色：装饰、贴纸、分隔线、氛围层、Block 皮肤和互动一起构成一套完整视觉
+- 可视化主题 DIY、JSON 导入导出，以及全站/旅行/日记三级主题覆盖
+- 可选的 AI 整理：把随手记的碎片句子润色成段落，只改文字不改结构
 
 ## 技术栈
 
@@ -34,7 +42,8 @@
 - Spring Security Session、BCrypt、CSRF
 - MyBatis-Plus、PostgreSQL、Flyway
 - MinIO Java SDK、Thumbnailator、Apache Tika
-- Vue 3、Vue Router、Element Plus、Axios、Leaflet 浏览器版
+- Vue 3、Vue Router、Element Plus、Axios、Leaflet 浏览器版（全部随 Jar 发布，不走 CDN）
+- Anthropic Java SDK（仅在配置了 API Key 时才建客户端；不配就不启用 AI 整理）
 - Maven、Docker 多阶段构建
 
 PostgreSQL 和 MinIO 由使用者自行管理，本项目不创建或托管这两个服务。
@@ -72,8 +81,15 @@ cp .env.example .env
 - MINIO_ENDPOINT、MINIO_ACCESS_KEY、MINIO_SECRET_KEY、MINIO_BUCKET
 - APP_ADMIN_USERNAME、APP_ADMIN_PASSWORD
 - APP_BASE_URL
+- APP_SITE_TIMEZONE
+
+对象存储的三项没有默认值，缺任何一项应用会拒绝启动。配置文件里不保留任何凭证：`application.yml` 会随代码进仓库，写进去的密钥等同于公开发布。
+
+`APP_SITE_TIMEZONE` 决定季节主题按哪个时区判断当前是春夏秋冬，填站点主人常驻的地方。这里刻意不用访客设备的时区——这是一个人的旅行站，东京和悉尼的访客应该在同一天看到同一套视觉。
 
 地图搜索是可选能力。需要使用时，在高德开放平台创建“Web 服务”Key，并配置 `AMAP_WEB_SERVICE_KEY`。Key 仅由后端请求高德接口，不会发送到浏览器；未配置时仍可通过地图点选和手工坐标保存地点。
+
+AI 整理也是可选能力。配置 `ANTHROPIC_API_KEY` 即启用，不配就不显示那个按钮，随手记照常可以整理成日记，只是不润色文字。
 
 APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。创建完成后不会覆盖数据库中的密码，也不会在日志中输出明文。
 
@@ -142,17 +158,88 @@ mvn spring-boot:run
 
 模板生成时会读取当前旅行的城市路线、当天行程、支出和已上传图片。生成结果是普通 Blocks JSON，可以继续自由编辑；日记仅保存模板编号和生成时版本，不保留第二套模板运行态正文。
 
+## 随手记与整理
+
+随手记（Moments）和日记不是同一个东西，所以没有复用 `journal_entry`：日记是晚上坐下来写的那一篇，有标题、有结构、要发布；随手记是走在路上顺手按下的一句话加一张照片，它的价值在于「当时」。
+
+写入路径刻意做得很宽松——除了「属于哪次旅行」之外没有任何必填项。一次校验失败弹窗就足以让「二十秒记完」这件事失败，而记不下来的那一条就永远不存在了。
+
+晚上按「整理成日记」，当天的碎片会按时间变成一篇草稿：
+
+~~~text
+今日开场卡（城市 · Day N / 日期 / 路线 / 关键数字）
+  10:23 · 浅草        ← 章节节点
+  正文
+  照片
+  11:40 · 上野
+  ...
+~~~
+
+照片复用同一份 `media_asset` 不重新上传；原始随手记保留下来（回填 `journal_entry_id`），这样「那天到底发生了什么」永远还能翻回最初写下的样子。同一天可以整理多次，默认追加，也可以选择重新生成整篇。
+
+日记页附带当天路线。路线优先取随手记的坐标（实际去过，实线），没有随手记时才回落到当天的城市和行程（计划要去，虚线）——计划里写了但没去成的地方不该出现在回放里。
+
+AI 整理是叠在上面的可选一层，**只改文字，不改结构**。顺序、时间、地点、照片归属全部由规则决定，模型只负责把碎片句子串成能读的话。理由是前者必须百分之百可靠，而它们恰好是规则最擅长的。没配 Key、网络不通、模型拒答、返回内容对不上——每一种都退回原文，整理照常完成。
+
+## 离线与 PWA
+
+前端依赖全部随 Jar 发布，加上 `manifest.json` 和 `service-worker.js`，可以「添加到桌面」。
+
+照片选中后先把 Blob 落进 IndexedDB 再开始传。`File` 只活在内存里，浏览器被系统杀掉就没了；存下来之后，断网拍照 → 继续写 → 浏览器被杀 → 重新打开 → 照片还在 → 有网自动续传。直接存 Blob 而不转 base64，是因为一张 4MB 的照片转成 base64 是 5.5MB 的字符串，十几张就能把手机浏览器的内存吃光。
+
+Service Worker 的缓存策略按用途分，不是一刀切：
+
+| 内容 | 策略 | 理由 |
+| --- | --- | --- |
+| 应用外壳（HTML/CSS/JS） | stale-while-revalidate | 秒开，后台更新；资源都带 `?v=` 版本号 |
+| 图片（`/api/media/…`） | cache-first | 内容不会变，换图会换 id |
+| 其他 `/api` | **完全不缓存** | 编辑器拿到一份缓存的旧正文，作者在上面接着改，保存回去就等于把之前写的抹掉了 |
+
+写请求一律直连。宁可失败——失败是看得见的，静默的数据回退不是。
+
 ## 主题设计
 
-后台“主题外观”可以直接使用内置预设，也可以复制或新建个人主题。设计器支持色彩、字体、阅读字号、页面宽度、内容密度、圆角、图片比例/风格、动效设置，并提供真实网站的桌面和手机实时预览、撤销/重做、阅读对比度提醒以及 JSON 导入导出。
+系统提供六套主题：远行经典、复古、春日漫游、盛夏出逃、秋日远行、冬日旅途。数量刻意克制——想玩别的风格走「复制主题后自己改」或导入 JSON，系统预设只负责最有辨识度的那几种。
+
+全站主题有两种模式：
+
+| 模式 | 行为 |
+| --- | --- |
+| `AUTO`（默认） | 跟随季节。3–5 月春、6–8 月夏、9–11 月秋、12–2 月冬，到点自己换，作者什么都不用做 |
+| `FIXED` | 作者手动选定了某一套，季节更替不再影响它，直到重新点「跟随季节」 |
+
+季节按 `APP_SITE_TIMEZONE` 判断，不是访客设备时区。
 
 主题按以下顺序覆盖：
 
 ~~~text
-单篇日记主题 > 所属旅行主题 > 全站主题 > 系统默认主题
+单篇日记主题 > 所属旅行主题 > 全站 FIXED > 全站 AUTO（当季）
 ~~~
 
-个人主题只保存受控的语义化设计 Token，不接受任意 CSS、JavaScript 或远程脚本。
+主题配置不只是配色。除了 colors、typography、shape、layout、card、background、image、gallery、motion、effects、map、hero 这些视觉参数，还有决定「页面有没有性格」的六个区块：
+
+| 区块 | 内容 |
+| --- | --- |
+| `decorations` | 页面四角线稿、页边点缀、标题纹样 |
+| `stickers` | 贴纸：密度 + 一份 `{asset, area}` 列表 |
+| `dividers` | 章节分隔线的线型与中间符号 |
+| `ambient` | 比粒子更安静的一层：一片很淡的光，或一分钟才移动一点的云 |
+| `blockStyles` | 同一个内容块在不同主题里长得不一样 |
+| `interactions` | 点击贴纸、鼠标经过照片、封面入场 |
+
+有了这些，从夏切到秋才会是「海浪和太阳换成落叶和车票」，而不只是蓝色变成橙色。
+
+三条安全边界：
+
+- **贴纸位置走白名单**（`hero-right`、`section-gap` 等七个区域），不接受 `left:1782px` 这样的绝对坐标。坐标在手机上一定会错位，而且每加一个断点就要把所有主题重调一遍。
+- **素材名只认 `^[a-z0-9-]+$`**，最终拼成 `/assets/themes/stickers/{asset}.svg`，配置里不出现任意 URL。
+- **互动只收枚举**，永远不收 JavaScript。主题是可以导入导出的 JSON，一旦允许里面写代码，导入别人的主题就等于执行别人的脚本。
+
+贯穿整套设计的原则是：这些东西用来**填补页面的空旷感，不是用来填满页面**。透明度都压得很低，手机上只保留两张贴纸——正文永远比装饰重要。
+
+素材全部是 SVG（`static/assets/themes/stickers/`）：体积小、高清、容易换颜色，手机上也清晰。
+
+后台“主题外观”可以直接使用系统预设，也可以复制或新建个人主题。设计器支持上述全部区块，并提供真实网站的桌面和手机实时预览、撤销/重做、阅读对比度提醒以及 JSON 导入导出。个人主题只保存受控的语义化设计 Token，不接受任意 CSS、JavaScript 或远程脚本。
 
 ## 前端说明
 
@@ -164,19 +251,28 @@ mvn spring-boot:run
 - src/main/resources/static/admin/index.html：管理端
 - src/main/resources/static/js/public-app.js：公开页面
 - src/main/resources/static/js/admin-app.js：管理后台的路由与挂载
-- src/main/resources/static/js/admin/：后台各页面（shared、trip-workspace、journal-editor、studio）
+- src/main/resources/static/js/admin/：后台各页面（shared、trip-workspace、journal-editor、moments、studio）
 - src/main/resources/static/js/common/journal-blocks.js：区块协议、默认值和统一渲染器
 - src/main/resources/static/js/common/journal-block-editor.js：区块编辑组件，含正文的 inline 编辑
-- src/main/resources/static/js/common/local-draft.js：草稿的本机 IndexedDB 仓库
+- src/main/resources/static/js/common/local-draft.js：草稿与待上传照片的本机 IndexedDB 仓库
 - src/main/resources/static/js/common/journal-media.js：轮播、胶片条、对比和图片灯箱行为
-- src/main/resources/static/css/admin-shell.css 等五个后台样式文件（见 docs/journal-editor.md 的分工说明）
+- src/main/resources/static/js/common/theme.js：把主题 Token 铺成 CSS 变量和 `data-*` 属性
+- src/main/resources/static/js/common/theme-effects.js：粒子、滚动揭示和贴纸的运行时
+- src/main/resources/static/js/common/day-route.js：当天路线的地图打点、连线与回放
+- src/main/resources/static/js/common/pwa.js：Service Worker 注册与离线横幅
+- src/main/resources/static/service-worker.js、manifest.json：PWA 入口
+- src/main/resources/static/css/admin-shell.css 等六个后台样式文件（见 docs/journal-editor.md 的分工说明）
 - src/main/resources/static/css/journal-blocks.css：区块公开样式
 - src/main/resources/static/css/journal-media.css：后台与公开端共用的图片版式
+- src/main/resources/static/css/theme-tokens.css：主题 Token 的基础视觉实现
+- src/main/resources/static/css/theme-pack.css：装饰、贴纸、分隔线、氛围与 Block 皮肤
 - src/main/resources/static/css/themes/travel-classic.css：默认主题变量
+- src/main/resources/static/assets/themes/stickers/：主题贴纸 SVG
+- src/main/resources/static/vendor/：Vue、Vue Router、Element Plus、Axios、Leaflet
 
 后台的 JS 与 CSS 拆成多个职责单一的文件，但都不走模块系统和打包：`js/admin/shared.js` 先建立 `window.AdminShared`，各页面把组件注册到 `window.AdminPages`，`admin-app.js` 最后取用。CSS 的引入顺序即层叠顺序，`admin/index.html` 里不能随意调换。
 
-前端依赖使用锁定版本的 CDN 地址。主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
+前端依赖全部放在 `static/vendor/` 下随 Jar 发布，不再引用 CDN。除了离线可用之外，这也让 Service Worker 能把它们缓存进应用外壳。主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
 
 ## Maven 构建
 
@@ -262,9 +358,12 @@ mc mirror minio/travel-journal /backup/travel-journal
 - 旅行日期校验
 - 预算汇总和超支判断
 - 日记草稿与发布的两套校验（草稿允许空标题空正文，发布严格）
-- 空草稿回收与自动 slug 生成
+- 空草稿的判空与延迟回收、自动 slug 生成
 - Blocks JSON 协议、扩展区块与图片外观设置校验
 - 主题 Token 白名单与危险颜色值校验
+- 主题贴纸的位置与素材名白名单（路径穿越、像素坐标都会被丢弃）
+- 主题互动只收枚举，脚本类取值退回默认或被剔除
+- 全站主题的 AUTO / FIXED 模式切换
 - 图片上传处理
 - 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行）
 
@@ -281,7 +380,7 @@ npm install && npx playwright install chromium
 E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=你的密码 npx playwright test
 ~~~
 
-用例在 `e2e/journal-mobile.spec.ts`，覆盖新建即草稿、连续写作不弹窗、退格合并、刷新恢复、空标题被拦、发布、空草稿回收，以及手机端的单一滚动、底栏可见和 Bottom Sheet 开合。
+用例在 `e2e/journal-mobile.spec.ts`，覆盖新建即草稿、连续写作不弹窗、退格合并、刷新恢复、空标题被拦、发布、退出不误删草稿，以及手机端的单一滚动、底栏可见和 Bottom Sheet 开合。
 
 ## 项目结构
 
@@ -296,6 +395,7 @@ src/main/java/com/thx/traveljournal/
 ├── journaltemplate
 ├── map
 ├── media
+├── moment            随手记、整理成日记、当天路线、AI 润色
 ├── publicapi
 ├── theme
 └── trip

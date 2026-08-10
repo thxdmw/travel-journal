@@ -35,6 +35,15 @@ public class AdminThemePresetController {
         return ApiResponse.ok(service.list(enabledOnly));
     }
 
+    /**
+     * 全站主题的当前状态：是跟随季节还是固定，以及此刻实际生效的是哪一套。
+     * 后台的主题选择器要用它把「跟随季节 · 夏 · 盛夏出逃」这一行显示出来。
+     */
+    @GetMapping("/site-state")
+    public ApiResponse<ThemePresetService.SiteThemeState> siteState() {
+        return ApiResponse.ok(service.siteThemeState());
+    }
+
     @PostMapping
     public ApiResponse<ThemePresetService.ThemeView> create(@Valid @RequestBody ThemeRequest request) {
         return ApiResponse.ok(service.create(request.name(), request.description(), request.baseThemeKey(),

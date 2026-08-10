@@ -38,17 +38,32 @@ class AdminProfileServiceTest {
     void shouldUpdateSupportedTheme() {
         user.setThemeKey("something-else");
 
-        AdminUser updated = service.updateTheme("admin", "travel-classic");
+        AdminUser updated = service.updateTheme("admin", "travel-classic", null);
 
         assertThat(updated.getThemeKey()).isEqualTo("travel-classic");
+        // 手动挑了一套就该锁住，之后季节更替不再改动它
+        assertThat(updated.getThemeMode()).isEqualTo("FIXED");
         verify(mapper).updateById(user);
     }
 
     @Test
     void shouldRejectUnknownTheme() {
-        assertThatThrownBy(() -> service.updateTheme("admin", "unknown"))
+        assertThatThrownBy(() -> service.updateTheme("admin", "unknown", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("主题不存在");
+    }
+
+    /** 切回跟随季节时不该要求也不该校验 themeKey——那时用哪套由日期决定。 */
+    @Test
+    void shouldSwitchToSeasonalModeWithoutThemeKey() {
+        user.setThemeKey("travel-classic");
+
+        AdminUser updated = service.updateTheme("admin", null, "AUTO");
+
+        assertThat(updated.getThemeMode()).isEqualTo("AUTO");
+        // 上次挑的那套留着，之后切回固定模式还用得上
+        assertThat(updated.getThemeKey()).isEqualTo("travel-classic");
+        verify(mapper).updateById(user);
     }
 
     @Test

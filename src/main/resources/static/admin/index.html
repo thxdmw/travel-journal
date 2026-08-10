@@ -5,42 +5,53 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>远行手记 · 管理后台</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.11.1/dist/index.css">
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/css/themes/travel-classic.css?v=7">
   <link rel="stylesheet" href="/css/theme-tokens.css?v=3">
+  <link rel="stylesheet" href="/css/theme-pack.css?v=1">
   <!-- 顺序即层叠：editor 必须在 workspace 之前（模板预览靠 .template-preview-body 覆盖 .preview），
        手机端布局是对前面几条的覆盖，必须排在最后 -->
-  <link rel="stylesheet" href="/css/admin-shell.css?v=1">
+  <link rel="stylesheet" href="/css/admin-shell.css?v=2">
   <link rel="stylesheet" href="/css/journal-editor.css?v=2">
-  <link rel="stylesheet" href="/css/admin-workspace.css?v=1">
+  <link rel="stylesheet" href="/css/admin-workspace.css?v=2">
   <link rel="stylesheet" href="/css/journal-block-editor.css?v=2">
   <link rel="stylesheet" href="/css/journal-editor-mobile.css?v=2">
   <link rel="stylesheet" href="/css/journal-media.css?v=12">
-  <link rel="stylesheet" href="/css/journal-blocks.css?v=3">
+  <link rel="stylesheet" href="/css/journal-blocks.css?v=4">
+  <link rel="stylesheet" href="/css/moments.css?v=2">
   <link rel="stylesheet" href="/css/custom-cursor.css?v=6">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#264A3D">
+  <link rel="apple-touch-icon" href="/img/app-icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="远行手记">
 </head>
 <body>
 <div id="admin-app" v-cloak></div>
-<script src="https://cdn.jsdelivr.net/npm/vue@3.5.21/dist/vue.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/vue-router@4.5.1/dist/vue-router.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/element-plus@2.11.1/dist/index.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/element-plus/2.11.1/locale/zh-cn.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/axios@1.11.0/dist/axios.min.js"></script>
+<script src="/vendor/vue/vue.global.prod.js"></script>
+<script src="/vendor/vue/vue-router.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.min.js"></script>
+<script src="/vendor/element-plus/zh-cn.min.js"></script>
+<script src="/vendor/axios/axios.min.js"></script>
 <script src="/vendor/leaflet/leaflet.js"></script>
-<script src="/js/common/theme.js?v=3"></script>
-<script src="/js/common/api.js?v=12"></script>
+<script src="/js/common/theme.js?v=4"></script>
+<script src="/js/common/theme-effects.js?v=2"></script>
+<script src="/js/common/api.js?v=15"></script>
 <script src="/js/common/local-draft.js?v=1"></script>
 <script src="/js/common/journal-media.js?v=7"></script>
-<script src="/js/common/journal-blocks.js?v=3"></script>
-<script src="/js/common/journal-block-editor.js?v=6"></script>
+<script src="/js/common/journal-blocks.js?v=4"></script>
+<script src="/js/common/day-route.js?v=1"></script>
+<script src="/js/common/journal-block-editor.js?v=8"></script>
 <!-- shared 必须最先加载：它建立 window.AdminShared，页面文件都从这里取工具；
      admin-app 最后加载，它要用前面各文件注册到 window.AdminPages 的组件 -->
 <script src="/js/admin/shared.js?v=1"></script>
 <script src="/js/admin/trip-workspace.js?v=1"></script>
-<script src="/js/admin/journal-editor.js?v=2"></script>
-<script src="/js/admin/studio.js?v=1"></script>
-<script src="/js/admin-app.js?v=25"></script>
+<script src="/js/admin/journal-editor.js?v=3"></script>
+<script src="/js/admin/moments.js?v=2"></script>
+<script src="/js/admin/studio.js?v=2"></script>
+<script src="/js/admin-app.js?v=26"></script>
 <script src="/js/common/custom-cursor.js?v=6"></script>
+<script src="/js/common/pwa.js?v=1"></script>
 </body>
 </html>

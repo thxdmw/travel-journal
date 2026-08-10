@@ -18,9 +18,15 @@ import org.springframework.web.multipart.MultipartFile;
 public class AdminProfileController {
     private final AdminProfileService service;
 
-    public record ThemeRequest(@NotBlank String themeKey) {}
+    /**
+     * 切换全站主题。
+     *
+     * <p>{@code mode} 传 AUTO 表示跟随季节，此时 themeKey 可以缺席；不传或传 FIXED
+     * 表示锁定 themeKey 指定的那一套。所以 themeKey 不能标 {@code @NotBlank}。</p>
+     */
+    public record ThemeRequest(String themeKey, String mode) {}
     public record DisplayNameRequest(@NotBlank @Size(max = 60) String displayName) {}
-    public record ProfileUpdate(String displayName, String avatarUrl, String themeKey) {}
+    public record ProfileUpdate(String displayName, String avatarUrl, String themeKey, String themeMode) {}
 
     @PostMapping("/avatar")
     public ApiResponse<ProfileUpdate> uploadAvatar(@RequestParam("file") MultipartFile file,
@@ -31,7 +37,8 @@ public class AdminProfileController {
     @PutMapping("/theme")
     public ApiResponse<ProfileUpdate> updateTheme(@Valid @RequestBody ThemeRequest request,
                                                    Authentication authentication) {
-        return ApiResponse.ok(view(service.updateTheme(authentication.getName(), request.themeKey())));
+        return ApiResponse.ok(view(service.updateTheme(authentication.getName(),
+                request.themeKey(), request.mode())));
     }
 
     /** 修改前台展示的昵称。用户名是登录凭据，不在这里改。 */
@@ -42,6 +49,7 @@ public class AdminProfileController {
     }
 
     private ProfileUpdate view(AdminUser user) {
-        return new ProfileUpdate(user.getDisplayName(), service.avatarUrl(user), user.getThemeKey());
+        return new ProfileUpdate(user.getDisplayName(), service.avatarUrl(user),
+                user.getThemeKey(), user.getThemeMode());
     }
 }

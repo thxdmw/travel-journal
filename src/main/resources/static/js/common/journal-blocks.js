@@ -27,7 +27,11 @@
     { type:'image', label:'单张图片', icon:'图', category:'图片', description:'图片、图注与尺寸' },
     { type:'gallery', label:'图片组', icon:'组', category:'图片', description:'网格、故事或胶片条' },
     { type:'postcard', label:'旅行明信片', icon:'片', category:'图片', description:'图片搭配地点、寄语和署名' },
-    { type:'divider', label:'分隔线', icon:'—', category:'排版', description:'在章节之间留出呼吸' }
+    { type:'divider', label:'分隔线', icon:'—', category:'排版', description:'在章节之间留出呼吸' },
+    // 一天的开头、中间和结尾。三个都能从旅行工作台自动填，作者不用重复录一遍
+    { type:'day-opener', label:'今日开场', icon:'启', category:'旅行', description:'城市、第几天、天气、路线与关键数字' },
+    { type:'chapter', label:'章节节点', icon:'节', category:'排版', description:'用时间把一天分成几段' },
+    { type:'day-summary', label:'今日小结', icon:'结', category:'旅行', description:'最喜欢、最好吃、走了多少、花了多少' }
   ];
 
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -40,6 +44,9 @@
     '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="900" height="600" fill="#d8cbb4"/><path d="M0 470L230 250l160 150 140-110 370 310H0z" fill="#8da091"/><circle cx="690" cy="150" r="58" fill="#f7e3a1"/><text x="450" y="550" text-anchor="middle" font-size="32" fill="#44564d">旅行照片</text></svg>');
 
   const lines = value => esc(value).replace(/\n/g,'<br>');
+  /** 2026-08-10 → 8月10日。开场卡上写「8月10日」比写完整日期更像日记。 */
+  const formatDay = value => String(value||'').replace(/^(\d{4})-(\d{2})-(\d{2})$/,
+    (_, y, m, d) => Number(m) + '月' + Number(d) + '日');
   const safeLink = value => /^https?:\/\//i.test(String(value||'')) ? String(value) : '#';
   const defaults = {
     heading:{ text:'', level:2 }, paragraph:{ text:'' }, quote:{ text:'', source:'' },
@@ -58,7 +65,10 @@
     transport:{ mode:'',from:'',to:'',number:'',duration:'',note:'' },
     weather:{ condition:'',temperature:'',feelsLike:'',wind:'',note:'' },
     image:{ mediaId:null, caption:'' }, gallery:{ mediaIds:[], caption:'' },
-    postcard:{ mediaId:null, location:'', date:'', message:'', signature:'' }, divider:{}
+    postcard:{ mediaId:null, location:'', date:'', message:'', signature:'' }, divider:{},
+    'day-opener':{ city:'', dayLabel:'', date:'', weather:'', route:[], metrics:[] },
+    chapter:{ time:'', title:'', note:'' },
+    'day-summary':{ items:[{icon:'🌟',label:'今天最喜欢',value:''}] }
   };
 
   function createBlock(type, initial) {
@@ -208,6 +218,37 @@
         '<small>'+[d.number,d.duration].filter(Boolean).map(esc).join(' · ')+'</small>'+(d.note?'<p>'+lines(d.note)+'</p>':'')+'</article>'; break;
       case 'weather': body='<div class="journal-weather"><strong>'+esc(d.condition)+'</strong><b>'+esc(d.temperature)+'</b><span>'+[d.feelsLike&&'体感 '+d.feelsLike,d.wind].filter(Boolean).map(esc).join(' · ')+'</span>'+
         (d.note?'<p>'+lines(d.note)+'</p>':'')+'</div>'; break;
+      /*
+       * 今日开场卡。
+       *
+       * 「东京 · Day 4 / 8月10日 · 晴 / 浅草 → 上野 → 银座 / 21,430 步 · ¥8,420」——
+       * 这些全都能从旅行、行程和账目里推出来，所以编辑器默认关联数据，作者不用填。
+       * 空字段直接不渲染，只写了一半也不会留下一行「· ·」。
+       */
+      case 'day-opener': {
+        const head=[d.city,d.dayLabel].filter(Boolean).map(esc).join(' · ');
+        const sub=[formatDay(d.date),d.weather].filter(Boolean).map(esc).join(' · ');
+        const route=(Array.isArray(d.route)?d.route:[]).filter(Boolean);
+        const metrics=(Array.isArray(d.metrics)?d.metrics:[]).filter(item=>item&&(item.value||item.label));
+        body='<header class="journal-day-opener">'+
+          (head?'<strong>'+head+'</strong>':'')+
+          (sub?'<span>'+sub+'</span>':'')+
+          (route.length?'<p class="journal-day-opener__route">'+route.map(esc).join('<i>→</i>')+'</p>':'')+
+          (metrics.length?'<div class="journal-day-opener__metrics">'+metrics.map(item=>
+            '<div><b>'+esc(item.value)+'</b><span>'+esc(item.label)+'</span></div>').join('')+'</div>':'')+
+          '</header>'; break;
+      }
+      // 章节节点：一天里的一个时间锚点。本质是带时间的小标题，让长日记读起来有节奏。
+      case 'chapter': body='<div class="journal-chapter">'+
+        (d.time?'<time>'+esc(d.time)+'</time>':'')+'<h3>'+esc(d.title)+'</h3>'+
+        (d.note?'<small>'+esc(d.note)+'</small>':'')+'</div>'; break;
+      case 'day-summary': {
+        const items=(Array.isArray(d.items)?d.items:[]).filter(item=>item&&(item.value||item.label));
+        body='<section class="journal-day-summary">'+listItems(items,item=>
+          '<article>'+(item.icon?'<b>'+esc(item.icon)+'</b>':'')+
+          '<div><span>'+esc(item.label)+'</span><strong>'+esc(item.value)+'</strong></div></article>')+
+          '</section>'; break;
+      }
       case 'image': body=figure(block,map); break;
       case 'gallery': body=gallery(block,map); break;
       case 'postcard': body=postcard(block,map); break;

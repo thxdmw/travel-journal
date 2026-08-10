@@ -77,14 +77,21 @@ test('填好标题后可以发布', async ({ page }) => {
   await expect(page.getByRole('button', { name: '更新发布' })).toBeVisible({ timeout: 20_000 });
 });
 
-test('什么都不写就退出，不会留下空草稿', async ({ page }) => {
+/*
+ * 退出编辑器时刻意「不」删空草稿。
+ *
+ * 那一刻最后一次自动保存可能还在路上，服务端看到的空正文并不代表作者什么都没写——
+ * 删错一篇正文的代价远高于库里多留一天的空记录。真正没人动过的空草稿由服务端的
+ * EmptyDraftCleaner 满 24 小时后回收，那条路径不适合端到端测试，由单元测试覆盖。
+ */
+test('什么都不写就退出，草稿仍然留着（回收交给服务端定时任务）', async ({ page }) => {
   const id = await openNewJournal(page);
   await waitSaved(page);
   await page.goto('/admin/#/trips');
   await page.waitForTimeout(1500);
 
   const res = await page.request.get(`/api/admin/journals/${id}`);
-  expect(res.status(), '空草稿应当已经被回收').toBe(404);
+  expect(res.status(), '退出瞬间不应该删草稿').toBe(200);
 });
 
 test.describe('手机端布局', () => {

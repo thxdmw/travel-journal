@@ -3,6 +3,7 @@ package com.thx.traveljournal.theme.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.thx.traveljournal.auth.entity.AdminUser;
 import com.thx.traveljournal.auth.mapper.AdminUserMapper;
@@ -41,10 +42,26 @@ public class ThemePresetService {
      */
     private static final Set<String> BASE_THEMES = Set.of(DEFAULT_THEME);
     private static final Pattern HEX_COLOR = Pattern.compile("^#[0-9a-fA-F]{6}$");
-    private static final int MAX_DEFINITION_LENGTH = 20_000;
+    /** Theme Pack V2 的区块比原来多了一倍，上限跟着放宽一点，仍然远小于任何正常主题的体积。 */
+    private static final int MAX_DEFINITION_LENGTH = 30_000;
 
     /** token 的取值类型，决定 {@link #normalizeDefinition} 用哪套校验。 */
-    private enum Kind { COLOR, NUMBER, ENUM, BOOLEAN, MEDIA }
+    private enum Kind { COLOR, NUMBER, ENUM, BOOLEAN, MEDIA, STICKERS }
+
+    /**
+     * 贴纸可以落在页面的哪些位置。
+     *
+     * <p>刻意做成一份很短的白名单，而不是让主题自己写 {@code left:1782px; top:553px}——
+     * 绝对坐标在手机上一定会错位，而且每加一个断点就要重新调一遍所有主题。
+     * 具体每个位置贴在哪，由 CSS 决定，主题只说「放在页眉右边」这种意图。</p>
+     */
+    private static final Set<String> STICKER_AREAS = Set.of(
+            "hero-left", "hero-right", "page-left", "page-right",
+            "section-gap", "image-corner", "footer");
+    /** 贴纸素材名，最终会拼成 /assets/themes/stickers/{asset}.svg，所以只认小写字母、数字和短横线。 */
+    private static final Pattern STICKER_ASSET = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
+    /** 一套主题最多铺多少张贴纸。再多页面就吵了，克制是这套设计的一部分。 */
+    private static final int MAX_STICKERS = 10;
 
     /**
      * 一个可调项的声明。
@@ -70,6 +87,9 @@ public class ThemePresetService {
         }
         static Token media(String section, String key) {
             return new Token(section, key, Kind.MEDIA, Set.of(), 0, 0, null);
+        }
+        static Token stickers(String section, String key) {
+            return new Token(section, key, Kind.STICKERS, Set.of(), 0, 0, null);
         }
         double fallbackNumber() { return (double) fallback; }
         String fallbackText() { return (String) fallback; }
@@ -163,18 +183,79 @@ public class ThemePresetService {
             Token.option("map", "markerStyle", "dot", "dot", "pin", "ring", "photo"),
             Token.flag("map", "animateRoute", false),
 
+            // ——————————————————————————————————————————————————————————
+            // Theme Pack V2：从这里开始，主题不只是「配色 + CSS 参数」。
+            // 上面那些决定页面长什么样，下面这些决定页面有没有性格——
+            // 装饰、贴纸、分隔线、氛围、Block 皮肤和可交互的小动作。
+            // ——————————————————————————————————————————————————————————
+
+            // —— 页面装饰。四角线稿、页边点缀、标题旁的纹样 ——
+            Token.option("decorations", "corner", "none", "none", "vine", "wave", "leaf", "frost", "stamp", "compass"),
+            Token.option("decorations", "pageEdge", "none", "none", "petal", "sun", "leaf", "snow", "star"),
+            Token.option("decorations", "headerOrnament", "none", "none", "line", "compass", "ticket", "arch", "wave"),
+            Token.number("decorations", "opacity", 0.05, 1, 0.35),
+
+            // —— 贴纸。位置走白名单，主题只说意图，具体贴在哪由 CSS 决定 ——
+            Token.option("stickers", "density", "none", "none", "low", "medium"),
+            Token.stickers("stickers", "items"),
+
+            // —— 章节分隔线。glyph 也是枚举，前端映射成具体符号 ——
+            Token.option("dividers", "style", "line", "line", "dashed", "dotted", "ornament", "wave", "torn"),
+            Token.option("dividers", "glyph", "none", "none", "sakura", "sun", "leaf", "snow",
+                    "compass", "plane", "stamp", "wave", "star"),
+
+            // —— 环境氛围。比粒子更安静的一层，通常是极慢的移动或一片光 ——
+            Token.option("ambient", "glow", "none", "none", "sun", "moon", "lantern", "dawn"),
+            Token.option("ambient", "drift", "none", "none", "clouds", "mist", "fireflies"),
+            Token.number("ambient", "intensity", 0, 1, 0.4),
+
+            // —— Block 皮肤。同一个内容块在不同主题里长得不一样 ——
+            Token.option("blockStyles", "callout", "plain", "plain", "paper", "tape", "ticket", "frame"),
+            Token.option("blockStyles", "quote", "plain", "plain", "mark", "card", "handwritten"),
+            Token.option("blockStyles", "timeline", "line", "line", "dots", "stamps", "tickets"),
+            Token.option("blockStyles", "stats", "plain", "plain", "badge", "ticket"),
+            Token.option("blockStyles", "locationCard", "plain", "plain", "postcard", "label", "passport"),
+
+            /*
+             * 互动。
+             *
+             * 只收枚举，绝不收 JavaScript 或 onclick 之类的字符串——主题配置是可以
+             * 导入导出的 JSON，一旦允许里面出现代码，导入一份别人的主题就等于执行别人的脚本。
+             * 每个值对应前端预先写好的一个行为，见 static/css/theme-pack.css 和 theme-effects.js。
+             */
+            Token.option("interactions", "stickerClick", "none", "none", "pop", "wiggle", "drift", "heart-pop"),
+            Token.option("interactions", "imageHover", "none", "none", "tilt", "zoom", "lift", "stamp"),
+            Token.option("interactions", "heroEntrance", "none", "none", "float", "fade", "drift"),
+
             // —— 首页封面图 ——
-            Token.media("hero", "mediaId"));
+            Token.media("hero", "mediaId"),
+            Token.option("hero", "shape", "none", "none", "wave", "arch", "torn", "tape"),
+            Token.option("hero", "overlay", "none", "none", "sun", "frost", "paper", "dusk"));
 
     private final ThemePresetMapper mapper;
     private final AdminUserMapper adminUserMapper;
     private final TripMapper tripMapper;
     private final JournalMapper journalMapper;
     private final ObjectMapper objectMapper;
+    private final SeasonService seasonService;
 
     public record ThemeView(Long id, String themeKey, String name, String description,
                             String baseThemeKey, String previewImageUrl, JsonNode definitionJson,
                             boolean builtin, boolean enabled, int version) {}
+
+    /**
+     * 全站主题的当前状态，供后台的主题选择器展示「跟随季节 · 夏 · 盛夏出逃」这样一行。
+     *
+     * @param mode      AUTO 或 FIXED
+     * @param season    当前季节的中文名，FIXED 时也给出来，方便切回自动时预告会变成什么
+     * @param theme     实际生效的主题
+     */
+    public record SiteThemeState(String mode, String season, String seasonThemeKey, ThemeView theme) {}
+
+    /** 全站主题模式：跟随季节。 */
+    public static final String MODE_AUTO = "AUTO";
+    /** 全站主题模式：固定用作者选定的那一套。 */
+    public static final String MODE_FIXED = "FIXED";
 
     public List<ThemeView> list(boolean enabledOnly) {
         LambdaQueryWrapper<ThemePreset> query = new LambdaQueryWrapper<ThemePreset>()
@@ -197,10 +278,25 @@ public class ThemePresetService {
         return view(preset);
     }
 
+    /**
+     * 当前生效的全站主题。
+     *
+     * <p>AUTO 模式下跟着站点所在地的季节走：8 月是盛夏出逃，到了 9 月自己变成秋日远行，
+     * 作者什么都不用做。一旦作者手动选过某一套，模式就变成 FIXED，季节更替不再影响它，
+     * 直到重新点「跟随季节」。</p>
+     */
     public ThemeView activeSiteTheme() {
+        return siteThemeState().theme();
+    }
+
+    /** 全站主题的完整状态，含模式和当前季节，供后台选择器展示。 */
+    public SiteThemeState siteThemeState() {
         AdminUser user = adminUserMapper.selectOne(new LambdaQueryWrapper<AdminUser>()
                 .eq(AdminUser::getEnabled, true).orderByAsc(AdminUser::getId).last("limit 1"));
-        return resolve(user == null ? DEFAULT_THEME : user.getThemeKey());
+        SeasonService.Season season = seasonService.current();
+        boolean auto = user == null || !MODE_FIXED.equals(user.getThemeMode());
+        String key = auto ? season.themeKey() : user.getThemeKey();
+        return new SiteThemeState(auto ? MODE_AUTO : MODE_FIXED, season.label(), season.themeKey(), resolve(key));
     }
 
     /** 计算最终生效的主题，优先级：日记专属 &gt; 旅行专属 &gt; 全站主题。 */
@@ -323,7 +419,31 @@ public class ThemePresetService {
                 case MEDIA -> {
                     if (raw.isIntegralNumber() && raw.asLong() > 0) section.put(token.key(), raw.asLong());
                 }
+                case STICKERS -> section.set(token.key(), normalizeStickers(raw));
             }
+        }
+        return result;
+    }
+
+    /**
+     * 归一化贴纸列表。
+     *
+     * <p>每一项只有 asset 和 area 两个字段：素材名会被拼进 SVG 的路径，位置会变成
+     * CSS 类名，两个都是能影响页面的值，所以都必须过白名单。不认识的项直接丢掉而不是报错——
+     * 导入一份为新版本写的主题时，旧版本应该照常能用，只是少几张贴纸。</p>
+     */
+    private ArrayNode normalizeStickers(JsonNode raw) {
+        ArrayNode result = objectMapper.createArrayNode();
+        if (!raw.isArray()) return result;
+        for (JsonNode item : raw) {
+            if (result.size() >= MAX_STICKERS) break;
+            String asset = item.path("asset").asText("").trim();
+            String area = item.path("area").asText("").trim();
+            if (!STICKER_ASSET.matcher(asset).matches() || asset.length() > 40) continue;
+            if (!STICKER_AREAS.contains(area)) continue;
+            ObjectNode sticker = result.addObject();
+            sticker.put("asset", asset);
+            sticker.put("area", area);
         }
         return result;
     }
