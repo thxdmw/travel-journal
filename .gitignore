@@ -5,6 +5,12 @@ out/
 *.jar
 *.war
 
+# 端到端测试（可选的开发依赖，不参与生产构建）
+node_modules/
+test-results/
+playwright-report/
+.playwright/
+
 # 本地 Maven 缓存
 .m2/
 

@@ -9,6 +9,10 @@
 - 分类预算、实际支出和超支汇总
 - 结构化旅行日记、草稿、发布、更新发布、撤回和区块化日记模板
 - 以 Blocks JSON 作为正文唯一数据源，不保存 Markdown、任意 HTML 或第二套预览文本
+- 正文里直接连续写作：段落、小标题、引用和提示卡不弹窗，回车分段、退格合并，段内换行有独立按钮（手机键盘没有 Shift）
+- 发布前可就地预览整篇文章，用的是和公开页面同一套渲染
+- 打开编辑器即建草稿，标题和 slug 可以留到发布前再补；停手自动保存，正文快照存本机 IndexedDB
+- 照片选完立刻插入正文并显示上传进度，并发上传、单张失败可重试
 - 26 种可视化内容块，覆盖正文、提示、信息清单、表格、同行者、地点、美食、住宿、交通、天气、图片组和明信片等旅行场景
 - 日记模板生成可继续独立编辑的内容块；模板版本用于标识来源，后续修改模板不会覆盖已写正文
 - 后台侧边栏可折叠为图标条
@@ -103,7 +107,7 @@ mvn spring-boot:run
 
 ## 区块日记与图片
 
-新日记需要先保存为草稿再上传图片。正文保存在 `journal_entry.content_json`，协议由 `schemaVersion` 和 `blocks` 组成：
+打开编辑器就会自动开一篇草稿，标题、slug、日期都可以之后再补，拍照和打字立刻可用。正文保存在 `journal_entry.content_json`，协议由 `schemaVersion` 和 `blocks` 组成：
 
 ~~~json
 {
@@ -159,13 +163,18 @@ mvn spring-boot:run
 - src/main/resources/static/index.html：公开端
 - src/main/resources/static/admin/index.html：管理端
 - src/main/resources/static/js/public-app.js：公开页面
-- src/main/resources/static/js/admin-app.js：管理后台
+- src/main/resources/static/js/admin-app.js：管理后台的路由与挂载
+- src/main/resources/static/js/admin/：后台各页面（shared、trip-workspace、journal-editor、studio）
 - src/main/resources/static/js/common/journal-blocks.js：区块协议、默认值和统一渲染器
-- src/main/resources/static/js/common/journal-block-editor.js：可视化区块编辑组件
+- src/main/resources/static/js/common/journal-block-editor.js：区块编辑组件，含正文的 inline 编辑
+- src/main/resources/static/js/common/local-draft.js：草稿的本机 IndexedDB 仓库
 - src/main/resources/static/js/common/journal-media.js：轮播、胶片条、对比和图片灯箱行为
+- src/main/resources/static/css/admin-shell.css 等五个后台样式文件（见 docs/journal-editor.md 的分工说明）
 - src/main/resources/static/css/journal-blocks.css：区块公开样式
 - src/main/resources/static/css/journal-media.css：后台与公开端共用的图片版式
 - src/main/resources/static/css/themes/travel-classic.css：默认主题变量
+
+后台的 JS 与 CSS 拆成多个职责单一的文件，但都不走模块系统和打包：`js/admin/shared.js` 先建立 `window.AdminShared`，各页面把组件注册到 `window.AdminPages`，`admin-app.js` 最后取用。CSS 的引入顺序即层叠顺序，`admin/index.html` 里不能随意调换。
 
 前端依赖使用锁定版本的 CDN 地址。主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
 
@@ -252,7 +261,8 @@ mc mirror minio/travel-journal /backup/travel-journal
 - 登录失败限流
 - 旅行日期校验
 - 预算汇总和超支判断
-- 日记草稿与发布校验
+- 日记草稿与发布的两套校验（草稿允许空标题空正文，发布严格）
+- 空草稿回收与自动 slug 生成
 - Blocks JSON 协议、扩展区块与图片外观设置校验
 - 主题 Token 白名单与危险颜色值校验
 - 图片上传处理
@@ -261,14 +271,17 @@ mc mirror minio/travel-journal /backup/travel-journal
 前端 JavaScript 可使用 Node.js 的 check 模式做语法检查，但运行项目不依赖 Node.js：
 
 ~~~bash
-node --check src/main/resources/static/js/common/api.js
-node --check src/main/resources/static/js/common/theme.js
-node --check src/main/resources/static/js/common/journal-blocks.js
-node --check src/main/resources/static/js/common/journal-block-editor.js
-node --check src/main/resources/static/js/common/journal-media.js
-node --check src/main/resources/static/js/public-app.js
-node --check src/main/resources/static/js/admin-app.js
+find src/main/resources/static/js -name '*.js' -exec node --check {} \;
 ~~~
+
+移动端布局还有一套可选的 Playwright 端到端测试，覆盖 iPhone 13、Pixel 7 和桌面 Chrome。它只是开发依赖，**不参与 Maven 打包和 Docker 构建**，运行和部署项目仍然不需要 Node.js。需要一个已经跑起来的应用实例：
+
+~~~bash
+npm install && npx playwright install chromium
+E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=你的密码 npx playwright test
+~~~
+
+用例在 `e2e/journal-mobile.spec.ts`，覆盖新建即草稿、连续写作不弹窗、退格合并、刷新恢复、空标题被拦、发布、空草稿回收，以及手机端的单一滚动、底栏可见和 Bottom Sheet 开合。
 
 ## 项目结构
 

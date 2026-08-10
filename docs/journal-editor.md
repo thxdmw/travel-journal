@@ -51,7 +51,29 @@
 - 图片：单张图片、图片组、旅行明信片。
 - 排版：分隔线。
 
-添加内容采用紧凑弹窗。选择类型后先填写完整表单，确认时才插入正文。区块列表中的图片仅作限高缩略展示，避免一张图片占满整个写作区域；完整效果在图片设置弹窗和公开页面中查看。
+## 写作在前，能力在后
+
+26 种区块是能力，不该成为写作入口。编辑器按「要不要填表」把区块分成两类：
+
+| 分类 | 区块 | 编辑方式 |
+| --- | --- | --- |
+| 连续写作 | `paragraph`、`heading`、`quote`、`callout` | 正文里直接编辑，不弹窗 |
+| 需要填表 | 其余 22 种 | 区块配置弹窗 |
+
+分流规则写在 `journal-block-editor.js` 的 `INLINE_BLOCKS`。inline 区块用自增高的 `textarea` 呈现，字号、引用竖线、提示卡底色都对着 `journal-blocks.css` 的公开端样式做，编辑时看到的就是发布后的样子。选用 `textarea` 而不是 `contenteditable`，是因为后者在中文输入法组合输入时的光标恢复非常难做对。
+
+连续写作的键盘行为：
+
+- `Enter` 开新段落，光标后面的文字一起带过去；`Shift+Enter` 是段内换行。
+- 输入法组合中的 `Enter`（`isComposing`）不拦截，否则拼音选字会被切断。
+- 段首 `Backspace` 与上一段合并，光标停在接缝处。
+- `↑` `↓` 到达首尾行时跨到相邻段落。
+
+段内换行还有一个显式的 `↵` 按钮（`insertBreak`），在段落、引用和提示卡的工具行里。**手机软键盘没有 Shift 键**，回车又被用来分段，只靠 `Shift+Enter` 等于在手机上没有换行的办法。标题不提供这个按钮：一个标题要换行，就该拆成两个标题。换行存为文本里的 `\n`，公开端渲染成 `<br>`。
+
+打字不会每一键都上报文档：inline 输入攒 300 毫秒才 `commit()`，结构变化（回车、退格）立即提交。这段窗口内组件不接受父组件的回流，否则光标下的那段字会被旧快照顶掉。
+
+添加内容分两层：`＋` 先给 8 个常用区块（`QUICK_BLOCKS`），正文不在其中——回车就是下一段；完整的 26 种收在「更多内容」后面，带搜索和分类。区块列表中的图片仅作限高缩略展示，避免一张图片占满整个写作区域；完整效果在图片设置弹窗和公开页面中查看。
 
 ## 图片管理与插入
 
@@ -87,33 +109,100 @@
 
 图片组模式包括规则网格、横向并排、瀑布流、主图拼贴、杂志版、故事流、错落画廊、轮播、胶片条和前后对比。胶片条在手机上原生滑动，在电脑上支持鼠标拖动和滚轮横向浏览。
 
+## 上传占位协议
+
+旅途中的常见需求是「刚拍的这张，放在我正写的这段后面」，走一遍图片管理器（上传 → 等待 → 回列表 → 选中 → 插入 → 配置）太长。所以选完照片先在正文占位，上传在后台跑：
+
+- 单张插入 `image` 区块并带 `data.pendingKey`；多张合并成一个 `gallery` 区块，带 `data.pendingKeys` 数组。
+- 占位期间显示本地 `objectURL` 缩略图和上传进度，失败可单独重试或移除。
+- 上传成功后把真实 `mediaId` 填回去，`pendingKey` 随之删除。
+- 并发 3 条上传，一张失败不阻塞其余。
+
+`pendingKey` / `pendingKeys` 只是本地状态，不进数据库：`body()` 提交前会清洗一次，把已完成区块的临时字段抹掉，把还没传完的整块剔除——否则服务器上会留下没有图片的空图块，刷新之后既看不到进度也传不下去。
+
+后端不需要认识这两个字段：`JournalDocumentService.collectMediaIds` 对 `null` 直接跳过，带占位的文档本来就能存草稿。
+
 ## 移动端行为
 
-- 日记内容与图片管理使用分段 Tab，不把两个长区域同时塞进一屏。
-- 图片设置顶部预览固定，下方设置使用 Tab 独立滚动，修改后无需滚回顶部查看效果。
-- 弹窗高度跟随 `visualViewport`，软键盘弹起后输入框会滚动到可视区域。
-- 底部操作区只使用安全区补偿，不把键盘高度重复算作底部留白。
-- 添加内容弹窗自身滚动，并为安全区留出尾部空间，避免浏览器菜单栏遮挡最后一行。
+编辑器在手机上只有**一条纵向滚动**：`.editor-page` 是唯一的滚动容器，顶栏 `sticky`、底部工具栏 `fixed`，内部的正文区、区块列表一律不再各自滚动。之前是「页面锁住不滚 → 正文自己滚 → 分段 Tab 再滚 → 弹窗又滚」，软键盘一起来就得到处打补丁。
+
+- 顶部只留返回、保存状态和 `···`，下面一行自动显示「8月10日 · 东京」。
+- 日记信息、图片管理、拍照选择都是从下方推上来的 Bottom Sheet，各自内部只有一个滚动区。
+- 底部工具栏固定 `＋ 📷 📍 H ”` 和图片入口，新内容插在光标所在段落之后。
+- `--visual-viewport-height` / `--browser-bottom-inset` 现在只服务于弹窗，正文不再依赖它们。
+- 图片排序以「按拍摄时间 / 按上传顺序 / 自定义」下拉为主，HTML5 拖拽退为桌面端的补充手段。
+
+## 发布前预览
+
+「预览全文」（顶栏的 👁 / 桌面操作区 / 手机的日记信息面板）就地把整篇渲染成读者看到的样子，用的是公开端同一套 `JournalBlocks.render` 和 `.journal-document` 样式，渲染后还会挂上 `JournalMedia.enhance` 让轮播、胶片条和灯箱能点。
+
+数据全在本地，不需要先保存，也不签 token。要把草稿发给别人看才用「预览链接」——那个会签发一个 48 小时有效的 token 并复制到剪贴板。
 
 ## 草稿与发布语义
 
-- 草稿：支持服务器自动保存、“保存草稿”、预览链接和“发布日记”。
-- 已发布：编辑时只把快照暂存在浏览器本机，不由定时自动保存直接改变公开文章。
-- 点击“更新发布”后才提交已发布文章的修改；原始发布时间保持不变。
-- 点击“撤回”后状态回到草稿，公开页面立即不可见。
+草稿和发布是**两套校验标准**。写的时候不该被表单拦住，公开出去的文章才需要完整。
+
+| | 草稿 | 发布 |
+| --- | --- | --- |
+| 标题 | 可以为空 | 必填 |
+| 正文 | 可以为空 | 至少一个区块且有实际内容 |
+| slug | 留空由服务端生成 | 必须合法 |
+| 日期 | 留空默认今天 | 必填 |
+| 图片归属 | 校验 | 校验 |
+
+对应的接口：
+
+- `POST /api/admin/journals/draft` — 开一篇空草稿，只需要知道属于哪次旅行。编辑器一进页面就调它，好让打字和拍照立刻有 id 可用。
+- `PATCH /api/admin/journals/{id}/draft` — 自动保存，字段可以缺席，缺的沿用库里的旧值。只对 DRAFT 开放。
+- `DELETE /api/admin/journals/{id}/discard-empty` — 进了编辑器又直接退出时调用。是否真的为空由服务端判断，标题、摘要、正文、图片有任何一样非空就原样保留。
+
+保存节奏（`js/admin/journal-editor.js`）：
+
+~~~text
+输入 → 停手 600ms  → 写本机 IndexedDB
+     → 停手 3s     → PATCH 提交服务器
+     → 45s 兜底    → 一直不停手打字时也不会太久没落库
+     → pagehide / 切到后台 → 立刻 flush
+~~~
+
+正文快照存 IndexedDB（`js/common/local-draft.js`），localStorage 只留一个「最近编辑的是哪篇」的指针。localStorage 的读写是同步的，一篇长日记每敲一个键就 `JSON.stringify` 再同步落盘，在手机上会直接卡住输入。
+
+已发布的日记仍然只把快照暂存在本机，不由自动保存改变公开内容；点击“更新发布”才提交，原始发布时间保持不变。点击“撤回”后状态回到草稿，公开页面立即不可见。
 
 ## 扩展一个新区块
 
 新增区块时至少同步以下位置：
 
 1. `journal-blocks.js`：目录信息、默认数据、统一渲染和示例数据。
-2. `journal-block-editor.js`：结构化填写表单。
-3. `journal-blocks.css`：后台与公开端共用的展示样式。
+2. `journal-block-editor.js`：结构化填写表单；如果新区块属于「连续写作」类，还要加进 `INLINE_BLOCKS` 并补上行内轻控件。
+3. `journal-block-editor.css`：编辑态样式；`journal-blocks.css`：后台与公开端共用的展示样式。
 4. `JournalDocumentService.java`：类型白名单、设置白名单、正文有效性和媒体引用提取。
 5. 模板服务：如果新区块需要被日记模板生成，再增加模板输入与生成规则。
 6. 自动化测试：覆盖合法文档、非法设置、发布时有效内容和媒体归属。
 
 不要只在前端添加类型。后端校验与公开渲染缺失会造成保存失败或公开页面丢失内容。
+
+在加新区块之前先想清楚：26 种已经能覆盖绝大多数旅行场景，多一种就多一份决策成本。真正影响体验的通常不是少了哪种排版，而是输入摩擦、离线可靠性和从拍照到记录的路径长度。
+
+## 前端文件分工
+
+~~~text
+css/admin-shell.css            登录、侧边栏、顶栏、通用面板与表单控件
+css/journal-editor.css         编辑器外壳、日记信息、图片管理（桌面端）
+css/admin-workspace.css        旅行工作台、模板、标签、主题 DIY
+css/journal-block-editor.css   区块卡片、inline 编辑、上传占位、内容目录与配置弹窗
+css/journal-editor-mobile.css  编辑器的手机端布局（对上面几个文件的覆盖）
+
+js/admin/shared.js             各页面共用的工具、常量与会话（window.AdminShared）
+js/admin/trip-workspace.js     登录、首页、旅行列表与工作台
+js/admin/journal-editor.js     日记编辑器
+js/admin/studio.js             模板、主题、个人资料、标签
+js/admin-app.js                路由表、侧边栏与挂载
+~~~
+
+CSS 的引入顺序就是层叠顺序，`admin/index.html` 里不能随意调换：`journal-editor.css` 必须排在 `admin-workspace.css` 之前（模板预览靠 `.template-preview-body` 覆盖 `.preview`），`journal-editor-mobile.css` 必须排在最后。
+
+JS 之间不走模块系统，`shared.js` 最先加载建立 `window.AdminShared`，各页面把组件注册到 `window.AdminPages`，`admin-app.js` 最后加载取用。这样仍然不需要 npm 构建。
 
 ## 本地验证
 
@@ -126,12 +215,21 @@ mvn clean test
 mvn clean package
 ~~~
 
-前端不需要构建，但提交前应执行：
+前端不需要构建，但提交前应对每个 JS 执行语法检查：
 
 ~~~powershell
-node --check src/main/resources/static/js/common/journal-blocks.js
-node --check src/main/resources/static/js/common/journal-block-editor.js
-node --check src/main/resources/static/js/common/journal-media.js
-node --check src/main/resources/static/js/admin-app.js
-node --check src/main/resources/static/js/public-app.js
+Get-ChildItem -Recurse src/main/resources/static/js -Filter *.js | ForEach-Object { node --check $_.FullName }
 ~~~
+
+移动端布局改动建议再跑一次端到端测试。它是可选的开发依赖，不参与 Maven 打包和 Docker 构建，需要一个已经跑起来的应用实例：
+
+~~~powershell
+npm install
+npx playwright install chromium
+$env:E2E_BASE_URL = "http://localhost:8080"
+$env:E2E_ADMIN_USER = "admin"
+$env:E2E_ADMIN_PASS = "你的密码"
+npx playwright test
+~~~
+
+覆盖 iPhone 13、Pixel 7 和桌面 Chrome 三种尺寸，用例在 `e2e/journal-mobile.spec.ts`：新建即草稿、连续写三段不弹窗、退格合并、刷新恢复、空标题被拦、发布、空草稿回收，以及手机端的单一滚动、底栏可见、Bottom Sheet 开合。

@@ -4,15 +4,26 @@
   const JB=window.JournalBlocks;
   const IMAGE_BLOCKS=['image','gallery','postcard'];
   const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport'];
+  // 这四种是「一边想一边打字」的内容，直接在正文里编辑；其余 22 种是要填表的，仍然走配置弹窗。
+  const INLINE_BLOCKS=['paragraph','heading','quote','callout'];
+  // 手机上按 ＋ 先看到的是这几个，不是全部 26 种。正文不在其中——回车就是下一段。
+  const QUICK_BLOCKS=['image','location-card','heading','quote','gallery','route','checklist','divider'];
+  const PLACEHOLDERS={paragraph:'继续写……',heading:'小标题',quote:'想记住的一句话',callout:'写下这条提示'};
+  // textarea 跟着内容长高，让正文看起来是连续的一篇，而不是一格格输入框
+  const autoGrow=el=>{if(!el||el.tagName!=='TEXTAREA')return;el.style.height='auto';el.style.height=el.scrollHeight+'px';};
 
   window.JournalBlockEditor={
     name:'JournalBlockEditor',
-    props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]},travelContext:{type:Object,default:()=>({})}},
-    emits:['update:modelValue'],
+    directives:{grow:{mounted:autoGrow,updated:autoGrow}},
+    props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]},travelContext:{type:Object,default:()=>({})},
+      uploads:{type:Array,default:()=>[]}},
+    emits:['update:modelValue','retry-upload'],
     setup(props,{emit,expose}){
       const document=ref(JB.normalize(props.modelValue));
       const catalogOpen=ref(false),editorOpen=ref(false),draft=ref(null),editIndex=ref(-1),insertAt=ref(0);
       const query=ref(''),activeCategory=ref('全部'),imageTab=ref('content'),previewEl=ref(null);
+      const catalogMode=ref('quick'),catalogCount=JB.CATALOG.length,focusedIndex=ref(-1);
+      const quickItems=QUICK_BLOCKS.map(type=>JB.CATALOG.find(x=>x.type===type)).filter(Boolean);
       const categories=['全部',...new Set(JB.CATALOG.map(x=>x.category))];
       const filtered=()=>JB.CATALOG.filter(x=>(activeCategory.value==='全部'||x.category===activeCategory.value)
         &&(!query.value||[x.label,x.description,x.category].join(' ').includes(query.value)));
@@ -41,7 +52,7 @@
         const hints={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
         return draft.value?.type==='gallery'?(hints[layout]||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
       });
-      let syncing=false;
+      let syncing=false,inlineTimer=null;
 
       function bindingDefaults(type){
         if(type==='trip-info')return{enabled:false,fields:['date','city','tripTitle']};
@@ -117,7 +128,8 @@
       function refreshBinding(){initializeBindingSelection();applyBinding();ElementPlus.ElMessage.success('已同步当前旅行数据');}
 
       watch(()=>props.modelValue,value=>{
-        if(syncing)return;
+        // 正文里有还没提交的击键时不接受回流，否则光标下的那段字会被旧快照顶掉
+        if(syncing||inlineTimer)return;
         const incoming=JB.normalize(value);
         if(JSON.stringify(incoming)!==JSON.stringify(document.value))document.value=incoming;
       },{deep:true});
@@ -134,13 +146,117 @@
         document.value=value;emit('update:modelValue',value);
         nextTick(()=>syncing=false);
       }
+      /**
+       * 打字时不要每一键都 commit——那会让父组件重算整篇文档，光标很容易被顶走。
+       * 攒 300 毫秒再往上报一次；结构变化（回车分段、退格合并）走 flushInline 立即提交。
+       */
+      function scheduleCommit(){
+        if(inlineTimer)clearTimeout(inlineTimer);
+        inlineTimer=setTimeout(()=>{inlineTimer=null;commit();},300);
+      }
+      function flushInline(){
+        if(inlineTimer){clearTimeout(inlineTimer);inlineTimer=null;}
+        commit();
+      }
+      function isInline(type){return INLINE_BLOCKS.includes(type);}
+      function placeholderOf(block){return PLACEHOLDERS[block.type]||'';}
+      function inlineInput(event){autoGrow(event.target);scheduleCommit();}
+      function inlineFocus(index){focusedIndex.value=index;}
+      /** 底部工具栏用：新内容落在光标所在段落之后，而不是一律追加到文末。 */
+      function insertQuick(type){
+        const item=JB.CATALOG.find(x=>x.type===type);if(!item)return;
+        insertAt.value=focusedIndex.value>=0&&focusedIndex.value<document.value.blocks.length
+          ? focusedIndex.value+1 : document.value.blocks.length;
+        choose(item);
+      }
+      /** 把光标放到某个块里。caret 支持 'start'、'end' 或具体下标。 */
+      function focusInline(blockId,caret){
+        nextTick(()=>{
+          const el=window.document.querySelector('[data-inline-input="'+blockId+'"]');
+          if(!el)return;
+          autoGrow(el);el.focus({preventScroll:true});
+          const pos=caret==='end'?el.value.length:(caret==='start'||caret==null?0:Math.min(caret,el.value.length));
+          el.setSelectionRange(pos,pos);
+          el.scrollIntoView({block:'nearest'});
+        });
+      }
+      /** 回车＝下一段。光标后面还有字就一起带到新段落里，和普通编辑器一致。 */
+      function inlineEnter(event,index){
+        if(event.isComposing||event.keyCode===229||event.shiftKey)return;
+        event.preventDefault();
+        const el=event.target,current=document.value.blocks[index];
+        const text=String(current.data.text||''),caret=el.selectionStart;
+        const carried=caret<text.length?text.slice(caret):'';
+        if(carried)current.data.text=text.slice(0,caret);
+        const block=JB.createBlock('paragraph',carried?{text:carried}:undefined);
+        document.value.blocks.splice(index+1,0,block);
+        flushInline();focusInline(block.id,'start');
+      }
+      /** 在块首退格＝和上一段合并，这样删掉多余的空段落不用去点删除按钮。 */
+      function inlineBackspace(event,index){
+        const el=event.target;
+        if(el.selectionStart!==0||el.selectionEnd!==0||index===0)return;
+        const previous=document.value.blocks[index-1];
+        if(!isInline(previous.type))return;
+        event.preventDefault();
+        const tail=String(document.value.blocks[index].data.text||'');
+        const caret=String(previous.data.text||'').length;
+        previous.data.text=String(previous.data.text||'')+tail;
+        document.value.blocks.splice(index,1);
+        flushInline();focusInline(previous.id,caret);
+      }
+      /** 光标已经在首行/末行时，上下键跨到相邻段落，正文读起来才是一整篇。 */
+      function inlineArrow(event,index,step){
+        const el=event.target;
+        if(step<0?el.selectionStart!==0:el.selectionEnd!==el.value.length)return;
+        const target=document.value.blocks[index+step];
+        if(!target||!isInline(target.type))return;
+        event.preventDefault();focusInline(target.id,step<0?'end':'start');
+      }
+      /** 空日记里的那个占位输入框：一打字才真正建出第一个段落，没写就退出不会留下空区块。 */
+      function startWriting(event){
+        const text=event.target.value;
+        event.target.value='';
+        if(!text)return;
+        const block=JB.createBlock('paragraph',{text:text});
+        document.value.blocks.push(block);commit();focusInline(block.id,'end');
+      }
+      /*
+       * 段内换行。
+       *
+       * 电脑上是 Shift+Enter，但手机软键盘没有 Shift 键——回车又被用来分段了，
+       * 于是手机上根本没有办法在一段里换行。所以工具行里给一个显式的 ↵ 按钮。
+       * 标题不需要它：一个标题换行就该拆成两个标题。
+       */
+      function canBreak(block){return block.type!=='heading';}
+      function insertBreak(index){
+        const block=document.value.blocks[index];
+        const el=window.document.querySelector('[data-inline-input="'+block.id+'"]');
+        const text=String(block.data.text||'');
+        const start=el?el.selectionStart:text.length,end=el?el.selectionEnd:text.length;
+        block.data.text=text.slice(0,start)+'\n'+text.slice(end);
+        flushInline();
+        nextTick(()=>{
+          const target=window.document.querySelector('[data-inline-input="'+block.id+'"]');
+          if(!target)return;
+          autoGrow(target);target.focus();target.setSelectionRange(start+1,start+1);
+        });
+      }
+      function setHeadingLevel(block,level){block.data.level=level;flushInline();}
+      function setCalloutTone(block,tone){block.data.tone=tone;flushInline();}
       function openCatalog(index){
         insertAt.value=index==null?document.value.blocks.length:index;
-        query.value='';activeCategory.value='全部';catalogOpen.value=true;
+        query.value='';activeCategory.value='全部';catalogMode.value='quick';catalogOpen.value=true;
       }
       function choose(item){
         catalogOpen.value=false;draft.value=JB.createBlock(item.type);editIndex.value=-1;
         if(item.type==='divider'){confirmEdit();return;}
+        // 小标题和引用不该再弹一次表单——直接落在正文里开始打字
+        if(isInline(item.type)){
+          const block=draft.value;draft.value=null;
+          document.value.blocks.splice(insertAt.value,0,block);
+          commit();focusInline(block.id,'start');return;
+        }
         ensureBinding();
         imageTab.value='content';
         nextTick(()=>editorOpen.value=true);
@@ -158,7 +274,11 @@
         nextTick(()=>setTimeout(()=>window.document.querySelector('[data-editor-block-id="'+block.id+'"]')
           ?.scrollIntoView({behavior:'smooth',block:'center'}),80));
       }
-      function remove(index){document.value.blocks.splice(index,1);commit();}
+      function remove(index){
+        const previous=document.value.blocks[index-1];
+        document.value.blocks.splice(index,1);flushInline();
+        if(previous&&isInline(previous.type))focusInline(previous.id,'end');
+      }
       function move(index,offset){
         const target=index+offset;if(target<0||target>=document.value.blocks.length)return;
         const item=document.value.blocks.splice(index,1)[0];document.value.blocks.splice(target,0,item);commit();
@@ -191,6 +311,70 @@
           draft.value.data.mediaIds=ids.includes(item.id)?ids.filter(x=>x!==item.id):[...ids,item.id];
         }else draft.value.data.mediaId=item.id;
       }
+      /*
+       * 拍完照片先在正文里占个位再传。
+       *
+       * 图片管理器那条路（上传 → 等待 → 回列表 → 选中 → 插入 → 配置）在旅途中太长了，
+       * 常见的需求就是「刚拍的这张，放在我正写的这段后面」。所以这里先插入一个带
+       * pendingKey 的区块显示本地缩略图和进度，上传成功再把 mediaId 填回去。
+       * 存草稿时未完成的占位会被剔除，服务器上不会留半截图片块。
+       */
+      function pendingUpload(key){return props.uploads.find(item=>item.key===key)||null;}
+      function isPending(block){
+        return (block.type==='image'&&block.data.pendingKey&&!block.data.mediaId)
+          ||(block.type==='gallery'&&block.data.pendingKeys?.length);
+      }
+      function pendingKeysOf(block){return block.type==='gallery'?(block.data.pendingKeys||[]):[block.data.pendingKey];}
+      function pendingProgress(block){
+        const tasks=pendingKeysOf(block).map(pendingUpload).filter(Boolean);
+        if(!tasks.length)return 0;
+        return Math.round(tasks.reduce((sum,task)=>sum+(task.status==='done'?100:task.progress||0),0)/tasks.length);
+      }
+      function pendingFailed(block){return pendingKeysOf(block).map(pendingUpload).some(task=>task?.status==='failed');}
+      function pendingLabel(block){
+        const tasks=pendingKeysOf(block).map(pendingUpload).filter(Boolean);
+        if(!tasks.length)return '准备中';
+        if(tasks.some(task=>task.status==='failed'))return '有 '+tasks.filter(t=>t.status==='failed').length+' 张上传失败';
+        return tasks.length>1?('上传中 '+tasks.filter(t=>t.status==='done').length+'/'+tasks.length):(tasks[0].name||'上传中');
+      }
+      function pendingPreviews(block){return pendingKeysOf(block).map(pendingUpload).filter(Boolean).slice(0,4);}
+      function insertPending(items){
+        if(!items?.length)return;
+        const at=focusedIndex.value>=0&&focusedIndex.value<document.value.blocks.length
+          ? focusedIndex.value+1 : document.value.blocks.length;
+        const block=items.length>1
+          ? JB.createBlock('gallery',{mediaIds:[],pendingKeys:items.map(item=>item.key)})
+          : JB.createBlock('image',{mediaId:null,pendingKey:items[0].key});
+        document.value.blocks.splice(at,0,block);
+        focusedIndex.value=at;flushInline();
+        nextTick(()=>window.document.querySelector('[data-editor-block-id="'+block.id+'"]')?.scrollIntoView({behavior:'smooth',block:'center'}));
+      }
+      /** 某一张传完了，把真实 mediaId 填回占位它的那个区块。 */
+      function resolvePending(key,mediaId){
+        document.value.blocks.forEach(block=>{
+          if(block.data.pendingKey===key){block.data.mediaId=mediaId;delete block.data.pendingKey;}
+          if(Array.isArray(block.data.pendingKeys)&&block.data.pendingKeys.includes(key)){
+            block.data.mediaIds=[...(block.data.mediaIds||[]),mediaId];
+            block.data.pendingKeys=block.data.pendingKeys.filter(item=>item!==key);
+            if(!block.data.pendingKeys.length)delete block.data.pendingKeys;
+          }
+        });
+        flushInline();
+      }
+      /** 放弃某张的占位（上传失败后选择删除），空掉的区块一并移除。 */
+      function dropPending(key){
+        document.value.blocks=document.value.blocks.filter(block=>{
+          if(block.data.pendingKey===key)return false;
+          if(Array.isArray(block.data.pendingKeys)&&block.data.pendingKeys.includes(key)){
+            block.data.pendingKeys=block.data.pendingKeys.filter(item=>item!==key);
+            if(!block.data.pendingKeys.length){delete block.data.pendingKeys;return (block.data.mediaIds||[]).length>0;}
+          }
+          return true;
+        });
+        flushInline();
+      }
+      function retryPending(block){pendingKeysOf(block).forEach(key=>{if(pendingUpload(key)?.status==='failed')emit('retry-upload',key);});}
+      function cancelPending(block){pendingKeysOf(block).forEach(key=>key&&dropPending(key));}
       function insertMedia(ids,preferredType){
         const values=(Array.isArray(ids)?ids:[ids]).filter(Boolean);if(!values.length)return;
         insertAt.value=document.value.blocks.length;
@@ -199,22 +383,74 @@
         editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
       }
       onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);});
-      onBeforeUnmount(()=>{window.JournalMedia?.teardown(previewEl.value);window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);});
-      expose({openCatalog,insertMedia});
+      onBeforeUnmount(()=>{
+        if(inlineTimer){clearTimeout(inlineTimer);inlineTimer=null;commit();}
+        window.JournalMedia?.teardown(previewEl.value);
+        window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
+      });
+      expose({openCatalog,insertMedia,insertQuick,insertPending,resolvePending,dropPending,flushInline});
       return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
         layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,dataBinding,relatedRecords,
+        catalogMode,catalogCount,quickItems,isInline,placeholderOf,inlineInput,inlineFocus,inlineEnter,inlineBackspace,inlineArrow,startWriting,canBreak,insertBreak,setHeadingLevel,setCalloutTone,insertQuick,
         openCatalog,choose,edit,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,
-        render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding};
+        render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding,
+        isPending,pendingProgress,pendingFailed,pendingLabel,pendingPreviews,retryPending,cancelPending};
     },
     template:`
       <div class="block-editor">
-        <div v-if="!document.blocks.length" class="block-editor-empty">
-          <strong>从第一段内容开始</strong><p>选择内容类型，填写完成后一次插入正文。</p>
-          <el-button type="primary" round @click="openCatalog(0)">＋ 添加内容</el-button>
+        <div v-if="!document.blocks.length" class="block-inline block-inline--ghost">
+          <textarea class="block-inline-input block-inline-input--paragraph" rows="1"
+            placeholder="今天发生了什么？直接开始写，回车就是下一段。" @input="startWriting"></textarea>
         </div>
         <template v-for="(block,index) in document.blocks" :key="block.id">
           <div class="block-insert-line"><button type="button" @click="openCatalog(index)" aria-label="在这里添加内容">＋</button></div>
-          <article class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id">
+
+          <div v-if="isInline(block.type)" class="block-inline" :class="'block-inline--'+block.type" :data-editor-block-id="block.id">
+            <textarea v-grow v-model="block.data.text" :data-inline-input="block.id" rows="1"
+              class="block-inline-input" :class="['block-inline-input--'+block.type,
+                block.type==='heading'?'is-h'+(block.data.level||2):'',
+                block.type==='paragraph'&&block.settings.style?'is-'+block.settings.style:'',
+                block.type==='callout'?'is-'+(block.data.tone||'note'):'']"
+              :style="{textAlign:block.settings.align||''}" :placeholder="placeholderOf(block)"
+              @input="inlineInput" @focus="inlineFocus(index)" @keydown.enter="inlineEnter($event,index)" @keydown.backspace="inlineBackspace($event,index)"
+              @keydown.up="inlineArrow($event,index,-1)" @keydown.down="inlineArrow($event,index,1)"></textarea>
+            <input v-if="block.type==='quote'" v-model="block.data.source" class="block-inline-source"
+              placeholder="出处（可选）" @input="inlineInput">
+            <div class="block-inline-bar">
+              <div class="block-inline-variants">
+                <template v-if="block.type==='heading'">
+                  <button v-for="level in [2,3,4]" :key="level" type="button" :class="{active:(block.data.level||2)===level}"
+                    @click="setHeadingLevel(block,level)">H{{level-1}}</button>
+                </template>
+                <template v-else-if="block.type==='callout'">
+                  <button v-for="tone in [['note','心得'],['tip','提示'],['warning','提醒'],['memory','记忆']]" :key="tone[0]"
+                    type="button" :class="{active:(block.data.tone||'note')===tone[0]}" @click="setCalloutTone(block,tone[0])">{{tone[1]}}</button>
+                </template>
+              </div>
+              <div class="block-inline-tools">
+                <button v-if="canBreak(block)" type="button" class="block-inline-break" title="在段内换行（电脑上也可以按 Shift+Enter）" @click="insertBreak(index)">↵</button>
+                <button type="button" :disabled="index===0" title="上移" @click="move(index,-1)">↑</button>
+                <button type="button" :disabled="index===document.blocks.length-1" title="下移" @click="move(index,1)">↓</button>
+                <button type="button" title="更多设置" @click="edit(index)">⋯</button>
+                <button type="button" class="danger" title="删除" @click="remove(index)">×</button>
+              </div>
+            </div>
+          </div>
+
+          <article v-else-if="isPending(block)" class="block-pending" :class="{'is-failed':pendingFailed(block)}" :data-editor-block-id="block.id">
+            <div class="block-pending-shots"><img v-for="task in pendingPreviews(block)" :key="task.key" :src="task.preview" alt=""></div>
+            <div class="block-pending-main">
+              <strong>{{pendingLabel(block)}}</strong>
+              <div class="block-pending-bar"><i :style="{width:pendingProgress(block)+'%'}"></i></div>
+              <div class="block-pending-actions">
+                <span>{{pendingFailed(block)?'网络不稳时可以重试，照片还在手机里':pendingProgress(block)+'%'}}</span>
+                <button v-if="pendingFailed(block)" type="button" @click="retryPending(block)">重试</button>
+                <button type="button" class="danger" @click="cancelPending(block)">移除</button>
+              </div>
+            </div>
+          </article>
+
+          <article v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id">
             <header><span>{{label(block.type)}}</span><div>
               <button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><button type="button" :disabled="index===document.blocks.length-1" @click="move(index,1)">↓</button>
               <button type="button" @click="edit(index)">编辑</button><button type="button" class="danger" @click="remove(index)">删除</button>
@@ -223,12 +459,18 @@
         </template>
         <div v-if="document.blocks.length" class="block-insert-line block-insert-line--last"><button type="button" @click="openCatalog(document.blocks.length)">＋</button><span>添加内容</span></div>
 
-        <el-dialog v-model="catalogOpen" title="添加内容" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body align-center destroy-on-close>
-          <p class="block-dialog-intro">选择一种内容。下一步会先填写具体内容，确认后才放入正文。</p>
-          <el-input v-model="query" clearable placeholder="搜索文字、地点、美食、图片……" class="block-search"/>
-          <div class="block-categories"><button v-for="category in categories" :key="category" type="button" :class="{active:activeCategory===category}" @click="activeCategory=category">{{category}}</button></div>
-          <div class="block-catalog"><button v-for="item in filtered()" :key="item.type" type="button" @click="choose(item)"><b>{{item.icon}}</b><span><strong>{{item.label}}</strong><small>{{item.description}}</small></span></button></div>
-          <el-empty v-if="!filtered().length" :image-size="54" description="没有匹配的内容类型"/>
+        <el-dialog v-model="catalogOpen" :title="catalogMode==='quick'?'添加内容':'全部内容类型'" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body align-center destroy-on-close>
+          <template v-if="catalogMode==='quick'">
+            <p class="block-dialog-intro">写字直接在正文里打就行，回车分段。这里放的是文字之外的内容。</p>
+            <div class="block-catalog block-catalog--quick"><button v-for="item in quickItems" :key="item.type" type="button" @click="choose(item)"><b>{{item.icon}}</b><span><strong>{{item.label}}</strong><small>{{item.description}}</small></span></button></div>
+            <button type="button" class="block-catalog-more" @click="catalogMode='all'">更多内容（共 {{catalogCount}} 种）→</button>
+          </template>
+          <template v-else>
+            <el-input v-model="query" clearable placeholder="搜索文字、地点、美食、图片……" class="block-search"/>
+            <div class="block-categories"><button v-for="category in categories" :key="category" type="button" :class="{active:activeCategory===category}" @click="activeCategory=category">{{category}}</button></div>
+            <div class="block-catalog"><button v-for="item in filtered()" :key="item.type" type="button" @click="choose(item)"><b>{{item.icon}}</b><span><strong>{{item.label}}</strong><small>{{item.description}}</small></span></button></div>
+            <el-empty v-if="!filtered().length" :image-size="54" description="没有匹配的内容类型"/>
+          </template>
         </el-dialog>
 
         <el-dialog v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"

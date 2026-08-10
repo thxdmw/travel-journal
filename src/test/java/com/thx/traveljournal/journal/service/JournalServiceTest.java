@@ -83,6 +83,72 @@ class JournalServiceTest {
                 .hasMessageContaining("内容区块");
     }
 
+    @Test
+    void draftIsCreatedWithGeneratedSlugAndToday(){
+        JournalEntry created=service.createDraft(1L,null,null);
+        assertThat(created.getStatus()).isEqualTo("DRAFT");
+        assertThat(created.getTitle()).isEmpty();
+        assertThat(created.getOccurredOn()).isEqualTo(LocalDate.now());
+        assertThat(created.getSlug()).startsWith("journal-").matches("^[a-z0-9]+(?:-[a-z0-9]+)*$");
+        assertThat(created.getContentJson().path("blocks")).isEmpty();
+        verify(mapper).insert(created);
+    }
+
+    @Test
+    void generatedDraftSlugsDoNotCollide(){
+        assertThat(service.createDraft(1L,null,LocalDate.of(2026,8,10)).getSlug())
+                .isNotEqualTo(service.createDraft(1L,null,LocalDate.of(2026,8,10)).getSlug());
+    }
+
+    @Test
+    void draftSaveAcceptsBlankTitleAndEmptyBody(){
+        JournalEntry stored=validEntry();stored.setId(9L);stored.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(stored);
+        JournalEntry input=new JournalEntry();
+        input.setTripId(1L);input.setTitle("");
+        input.setContentJson(new JournalDocumentService(objectMapper).emptyDocument());
+        service.updateDraft(9L,input);
+        assertThat(input.getSlug()).isEqualTo("tokyo-spring");
+        verify(mapper).updateById(input);
+    }
+
+    @Test
+    void blankTitleCannotBePublished(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setTitle("");
+        when(mapper.selectById(9L)).thenReturn(entry);
+        assertThatThrownBy(()->service.publish(9L)).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("标题");
+        verify(mapper,never()).updateById(any(JournalEntry.class));
+    }
+
+    @Test
+    void publishedJournalRejectsDraftAutoSave(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setStatus("PUBLISHED");
+        when(mapper.selectById(9L)).thenReturn(entry);
+        assertThatThrownBy(()->service.updateDraft(9L,validEntry())).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("更新发布");
+    }
+
+    @Test
+    void emptyDraftIsDiscarded(){
+        JournalEntry entry=new JournalEntry();
+        entry.setId(9L);entry.setTripId(1L);entry.setTitle("");entry.setStatus("DRAFT");
+        entry.setContentJson(new JournalDocumentService(objectMapper).emptyDocument());
+        when(mapper.selectById(9L)).thenReturn(entry);
+        when(mediaMapper.selectCount(any())).thenReturn(0L);
+        assertThat(service.discardIfEmpty(9L)).isTrue();
+        verify(mapper).deleteById(9L);
+    }
+
+    @Test
+    void draftWithContentIsKept(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setTitle("");entry.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(entry);
+        when(mediaMapper.selectCount(any())).thenReturn(0L);
+        assertThat(service.discardIfEmpty(9L)).isFalse();
+        verify(mapper,never()).deleteById(any(Long.class));
+    }
+
     private JournalEntry validEntry(){
         JournalEntry entry=new JournalEntry();
         entry.setTripId(1L);entry.setTitle("东京的春天");entry.setSlug("tokyo-spring");

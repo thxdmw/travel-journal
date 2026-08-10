@@ -1,19 +1,17 @@
 /*
  * 日记正文里的图片版式，公开端和后台预览共用一份。
  *
- * 之所以单独成文件：这套样式原本在 public.css 和 admin.css 里各抄了一份，
- * 改一处忘另一处就会出现「预览和线上不一样」。后台的实时预览元素本身带
- * .preview.journal-document，版式面板的预览台在 .figure-stage__page 上带 .journal-document，
- * 所以只要都挂上 .journal-document，一份规则就能服务三个地方。
+ * 之所以单独成文件：这套样式原本在 public.css 和后台样式里各抄了一份，
+ * 改一处忘另一处就会出现「预览和线上不一样」。后台的模板预览和区块配置弹窗里的
+ * 预览纸张都挂了 .journal-document，所以一份规则能同时服务公开端和后台。
  *
  * 上下文差异走 CSS 变量，不要再复制选择器。
  */
 /* 注意别在这里声明 --body-size：本文件在 public.css 之后加载，同为 .journal-document
    单类选择器会盖掉前台设的 17px。默认值写在下面 font 的 var() 兜底里。 */
 .journal-document { --figure-max-h: min(720px, 75vh); --figure-cursor: zoom-in; --figure-gap: 10px; }
-/* 预览台的 .journal-document 在内层的 __page 上，所以这里用后代选择器而不是同元素 */
-.preview.journal-document,
-.figure-stage .journal-document { --figure-max-h: min(560px, 60vh); --figure-cursor: pointer; }
+/* 后台预览里的图片限得比公开端矮一些，一屏能多看到几段正文 */
+.preview.journal-document { --figure-max-h: min(560px, 60vh); --figure-cursor: pointer; }
 
 /*
  * 正文排版。这一段必须在公开端和后台预览之间共用，否则就会出现

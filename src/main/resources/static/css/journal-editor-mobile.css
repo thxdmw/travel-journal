@@ -1,0 +1,114 @@
+/* 日记编辑器的手机端布局。
+
+   这里集中了原来散在五处 @media 里的移动端规则：整页只有一条纵向主滚动，
+   顶栏 sticky、底部工具栏 fixed，日记信息和图片管理都是从下方推上来的 Bottom Sheet。 */
+
+@media(max-width:1100px) {
+  .editor-grid { grid-template-columns:1fr 0 1fr; }
+  .editor-grid .editor-column:last-child { grid-column:1/-1; border-top:1px solid var(--tj-border); }
+  .media-side { height:auto; max-height:300px; }
+}
+@media(max-width:760px) {
+  .editor-meta-secondary { grid-template-columns:1fr; }
+  .editor-page { height:100%; padding:0 0 calc(74px + env(safe-area-inset-bottom)); display:block; overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
+  .editor-top { position:sticky; top:0; z-index:30; display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:8px; margin:0; padding:7px 10px; border-bottom:1px solid var(--tj-border); background:color-mix(in srgb,var(--tj-bg) 93%,transparent); backdrop-filter:blur(12px); }
+  .editor-back em { display:none; }
+  .editor-top .word-count,.editor-actions { display:none; }
+  /* 顶栏放两个按钮：随时能看成稿的「眼睛」，以及收纳其余一切的「···」 */
+  .editor-top { grid-template-columns:auto minmax(0,1fr) auto auto; }
+  .editor-more,.editor-preview-btn { display:block; justify-self:end; width:40px; height:40px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--tj-primary); font-size:19px; line-height:1; }
+  .editor-preview-btn:active,.editor-more:active { background:var(--tj-surface-soft); }
+  .article-preview-dialog { width:100%!important; max-width:100vw; height:100dvh; max-height:100dvh; margin:0!important; display:flex; flex-direction:column; border-radius:0!important; }
+  .article-preview-dialog .el-dialog__body { flex:1; min-height:0; max-height:none; padding:6px 10px 12px; }
+  .article-preview-dialog .el-dialog__footer { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); }
+  .article-preview-dialog .el-dialog__footer .el-button { flex:1; min-height:44px; }
+  .article-preview-body { padding:16px 14px; }
+  .article-preview-head { margin-bottom:16px; padding-bottom:12px; }
+  .editor-more:active { background:var(--tj-surface-soft); }
+  .editor-context { font-size:14px; }
+  /* 正文区不再分栏、不再自己滚，就是一篇往下写的文章 */
+.editor-grid { display:block; flex:none; min-height:0; border:0; border-radius:0; background:transparent; overflow:visible; }
+  .editor-column { display:block; min-height:0; border:0; }
+  .editor-column--write>.editor-label { display:none; }
+  /* 模板预览在手机上收紧一档，字号交给 journal-media.css 的 --body-size */
+  .preview { padding:12px; }
+  .preview.journal-document { --body-size:14px; }
+  /* 底部工具栏：拍照、地点、标题、引用都在拇指够得到的地方 */
+.editor-toolbar { position:fixed; left:0; right:0; bottom:0; z-index:40; display:grid; grid-template-columns:repeat(6,1fr); gap:2px; padding:5px 5px calc(5px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); background:color-mix(in srgb,var(--tj-surface) 96%,transparent); backdrop-filter:blur(14px); }
+  .editor-toolbar button { display:grid; justify-items:center; gap:1px; min-height:46px; padding:4px 0; border:0; border-radius:9px; background:transparent; color:var(--tj-primary); touch-action:manipulation; }
+  .editor-toolbar b { font-weight:400; font-size:18px; line-height:1.1; }
+  .editor-toolbar em { font-style:normal; font-size:10px; color:var(--tj-muted); }
+  .editor-toolbar button:active { background:var(--tj-surface-soft); }
+  .editor-toolbar button:disabled { opacity:.4; }
+  /* 日记信息、图片管理、拍照选择都是从下面推上来的一层，各自内部只有一个滚动区 */
+.editor-sheet-backdrop { position:fixed; inset:0; z-index:50; display:block; background:rgba(17,34,28,.42); }
+  .editor-meta-toggle { display:none; }
+  .editor-meta-group { position:fixed; left:0; right:0; bottom:0; z-index:60; max-height:86dvh; grid-template-rows:1fr!important; opacity:1!important; border-radius:18px 18px 0 0; background:var(--tj-surface); box-shadow:0 -12px 40px rgba(28,55,46,.18); transform:translateY(102%); transition:transform .26s ease; }
+  .editor-meta-group.is-open { transform:none; }
+  .editor-meta-inner { max-height:86dvh; padding:8px 14px calc(16px + env(safe-area-inset-bottom)); overflow-y:auto; overscroll-behavior:contain; }
+  .editor-meta-inner::before { content:''; display:block; width:42px; height:4px; margin:0 auto 14px; border-radius:4px; background:var(--tj-border); }
+  .editor-meta,.editor-meta-secondary { grid-template-columns:1fr; }
+  .editor-sheet-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; padding-top:14px; border-top:1px solid var(--tj-border); }
+  .editor-sheet-actions .el-button { flex:1 1 40%; min-height:44px; margin:0!important; }
+  .media-column { position:fixed; left:0; right:0; bottom:0; z-index:60; display:flex!important; max-height:84dvh; border:0!important; border-radius:18px 18px 0 0; box-shadow:0 -12px 40px rgba(28,55,46,.18); transform:translateY(102%); transition:transform .26s ease; }
+  .media-column.is-open { transform:none; }
+  .media-close { display:inline-block; margin-left:auto; padding:0; border:0; background:none; color:var(--tj-accent); font-size:13px; font-weight:400; }
+  .media-side { max-height:none; padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
+  .photo-sheet { position:fixed; left:10px; right:10px; bottom:calc(10px + env(safe-area-inset-bottom)); z-index:70; display:grid; gap:8px; }
+  .photo-sheet button { min-height:52px; border:0; border-radius:13px; background:var(--tj-surface); color:var(--tj-primary); font-size:16px; box-shadow:0 8px 28px rgba(28,55,46,.16); }
+  .photo-sheet button.cancel { margin-top:4px; color:var(--tj-muted); font-weight:700; }
+  .block-actions { grid-column:2; flex-direction:row; justify-content:flex-end; }
+  .block-title-row { grid-template-columns:1fr; }
+}
+@media(max-width:780px){
+  .block-editor-preview{padding:14px 12px}
+  .block-editor-card>header button{min-width:36px;min-height:34px}
+  .block-insert-line{height:34px;opacity:1}
+  /* 手机上没有 hover，工具行常驻；按钮放大到能用拇指点 */
+.block-inline-bar{opacity:1;min-height:32px}
+  .block-inline-variants button,.block-inline-tools button{min-width:34px;height:30px}
+  .block-inline-input{font-size:16px;padding:8px 10px}
+  .block-inline-input--heading.is-h2{font-size:23px}
+  .block-inline-input--heading.is-h3{font-size:19.5px}
+  .block-inline-input--heading.is-h4{font-size:17px}
+  .block-catalog--quick{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .block-catalog{grid-template-columns:repeat(2,minmax(0,1fr));padding:0 12px 24px}
+  .block-catalog>button{min-height:68px;padding:9px}
+  .block-search{width:calc(100% - 28px)}
+  .block-categories{padding-left:14px}
+  .block-config-form{padding:4px 14px 140px}
+  .block-complex-row{grid-template-columns:1fr}
+}
+@media(max-width:1180px){
+  .block-editor-layout{grid-template-columns:minmax(0,1fr) 280px}
+}
+@media(max-width:780px){
+  .block-editor-layout{display:block}
+  /* 正文交给 .editor-page 那一条主滚动，这里不能再套一层 overflow:auto */
+.block-editor-layout>.editor-column--write>.block-editor{overflow:visible;padding:10px 12px 8px}
+  .block-editor-layout>.media-column{min-height:0;border-left:0}
+}
+@media(max-width:780px){
+  .el-overlay-dialog:has(>.block-catalog-dialog),.el-overlay-dialog:has(>.block-config-dialog){padding:0}
+  .block-catalog-dialog,.block-config-dialog{width:100%!important;max-height:var(--visual-viewport-height,100dvh);height:var(--visual-viewport-height,100dvh);display:flex;flex-direction:column;margin:0!important;border-radius:0!important}
+  .block-catalog-dialog .el-dialog__header,.block-config-dialog .el-dialog__header{flex:0 0 auto;padding:14px 18px 10px}
+  .block-catalog-dialog .el-dialog__body{flex:1;min-height:0;overflow:auto;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+  .block-config-dialog .el-dialog__body{padding:4px 12px;overflow:hidden}
+  .block-config-dialog .el-dialog__footer{position:relative;z-index:3;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--tj-border);background:var(--tj-surface)}
+  .block-config-layout,.block-config-layout.has-preview{height:100%;min-height:0;display:flex;flex-direction:column;gap:8px}
+  .block-live-preview{flex:0 0 min(31vh,250px);padding:10px}
+  .block-live-preview>header small{display:none}
+  .block-preview-paper{padding:12px 8px}
+  .block-preview-article{width:74%}
+  .block-preview-article>.journal-document{margin:8px 0}
+  .block-preview-article .journal-figure--bleed,.block-preview-article .journal-gallery.journal-figure--bleed{--figure-width:calc(100% + 72px)}
+  .block-config-dialog .block-config-form{flex:1;min-height:0;height:auto;padding:0 2px;overflow:hidden}
+  .block-config-form .form-grid-2,.block-dual-list{grid-template-columns:1fr}
+  .block-image-picker{grid-template-columns:repeat(3,minmax(0,1fr));max-height:150px}
+  .block-catalog-dialog .block-catalog{max-height:none}
+  .block-catalog-dialog .block-catalog>button:last-child{margin-bottom:calc(14px + env(safe-area-inset-bottom))}
+  .block-editor-card--media .block-editor-preview{max-height:230px}
+  .media-manager-toolbar small{width:auto;margin-left:0}
+  .block-dialog-actions{grid-template-columns:auto 1fr auto auto}
+  .block-dialog-actions .el-button{padding-left:10px;padding-right:10px}
+}

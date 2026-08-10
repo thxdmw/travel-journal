@@ -4,3 +4,10 @@ target
 .env
 *.log
 docs
+node_modules
+test-results
+playwright-report
+e2e
+package.json
+package-lock.json
+playwright.config.ts

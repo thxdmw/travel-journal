@@ -1,0 +1,108 @@
+/* 日记编辑器外壳：顶栏、日记信息、图片管理（桌面端）。
+   手机端的布局在 journal-editor-mobile.css。 */
+
+.status { display:inline-flex; padding:4px 9px; border-radius:99px; background:#e9f0ec; color:var(--tj-primary); font-size:12px; }
+.editor-page { height:100vh; min-height:0; padding:20px 24px; display:flex; flex-direction:column; overflow:hidden; }
+.editor-top { flex:0 0 auto; display:flex; align-items:center; gap:14px; margin-bottom:18px; }
+.editor-top h2 { margin:0; color:var(--tj-primary); font:700 25px var(--tj-serif); }
+.word-count { color:var(--tj-muted); font-size:12px; white-space:nowrap; }
+.editor-actions { margin-left:auto; display:flex; gap:10px; }
+/* 顶部只回答两个问题：这是哪一天哪座城市，以及存住了没有。别的都收进「···」。 */
+.editor-top-state { display:grid; gap:2px; min-width:0; }
+.editor-save-state { justify-self:start; padding:0; border:0; background:none; color:var(--tj-muted); font-size:13px; }
+.editor-save-state.is-saved { color:var(--tj-accent); }
+.editor-save-state.is-saved::before { content:'✓ '; }
+.editor-save-state.is-saving { color:var(--tj-muted); }
+.editor-save-state.is-offline { color:#c47a35; }
+.editor-save-state.is-failed { color:var(--tj-danger); cursor:pointer; text-decoration:underline; }
+.editor-context { color:var(--tj-primary); font:700 15px var(--tj-serif); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.editor-back em { font-style:normal; }
+.editor-more,.editor-preview-btn { display:none; }
+
+/* 发布前的成稿预览。套的是公开端的 .journal-document，
+   所以这里看到的排版、图片版式和读者看到的是同一份。 */
+.article-preview-dialog .el-dialog__body { max-height:min(74vh,760px); padding:8px 20px 16px; overflow:auto; }
+.article-preview-note { margin:0 0 14px; color:var(--tj-muted); font-size:12px; }
+.article-preview-body { padding:26px 30px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface); }
+.article-preview-head { margin-bottom:22px; padding-bottom:16px; border-bottom:1px solid var(--tj-border); }
+.article-preview-head p { margin:0 0 8px; color:var(--tj-muted); font-size:13px; letter-spacing:.04em; }
+.article-preview-head h1 { margin:0; color:var(--tj-primary); font:700 clamp(24px,3.2vw,32px)/1.3 var(--tj-serif); }
+.article-preview-head h1.empty { color:var(--tj-muted); font-style:italic; font-weight:400; }
+.article-preview-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.article-preview-tags span { padding:3px 10px; border-radius:999px; color:var(--tj-accent); background:color-mix(in srgb,var(--tj-accent) 10%,transparent); font-size:12px; }
+.article-preview-empty { display:grid; place-items:center; min-height:160px; margin:0; color:var(--tj-muted); }
+.editor-advanced { margin-top:4px; }
+.editor-advanced summary { color:var(--tj-muted); font-size:12px; cursor:pointer; }
+.editor-advanced .el-form-item { margin-top:10px; }
+.editor-sheet-actions,.editor-toolbar,.photo-sheet,.editor-sheet-backdrop,.media-close { display:none; }
+.editor-meta { flex:0 0 auto; display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:12px; margin-bottom:14px; }
+.editor-meta-secondary { grid-template-columns:1fr 1.7fr 1fr; }
+/* 顶部信息区包在 el-form 里做必填校验，表单项自身的外边距交给 .editor-meta 的 gap 处理 */
+.editor-meta-form .el-form-item { margin-bottom:0; }
+.editor-meta-form .el-form-item__content { width:100%; }
+.editor-meta-form .el-select,.editor-meta-form .el-date-editor { width:100%; }
+/* 顶部信息区折叠开关。桌面端同样需要：那一块（标题/旅行/城市/日期/slug/摘要/主题/标签）
+   占掉近三分之一竖向空间，写长文时编辑区被压得很小。移动端断点里另有一套尺寸覆盖。 */
+.editor-meta-toggle { flex:0 0 34px; display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; margin-bottom:10px; padding:0 14px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); color:var(--tj-primary); background:var(--tj-surface); font-size:13px; cursor:pointer; }
+.editor-meta-toggle:hover { border-color:var(--tj-accent); }
+.editor-meta-toggle span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* 用 border 画的箭头，比 ⌄ ⌃ 这类字符稳定（不同字体里字符的粗细和基线差别很大） */
+.editor-meta-toggle__chev { flex:0 0 auto; width:8px; height:8px; margin-right:2px; border-right:2px solid var(--tj-accent); border-bottom:2px solid var(--tj-accent); transform:translateY(-2px) rotate(-135deg); transition:transform .24s ease; }
+.editor-meta-toggle[aria-expanded="false"] .editor-meta-toggle__chev { transform:translateY(-3px) rotate(45deg); }
+/*
+ * 折叠动画：grid 的 0fr → 1fr 能在「高度未知」的前提下做补间，
+ * 比写死 max-height 好——日记信息区的高度随标签、预览链接、模板提示变化，
+ * max-height 猜大了收起会拖沓，猜小了内容会被截断。
+ */
+.editor-meta-group { display:grid; grid-template-rows:1fr; transition:grid-template-rows .26s ease, opacity .2s ease; }
+.editor-meta-inner { min-height:0; overflow:hidden; }
+.editor-meta-group.collapsed { grid-template-rows:0fr; opacity:0; }
+/* 桌面端左右两栏：左边写正文，右边是图片管理。手机端在移动断点里改成单栏 + Bottom Sheet。 */
+.editor-grid { position:relative; flex:1; min-height:0; display:grid; border:1px solid var(--tj-border); border-radius:var(--tj-radius); overflow:hidden; background:var(--tj-surface); }
+.editor-column { min-width:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--tj-border); }
+.editor-column:last-child { border:0; }
+.editor-label { flex:0 0 46px; height:46px; display:flex; align-items:center; gap:8px; padding:0 16px; border-bottom:1px solid var(--tj-border); color:var(--tj-primary); font-weight:700; font-size:13px; }
+.editor-label small { margin-left:auto; color:var(--tj-muted); font-weight:400; }
+/* 模板预览沿用公开端的正文排版；字号交给 journal-media.css 的 --body-size，别在这里再写一遍 font */
+.preview { flex:1; min-height:0; height:auto; overflow:auto; padding:20px; }
+.preview { scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--tj-primary) 26%,transparent) transparent; }
+.preview::-webkit-scrollbar { width:8px; height:8px; }
+.preview::-webkit-scrollbar-track { background:transparent; }
+.preview::-webkit-scrollbar-thumb { border:2px solid transparent; border-radius:8px; background-clip:content-box; background-color:color-mix(in srgb,var(--tj-primary) 26%,transparent); }
+.preview::-webkit-scrollbar-thumb:hover { background-color:color-mix(in srgb,var(--tj-primary) 42%,transparent); }
+.preview-link-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; padding:10px 14px; border:1px solid var(--tj-accent); border-radius:var(--tj-radius-small,8px); background:color-mix(in srgb, var(--tj-accent) 7%, var(--tj-surface)); font-size:12px; }
+.preview-link-bar code { flex:1; min-width:0; overflow-wrap:anywhere; color:var(--tj-primary); }
+.media-side { flex:1; min-height:0; height:auto; overflow:auto; padding:14px; }
+.upload-box { display:grid; place-items:center; min-height:100px; border:1px dashed var(--tj-sand); border-radius:8px; color:var(--tj-muted); cursor:pointer; text-align:center; }
+.media-item { display:grid; grid-template-columns:20px 68px 1fr; align-items:start; gap:10px; margin-top:12px; padding:8px; border:1px solid var(--tj-border); border-radius:8px; background:var(--tj-surface); }
+.media-item small { color:var(--tj-muted); }
+/* ——— 编辑器：标签 ——— */
+/* 下边距不能省：紧跟着的模板状态条 / 预览链接条只有 margin-bottom，两块会贴死 */
+.editor-tags { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin:10px 0 12px; }
+.editor-tags .tag-input { width:150px; }
+.preview,.media-side { scrollbar-width:none; -ms-overflow-style:none; }
+.preview::-webkit-scrollbar,.media-side::-webkit-scrollbar { width:0; height:0; display:none; }
+.media-sort{max-width:132px}
+/* Restored image manager */
+.media-column>.upload-box{min-height:112px;margin:10px;padding:10px 8px;gap:4px;border-radius:10px}
+.media-column>.upload-box strong{color:var(--tj-primary);font-size:13px}
+.media-column>.upload-box span{color:var(--tj-muted);font-size:10px;line-height:1.4}
+.media-column>.upload-box .el-button{height:30px;margin-top:3px;padding:0 12px}
+.media-manager-toolbar{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 8px;padding:0 10px 9px}
+.media-manager-toolbar .el-button{justify-self:start;margin:0;padding-left:0;padding-right:0;font-size:11px}
+.media-manager-toolbar small{justify-self:end;color:var(--tj-muted);font-size:10px}
+.media-manager-toolbar .el-button--primary,.media-manager-toolbar .el-button--danger{justify-self:stretch;padding:6px 8px}
+.media-side{padding:8px 10px 14px}
+.media-item{grid-template-columns:18px 72px minmax(0,1fr);gap:7px;margin-top:8px;padding:7px}
+.media-item.is-selected{border-color:var(--tj-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--tj-accent) 12%,transparent)}
+.media-item.is-drag-over{border-color:var(--tj-accent);transform:translateY(2px)}
+.media-item .el-image{width:72px;height:62px;border-radius:7px;background:var(--tj-surface-soft)}
+.media-item .el-image img{width:100%;height:100%;object-fit:cover}
+.media-item-check{align-self:start}
+.media-item-main{min-width:0;display:grid;gap:4px}
+.media-item-caption{width:100%;min-width:0}
+.media-item-caption .el-input__wrapper{padding:1px 7px}
+.media-item-caption .el-input__inner{height:25px;font-size:11px}
+.media-item-actions{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.media-item-actions .el-button{margin:0;padding:0;font-size:11px}
+.upload-box input{display:none}

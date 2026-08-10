@@ -59,6 +59,31 @@ public class AdminJournalController {
                                  /** 标签名列表，传 null 表示不改动标签，传空列表表示清空 */
                                  List<String> tags) {}
 
+    /**
+     * 开一篇空草稿的请求体，三个字段都可以缺席。
+     *
+     * <p>编辑器一打开就调它，好让拍照、打字和自动保存立刻有 id 可用。</p>
+     */
+    public record DraftRequest(Long tripId, Long tripStopId, LocalDate occurredOn) {}
+
+    /**
+     * 草稿自动保存的请求体。字段与 {@link JournalRequest} 一致，但全部可选。
+     *
+     * <p>草稿和发布是两套标准：这里只做长度这类格式约束，缺席的字段沿用库里的旧值，
+     * 空标题、空正文都放行；标题、日期、正文非空这些要求留到发布时再查。</p>
+     */
+    public record JournalDraftRequest(Long tripId, Long tripStopId,
+                                      @Size(max=200) String title,
+                                      @Size(max=220) String slug,
+                                      @Size(max=500) String excerpt,
+                                      JsonNode contentJson,
+                                      LocalDate occurredOn,
+                                      Long coverMediaId,
+                                      @Size(max=80) String themeKey,
+                                      Long templateId,
+                                      Integer templateVersion,
+                                      List<String> tags) {}
+
     @GetMapping
     public ApiResponse<PageResponse<JournalEntry>> list(@RequestParam(defaultValue="1") long page,
                                                         @RequestParam(defaultValue="20") long pageSize,
@@ -74,6 +99,35 @@ public class AdminJournalController {
         created.setTags(tagService.namesOf(created.getId()));
         return ApiResponse.ok(created);
     }
+    /** 开一篇空草稿并立刻返回 id，编辑器据此挂上自动保存和图片上传。 */
+    @PostMapping("/draft")
+    public ApiResponse<JournalEntry> createDraft(@RequestBody(required = false) DraftRequest request) {
+        DraftRequest body = request == null ? new DraftRequest(null, null, null) : request;
+        JournalEntry created = service.createDraft(body.tripId(), body.tripStopId(), body.occurredOn());
+        created.setTags(List.of());
+        return ApiResponse.ok(created);
+    }
+
+    /** 草稿自动保存。只对 DRAFT 状态开放，公开文章的改动仍然要走 {@link #update}。 */
+    @PatchMapping("/{id}/draft")
+    public ApiResponse<JournalEntry> saveDraft(@PathVariable Long id,
+                                               @Valid @RequestBody JournalDraftRequest request) {
+        JournalEntry updated = service.updateDraft(id, toEntity(request));
+        if (request.tags() != null) tagService.replaceTags(id, request.tags());
+        updated.setTags(tagService.namesOf(id));
+        return ApiResponse.ok(updated);
+    }
+
+    /**
+     * 丢弃一篇没写任何东西的草稿，用于「打开编辑器又直接退出」。
+     *
+     * <p>是否真的为空由服务端判断，返回 {@code discarded} 说明有没有删。</p>
+     */
+    @DeleteMapping("/{id}/discard-empty")
+    public ApiResponse<Map<String, Object>> discardEmpty(@PathVariable Long id) {
+        return ApiResponse.ok(Map.of("discarded", service.discardIfEmpty(id)));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<JournalEntry> get(@PathVariable Long id) {
         JournalEntry entry = service.get(id);
@@ -150,6 +204,14 @@ public class AdminJournalController {
 
     /** 把请求体转成实体，顺便校验并归一化主题选择（选了不存在或已停用的主题会被拒绝）。 */
     private JournalEntry toEntity(JournalRequest request) {
+        JournalEntry entity = new JournalEntry();
+        BeanUtils.copyProperties(request, entity);
+        entity.setThemeKey(themePresetService.validateSelection(request.themeKey()));
+        return entity;
+    }
+
+    /** 草稿版本的转换，字段可以是 null，缺席部分由 {@link JournalService#updateDraft} 沿用旧值。 */
+    private JournalEntry toEntity(JournalDraftRequest request) {
         JournalEntry entity = new JournalEntry();
         BeanUtils.copyProperties(request, entity);
         entity.setThemeKey(themePresetService.validateSelection(request.themeKey()));

@@ -87,13 +87,21 @@
       journal: id => http.get('/admin/journals/' + id),
       createJournal: body => http.post('/admin/journals', body),
       updateJournal: (id, body) => http.put('/admin/journals/' + id, body),
+      // 开一篇空草稿，编辑器一进页面就调，好让打字和拍照立刻有 id 可用
+      createJournalDraft: body => http.post('/admin/journals/draft', body || {}),
+      // 草稿自动保存：字段可以不全，后端按草稿标准校验（允许空标题、空正文）
+      saveJournalDraft: (id, body) => http.patch('/admin/journals/' + id + '/draft', body),
+      // 进了编辑器又什么都没写就退出时调用，是否真的删由后端判断
+      discardEmptyJournal: id => http.delete('/admin/journals/' + id + '/discard-empty'),
       deleteJournal: id => http.delete('/admin/journals/' + id),
       journalMediaCount: id => http.get('/admin/journals/' + id + '/media-count'),
       publishJournal: id => http.post('/admin/journals/' + id + '/publish'),
       unpublishJournal: id => http.post('/admin/journals/' + id + '/unpublish'),
       media: id => http.get('/admin/journals/' + id + '/media'),
-      uploadMedia: (id, form) => http.post('/admin/journals/' + id + '/media', form, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      // onUploadProgress 用来在正文的占位图上显示单张进度；旅行时一次传十几张，
+      // 没有进度就只剩一个转圈，分不清是卡住了还是在传
+      uploadMedia: (id, form, onUploadProgress) => http.post('/admin/journals/' + id + '/media', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000, onUploadProgress
       }),
       sortMediaByCaptureTime: journalId => http.put('/admin/journals/' + journalId + '/media/sort-by-capture-time'),
       suggestCity: journalId => http.get('/admin/journals/' + journalId + '/media/suggest-city'),
