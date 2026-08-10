@@ -187,16 +187,31 @@ public class MomentComposer {
 
         List<Long> photos = momentService.photoIds(moment.getId());
         if (photos.size() == 1) {
+            /*
+             * 单张用小图（约正文栏 42%）。
+             *
+             * 随手记一天可能十几条、每条一张照片，档位再大一点整篇就会被撑得很长——
+             * 这是碎片记录，不是每张都值得占半屏。作者觉得某张该更大，在编辑器里
+             * 单独调那一张就行。
+             *
+             * align 也要显式写上：figureClasses 虽然对缺失值有兜底，但正文里的区块
+             * 应该是一份完整的设置，而不是靠渲染端补默认——否则以后改兜底值，
+             * 已经整理好的日记会跟着变样。
+             */
             ObjectNode image = block("image");
             ((ObjectNode) image.get("data")).put("mediaId", photos.get(0));
-            ((ObjectNode) image.get("settings")).put("size", "medium");
+            ObjectNode settings = (ObjectNode) image.get("settings");
+            settings.put("size", "small");
+            settings.put("align", "center");
             blocks.add(image);
         } else if (photos.size() > 1) {
             ObjectNode gallery = block("gallery");
             ArrayNode ids = ((ObjectNode) gallery.get("data")).putArray("mediaIds");
             photos.forEach(ids::add);
+            // 图组保持中等：几张并排本来就要靠宽度才排得开，再窄就每张都成邮票了
             ObjectNode settings = (ObjectNode) gallery.get("settings");
             settings.put("size", "medium");
+            settings.put("align", "center");
             settings.put("layout", "grid");
             settings.put("columns", Math.min(3, photos.size()));
             blocks.add(gallery);
