@@ -19,13 +19,20 @@
  * 草稿的离线能力不在这里，而在 IndexedDB（js/common/local-draft.js）：
  * Service Worker 负责「打得开」，IndexedDB 负责「写得下、不丢」。
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = 'tj-shell-' + VERSION;
 const MEDIA_CACHE = 'tj-media-' + VERSION;
-/** 首屏必须有的东西。装的时候就抓下来，第一次断网也能打开。 */
+/*
+ * 首屏必须有的东西。装的时候就抓下来，第一次断网也能打开。
+ *
+ * 这里只能放「直接返回内容」的地址，不能放会 302 的：`/admin/` 在服务端会重定向到
+ * `/admin/index.html`，而 cache.add 会跟随重定向并把最终响应存下来，那个响应带着
+ * redirected 标记。导航请求的 redirect mode 是 manual，浏览器拒绝用一个 redirected
+ * 响应去回应它——结果就是装了 Service Worker 之后 /admin/ 直接打不开。
+ */
 const SHELL_ASSETS = [
   '/',
-  '/admin/',
+  '/admin/index.html',
   '/manifest.json',
   '/vendor/vue/vue.global.prod.js',
   '/vendor/vue/vue-router.global.prod.js',
@@ -60,21 +67,33 @@ async function trim(cacheName, limit) {
   await Promise.all(keys.slice(0, keys.length - limit).map(key => cache.delete(key)));
 }
 
+/**
+ * 一个响应能不能拿来回应导航请求。
+ *
+ * redirected 的响应不行——导航请求的 redirect mode 是 manual，浏览器会把它当成
+ * 网络错误。SHELL_ASSETS 里已经避开了会 302 的地址，这里再兜一层：服务端以后新增
+ * 任何重定向，也不会因为被缓存过就让页面打不开。
+ */
+function usableFor(request, response) {
+  return !!response && !(request.mode === 'navigate' && response.redirected);
+}
+
 async function staleWhileRevalidate(request) {
   const cache = await caches.open(SHELL_CACHE);
   const cached = await cache.match(request);
   const network = fetch(request).then(response => {
-    if (response && response.ok) cache.put(request, response.clone());
+    // 只缓存实打实的 200，重定向结果不进缓存
+    if (response && response.ok && !response.redirected) cache.put(request, response.clone());
     return response;
   }).catch(() => null);
   // 有缓存就先给缓存，网络请求继续在后台跑完并写回
-  if (cached) return cached;
+  if (usableFor(request, cached)) return cached;
   const fresh = await network;
   if (fresh) return fresh;
   // 什么都没有时，导航请求至少给个能打开的壳
   if (request.mode === 'navigate') {
-    const shell = await cache.match(request.url.includes('/admin') ? '/admin/' : '/');
-    if (shell) return shell;
+    const shell = await cache.match(request.url.includes('/admin') ? '/admin/index.html' : '/');
+    if (usableFor(request, shell)) return shell;
   }
   return Response.error();
 }
