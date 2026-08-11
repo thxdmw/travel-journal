@@ -67,13 +67,14 @@ public class YearReviewService {
             return new YearReview(year, 0, 0, 0, 0, 0, 0, List.of(), List.of(), null, 0);
         }
 
-        Set<Long> tripIds = journals.stream().map(JournalEntry::getTripId).collect(Collectors.toSet());
-        Map<Long, Trip> trips = tripMapper.selectByIds(tripIds).stream()
+        Set<Long> tripIds = journals.stream().map(JournalEntry::getTripId).filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, Trip> trips = tripIds.isEmpty() ? Collections.emptyMap() : tripMapper.selectByIds(tripIds).stream()
                 .collect(Collectors.toMap(Trip::getId, Function.identity()));
-        List<TripStop> stops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+        List<TripStop> stops = tripIds.isEmpty() ? List.of() : stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
                 .in(TripStop::getTripId, tripIds).orderByAsc(TripStop::getTripId, TripStop::getSortOrder));
         Map<Long, List<TripStop>> stopsByTrip = stops.stream().collect(Collectors.groupingBy(TripStop::getTripId));
-        Map<Long, Long> journalsByTrip = journals.stream()
+        Map<Long, Long> journalsByTrip = journals.stream().filter(journal -> journal.getTripId() != null)
                 .collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
 
         // 距离：每次旅行内部按停靠顺序累加相邻城市间的大圆距离。

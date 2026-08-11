@@ -32,7 +32,7 @@ class MediaServiceTest {
         MinioClient minio = mock(MinioClient.class);
 
         JournalEntry journal = new JournalEntry();
-        journal.setId(3L); journal.setTripId(2L);
+        journal.setId(3L); journal.setTripId(null);
         when(journalMapper.selectById(3L)).thenReturn(journal);
         when(relationMapper.selectCount(any())).thenReturn(0L);
 
@@ -66,7 +66,7 @@ class MediaServiceTest {
         assertThat(view.displayUrl()).isEqualTo("/api/media/9/display");
         assertThat(view.mediumUrl()).isEqualTo("/api/media/9/medium");
         assertThat(view.thumbnailUrl()).isEqualTo("/api/media/9/thumbnail");
-        assertThat(stored.get().getOriginalObjectKey()).startsWith("trips/2/journals/3/");
+        assertThat(stored.get().getOriginalObjectKey()).startsWith("journals/3/");
         // 原图 + 1280 展示图 + 768 中等图 + 480 缩略图，共四个对象
         verify(minio, times(4)).putObject(any());
     }

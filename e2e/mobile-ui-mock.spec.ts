@@ -131,4 +131,27 @@ test.describe('移动端 UI 隔离回归', () => {
     const metricsBox = await page.locator('.dashboard-grid').boundingBox();
     expect(metricsBox!.height).toBeLessThan(90);
   });
+
+  test('模拟覆盖式软键盘后快捷组件光标会被顶到工具栏上方', async ({ page }) => {
+    await mockApi(page);
+    await page.goto('/admin/#/journals/1');
+    for (let index = 0; index < 9; index++) {
+      await page.locator('.editor-toolbar button', { hasText:'标题' }).click();
+      await page.locator('.block-inline--heading textarea').last().fill('快捷标题 ' + index);
+    }
+    const input = page.locator('.block-inline--heading textarea').last();
+    await expect(input).toBeFocused();
+    await page.evaluate(() => {
+      const viewport = window.visualViewport;
+      if (!viewport) throw new Error('当前浏览器不支持 visualViewport');
+      Object.defineProperty(viewport, 'height', { configurable:true, value:420 });
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    await expect.poll(async () => {
+      const [inputBox, toolbarBox] = await Promise.all([
+        input.boundingBox(), page.locator('.editor-toolbar').boundingBox(),
+      ]);
+      return !!inputBox && !!toolbarBox && inputBox.y + inputBox.height <= toolbarBox.y - 8;
+    }).toBeTruthy();
+  });
 });

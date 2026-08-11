@@ -36,7 +36,7 @@ public interface PublicAggregateMapper {
     @Select("""
         select j.trip_id, count(*) as cnt
           from journal_entry j
-         where j.status = 'PUBLISHED'
+         where j.status = 'PUBLISHED' and j.trip_id is not null
          group by j.trip_id
         """)
     List<Map<String, Object>> countPublishedByTrip();

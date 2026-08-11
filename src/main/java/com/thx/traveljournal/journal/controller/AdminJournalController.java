@@ -39,14 +39,14 @@ public class AdminJournalController {
      * <p>用 record 接参数意味着请求体里多余的字段会被直接忽略，前端表单残留的
      * id、createdAt 之类字段不会写进数据库。</p>
      *
-     * @param tripId           所属旅行，必填
-     * @param tripStopId       可选的所属城市，必须属于同一次旅行
+     * @param tripId           可选的所属旅行；为空表示独立日记
+     * @param tripStopId       可选的所属城市；有值时必须同时选择其所属旅行
      * @param slug             前台访问用的唯一短链，只允许小写字母、数字和短横线
      * @param contentJson      Block 正文文档，草稿允许为空文档但不能为 null
      */
     public record TagNameRequest(@NotBlank @Size(max=40) String name) {}
 
-    public record JournalRequest(@NotNull(message = "请选择所属旅行") Long tripId, Long tripStopId,
+    public record JournalRequest(Long tripId, Long tripStopId,
                                  @NotBlank(message = "请填写日记标题") @Size(max=200) String title,
                                  @NotBlank(message = "请填写 Slug") @Size(max=220) String slug,
                                  @Size(max=500) String excerpt,
@@ -82,7 +82,9 @@ public class AdminJournalController {
                                       @Size(max=80) String themeKey,
                                       Long templateId,
                                       Integer templateVersion,
-                                      List<String> tags) {}
+                                      List<String> tags,
+                                      /** true 表示明确解除旅行归属；省略时仍保留部分更新语义 */
+                                      Boolean detachFromTrip) {}
 
     @GetMapping
     public ApiResponse<PageResponse<JournalEntry>> list(@RequestParam(defaultValue="1") long page,
@@ -112,7 +114,7 @@ public class AdminJournalController {
     @PatchMapping("/{id}/draft")
     public ApiResponse<JournalEntry> saveDraft(@PathVariable Long id,
                                                @Valid @RequestBody JournalDraftRequest request) {
-        JournalEntry updated = service.updateDraft(id, toEntity(request));
+        JournalEntry updated = service.updateDraft(id, toEntity(request), Boolean.TRUE.equals(request.detachFromTrip()));
         if (request.tags() != null) tagService.replaceTags(id, request.tags());
         updated.setTags(tagService.namesOf(id));
         return ApiResponse.ok(updated);

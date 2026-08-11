@@ -95,6 +95,24 @@ class JournalServiceTest {
     }
 
     @Test
+    void standaloneDraftCanBeCreatedWithoutTrip(){
+        JournalEntry created=service.createDraft(null,null,LocalDate.of(2026,8,11));
+
+        assertThat(created.getTripId()).isNull();
+        assertThat(created.getTripStopId()).isNull();
+        assertThat(created.getOccurredOn()).isEqualTo(LocalDate.of(2026,8,11));
+        verify(mapper).insert(created);
+    }
+
+    @Test
+    void standaloneDraftCannotKeepATripStop(){
+        assertThatThrownBy(()->service.createDraft(null,8L,LocalDate.of(2026,8,11)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能选择所属城市");
+        verify(mapper,never()).insert(any(JournalEntry.class));
+    }
+
+    @Test
     void generatedDraftSlugsDoNotCollide(){
         assertThat(service.createDraft(1L,null,LocalDate.of(2026,8,10)).getSlug())
                 .isNotEqualTo(service.createDraft(1L,null,LocalDate.of(2026,8,10)).getSlug());
@@ -113,12 +131,37 @@ class JournalServiceTest {
     }
 
     @Test
+    void draftCanExplicitlyDetachFromTrip(){
+        JournalEntry stored=validEntry();stored.setId(9L);stored.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(stored);
+        JournalEntry input=validEntry();
+
+        service.updateDraft(9L,input,true);
+
+        assertThat(input.getTripId()).isNull();
+        assertThat(input.getTripStopId()).isNull();
+        verify(mapper).updateById(input);
+    }
+
+    @Test
     void blankTitleCannotBePublished(){
         JournalEntry entry=validEntry();entry.setId(9L);entry.setTitle("");
         when(mapper.selectById(9L)).thenReturn(entry);
         assertThatThrownBy(()->service.publish(9L)).isInstanceOf(BusinessException.class)
                 .hasMessageContaining("标题");
         verify(mapper,never()).updateById(any(JournalEntry.class));
+    }
+
+    @Test
+    void standaloneJournalCanBePublished(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setTripId(null);
+        when(mapper.selectById(9L)).thenReturn(entry);
+
+        JournalEntry published=service.publish(9L);
+
+        assertThat(published.getStatus()).isEqualTo("PUBLISHED");
+        assertThat(published.getTripId()).isNull();
+        verify(mapper).updateById(entry);
     }
 
     @Test

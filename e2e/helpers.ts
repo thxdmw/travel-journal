@@ -5,14 +5,21 @@ export const ADMIN_PASS = process.env.E2E_ADMIN_PASS || '';
 
 /** 登录后台。后台是 hash 路由的单页应用，登录成功会跳到 #/ 。 */
 export async function login(page: Page) {
-  await page.goto('/admin/');
-  if (!page.url().includes('#/login')) await page.waitForURL(/#\/(login)?/);
-  if (page.url().includes('#/login')) {
-    await page.getByPlaceholder(/用户名/).fill(ADMIN_USER);
-    await page.getByPlaceholder(/密码/).fill(ADMIN_PASS);
-    await page.getByRole('button', { name: '登录' }).click();
-    await expect(page).not.toHaveURL(/#\/login/, { timeout: 15_000 });
-  }
+  // 直接打开登录路由，避免 #/ 在异步会话检查完成前被误判成“已经登录”。
+  await page.goto('/admin/#/login');
+  const button = page.getByRole('button', { name: '登录', exact: true });
+  await expect(button).toBeVisible({ timeout: 15_000 });
+  await page.getByPlaceholder(/用户名/).fill(ADMIN_USER);
+  await page.getByPlaceholder(/密码/).fill(ADMIN_PASS);
+  const responsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST' && response.url().endsWith('/api/admin/auth/login'));
+  await button.click();
+  const response = await responsePromise;
+  expect(response.ok(), `登录接口返回 ${response.status()}`).toBeTruthy();
+  await expect.poll(async () => (await page.request.get('/api/admin/auth/session')).status(),
+    { timeout: 15_000, message: '登录后会话应当可用' }).toBe(200);
+  await expect(page).not.toHaveURL(/#\/login/, { timeout: 15_000 });
+  await expect(page.locator('.admin-shell')).toBeVisible({ timeout: 15_000 });
 }
 
 /** 为全新 CI 数据库准备一次旅行；已有数据时直接复用第一条。 */
@@ -45,7 +52,6 @@ export async function createTestTrip(page: Page, name = 'E2E 随手记旅程') {
 
 /** 打开一篇新日记。编辑器会自己去后端要一个草稿 id，URL 上的 new 会被换成真实 id。 */
 export async function openNewJournal(page: Page, tripId?: number) {
-  tripId = tripId || await ensureTrip(page);
   await page.goto(`/admin/#/journals/new${tripId ? `?tripId=${tripId}` : ''}`);
   await page.waitForURL(/#\/journals\/\d+/, { timeout: 20_000 });
   return Number(page.url().match(/#\/journals\/(\d+)/)![1]);

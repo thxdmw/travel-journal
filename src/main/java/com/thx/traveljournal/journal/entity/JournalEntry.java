@@ -21,7 +21,7 @@ import java.time.OffsetDateTime;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "journal_entry", autoResultMap = true)
 public class JournalEntry extends BaseEntity {
-    /** 所属旅行，旅行删除时级联删除 */
+    /** 可选的所属旅行；为空表示独立日记，已归入旅行时随旅行删除而级联删除 */
     private Long tripId;
     /** 关联城市，必须属于同一次旅行；城市删除时置空 */
     private Long tripStopId;

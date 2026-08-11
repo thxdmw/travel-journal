@@ -10,7 +10,7 @@
 }
 @media(max-width:760px) {
   .editor-meta-secondary { grid-template-columns:1fr; }
-  .editor-page { height:100%; padding:0 0 calc(74px + env(safe-area-inset-bottom)); display:block; overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
+  .editor-page { height:100%; padding:0 0 calc(74px + env(safe-area-inset-bottom) + var(--browser-bottom-inset,0px)); display:block; overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
   .editor-top { position:sticky; top:0; z-index:30; display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:8px; margin:0; padding:7px 10px; border-bottom:1px solid var(--tj-border); background:var(--tj-bg); -webkit-backdrop-filter:none; backdrop-filter:none; }
   .editor-back em { display:none; }
   .editor-top .word-count,.editor-actions { display:none; }
@@ -34,7 +34,7 @@
   .preview { padding:12px; }
   .preview.journal-document { --body-size:14px; }
   /* 底部工具栏：拍照、地点、标题、引用都在拇指够得到的地方 */
-.editor-toolbar { position:fixed; left:0; right:0; bottom:0; z-index:40; display:grid; grid-template-columns:repeat(6,1fr); gap:2px; padding:5px 5px calc(5px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); background:var(--tj-surface); -webkit-backdrop-filter:none; backdrop-filter:none; }
+.editor-toolbar { position:fixed; left:0; right:0; bottom:var(--browser-bottom-inset,0px); z-index:40; display:grid; grid-template-columns:repeat(6,1fr); gap:2px; padding:5px 5px calc(5px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); background:var(--tj-surface); -webkit-backdrop-filter:none; backdrop-filter:none; }
   .editor-toolbar button { display:grid; justify-items:center; gap:1px; min-height:46px; padding:4px 0; border:0; border-radius:9px; background:transparent; color:var(--tj-primary); touch-action:manipulation; }
   .editor-toolbar b { font-weight:400; font-size:18px; line-height:1.1; }
   .editor-toolbar em { font-style:normal; font-size:10px; color:var(--tj-muted); }

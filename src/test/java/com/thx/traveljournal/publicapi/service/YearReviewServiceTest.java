@@ -62,7 +62,7 @@ class YearReviewServiceTest {
         return s;
     }
 
-    private JournalEntry journal(long id, long tripId, LocalDate on) {
+    private JournalEntry journal(long id, Long tripId, LocalDate on) {
         JournalEntry j = new JournalEntry();
         j.setId(id);
         j.setTripId(tripId);
@@ -80,6 +80,20 @@ class YearReviewServiceTest {
         assertThat(review.tripCount()).isZero();
         assertThat(review.distanceKm()).isZero();
         assertThat(review.cities()).isEmpty();
+    }
+
+    @Test
+    void 独立日记计入日记和照片但不虚构旅行() {
+        when(journalMapper.selectList(any())).thenReturn(List.of(
+                journal(7L, null, LocalDate.of(2026, 8, 11))));
+
+        var review = service.review(2026);
+
+        assertThat(review.journalCount()).isEqualTo(1);
+        assertThat(review.tripCount()).isZero();
+        assertThat(review.cities()).isEmpty();
+        verify(tripMapper, never()).selectByIds(any());
+        verify(stopMapper, never()).selectList(any());
     }
 
     @Test

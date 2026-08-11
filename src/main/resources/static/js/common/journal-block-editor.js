@@ -35,6 +35,7 @@
         draft.value?.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value?.settings?.layout)));
       const alignAvailable=computed(()=>!['full','bleed'].includes(draft.value?.settings?.size));
       const isLinkableBlock=computed(()=>LINKABLE_BLOCKS.includes(draft.value?.type));
+      const hasTravelContext=computed(()=>props.travelContext?.trip?.id!=null);
       const dataBinding=computed(()=>draft.value?.settings?.dataBinding||null);
       const relatedRecords=computed(()=>{
         const context=props.travelContext||{},type=draft.value?.type,binding=dataBinding.value||{};
@@ -53,7 +54,7 @@
         const hints={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
         return draft.value?.type==='gallery'?(hints[layout]||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
       });
-      let syncing=false,inlineTimer=null,ensureTimer=null,viewportFrame=null,lastViewportMetrics='';
+      let syncing=false,inlineTimer=null,ensureTimer=null,caretTimer=null,viewportFrame=null,lastViewportMetrics='';
       let selectScrollSnapshot=null;
 
       function bindingDefaults(type){
@@ -70,7 +71,7 @@
         draft.value.settings=draft.value.settings||{};
         draft.value.settings.dataBinding=Object.assign(bindingDefaults(draft.value.type),draft.value.settings.dataBinding||{});
         // 默认就开着关联的块（开场卡、小结）要立刻填一次，否则弹窗打开是空的
-        if(draft.value.settings.dataBinding.enabled){initializeBindingSelection();applyBinding();}
+        if(draft.value.settings.dataBinding.enabled&&hasTravelContext.value){initializeBindingSelection();applyBinding();}
       }
       /** 这两种块不挑具体记录，它们要的是「这一天的全部」，所以没有可选列表。 */
       function bindsWholeDay(type){return ['day-opener','day-summary'].includes(type);}
@@ -196,7 +197,7 @@
       watch(()=>dataBinding.value?.selectedIds,()=>applyBinding(),{deep:true});
       watch(()=>dataBinding.value?.recordId,()=>applyBinding());
       watch(()=>dataBinding.value?.fields,()=>applyBinding(),{deep:true});
-      watch(()=>props.travelContext,()=>applyBinding(),{deep:true});
+      watch(()=>props.travelContext,()=>{if(hasTravelContext.value)applyBinding();},{deep:true});
       function commit(){
         syncing=true;
         const value=JB.normalize(document.value);
@@ -217,8 +218,8 @@
       }
       function isInline(type){return INLINE_BLOCKS.includes(type);}
       function placeholderOf(block){return PLACEHOLDERS[block.type]||'';}
-      function inlineInput(event){autoGrow(event.target);scheduleCommit();}
-      function inlineFocus(index){focusedIndex.value=index;}
+      function inlineInput(event){autoGrow(event.target);scheduleCommit();keepInlineCaretVisible(event.target,60);}
+      function inlineFocus(index,event){focusedIndex.value=index;keepInlineCaretVisible(event?.target,180);}
       /** 底部工具栏用：新内容落在光标所在段落之后，而不是一律追加到文末。 */
       function insertQuick(type){
         const item=JB.CATALOG.find(x=>x.type===type);if(!item)return;
@@ -235,6 +236,7 @@
           const pos=caret==='end'?el.value.length:(caret==='start'||caret==null?0:Math.min(caret,el.value.length));
           el.setSelectionRange(pos,pos);
           el.scrollIntoView({block:'nearest'});
+          keepInlineCaretVisible(el,180);
         });
       }
       /**
@@ -336,6 +338,49 @@
           if(el.isConnected)el.scrollIntoView({block:'center',behavior:'smooth'});
         },120);
       }
+      /**
+       * textarea 会随正文长高，元素本身可能跨过整个手机屏幕；只对元素做 scrollIntoView
+       * 不能保证中间某一行的光标可见。用同样字号和宽度做一个隐藏镜像，算出真实光标行。
+       */
+      function inlineCaretRect(textarea){
+        const style=window.getComputedStyle(textarea),rect=textarea.getBoundingClientRect();
+        const mirror=window.document.createElement('div');
+        Object.assign(mirror.style,{position:'fixed',left:'-10000px',top:'0',visibility:'hidden',
+          boxSizing:'border-box',width:rect.width+'px',whiteSpace:'pre-wrap',overflowWrap:'break-word',
+          wordBreak:style.wordBreak,padding:style.padding,border:style.border,
+          font:style.font,lineHeight:style.lineHeight,letterSpacing:style.letterSpacing,
+          textIndent:style.textIndent,textTransform:style.textTransform,wordSpacing:style.wordSpacing,
+          tabSize:style.tabSize});
+        mirror.textContent=textarea.value.slice(0,textarea.selectionStart||0);
+        const marker=window.document.createElement('span');marker.textContent='\u200b';mirror.appendChild(marker);
+        window.document.body.appendChild(mirror);
+        const lineHeight=parseFloat(style.lineHeight)||parseFloat(style.fontSize)*1.5||24;
+        const top=rect.top+marker.offsetTop-textarea.scrollTop;
+        mirror.remove();
+        return{top,bottom:top+lineHeight};
+      }
+      /** 键盘展开或光标移动后，把光标行放进顶栏与键盘/工具栏之间的可见区域。 */
+      function keepInlineCaretVisible(textarea,delay=0){
+        if(!textarea?.matches?.('[data-inline-input]'))return;
+        if(caretTimer)clearTimeout(caretTimer);
+        caretTimer=setTimeout(()=>{
+          caretTimer=null;if(!textarea.isConnected||window.document.activeElement!==textarea)return;
+          const vv=window.visualViewport,viewportTop=vv?.offsetTop||0;
+          const viewportBottom=viewportTop+(vv?.height||window.innerHeight);
+          const toolbar=window.document.querySelector('.editor-toolbar'),toolbarRect=toolbar?.getBoundingClientRect();
+          const toolbarTop=toolbarRect&&toolbarRect.top>viewportTop&&toolbarRect.top<viewportBottom
+            ? toolbarRect.top:viewportBottom;
+          const visibleTop=viewportTop+62,visibleBottom=Math.min(viewportBottom,toolbarTop)-18;
+          const caret=inlineCaretRect(textarea),scroller=textarea.closest('.editor-page');
+          if(!scroller||visibleBottom<=visibleTop)return;
+          if(caret.bottom>visibleBottom)scroller.scrollTop+=caret.bottom-visibleBottom+20;
+          else if(caret.top<visibleTop)scroller.scrollTop-=visibleTop-caret.top+12;
+        },delay);
+      }
+      function onSelectionChange(){
+        const active=window.document.activeElement;
+        if(active?.matches?.('[data-inline-input]'))keepInlineCaretVisible(active,60);
+      }
       /** 下拉打开前记住所有祖先滚动区；选完后恢复，避免表单被顶上去后停在新位置。 */
       function rememberSelectScroll(event){
         const select=event.target.closest?.('.el-select');
@@ -371,7 +416,9 @@
         lastViewportMetrics=metrics;
         window.document.documentElement.style.setProperty('--visual-viewport-height',(vv?vv.height:window.innerHeight)+'px');
         window.document.documentElement.style.setProperty('--browser-bottom-inset',bottom+'px');
-        if(editorOpen.value&&window.document.activeElement&&/INPUT|TEXTAREA/.test(window.document.activeElement.tagName))ensureVisible();
+        const active=window.document.activeElement;
+        if(active?.matches?.('[data-inline-input]'))keepInlineCaretVisible(active,40);
+        else if(editorOpen.value&&active&&/INPUT|TEXTAREA/.test(active.tagName))ensureVisible();
       }
       function viewport(){if(viewportFrame==null)viewportFrame=requestAnimationFrame(applyViewport);}
       function selectedMedia(item){
@@ -475,18 +522,20 @@
         editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
       }
       onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);
-        window.document.addEventListener('click',onDocumentClick,true);});
+        window.document.addEventListener('click',onDocumentClick,true);window.document.addEventListener('selectionchange',onSelectionChange);});
       onBeforeUnmount(()=>{
         if(inlineTimer){clearTimeout(inlineTimer);inlineTimer=null;commit();}
         if(ensureTimer)clearTimeout(ensureTimer);
+        if(caretTimer)clearTimeout(caretTimer);
         if(viewportFrame!=null)cancelAnimationFrame(viewportFrame);
         window.JournalMedia?.teardown(previewEl.value);
         window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
         window.document.removeEventListener('click',onDocumentClick,true);
+        window.document.removeEventListener('selectionchange',onSelectionChange);
       });
       expose({openCatalog,insertMedia,insertQuick,insertPending,resolvePending,dropPending,flushInline});
       return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
-        layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,dataBinding,relatedRecords,
+        layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,hasTravelContext,dataBinding,relatedRecords,
         catalogMode,catalogCount,quickItems,isInline,placeholderOf,inlineInput,inlineFocus,inlineBackspace,inlineArrow,startWriting,insertParagraph,setHeadingLevel,setCalloutTone,insertQuick,
         openCatalog,choose,edit,editOnDoubleClick,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,bindsWholeDay,
         render,label,isMediaType,ensureVisible,rememberSelectScroll,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding,
@@ -508,7 +557,7 @@
                 block.type==='paragraph'&&block.settings.style?'is-'+block.settings.style:'',
                 block.type==='callout'?'is-'+(block.data.tone||'note'):'']"
               :style="{textAlign:block.settings.align||''}" :placeholder="placeholderOf(block)"
-              @input="inlineInput" @focus="inlineFocus(index)" @keydown.backspace="inlineBackspace($event,index)"
+              @input="inlineInput" @focus="inlineFocus(index,$event)" @keydown.backspace="inlineBackspace($event,index)"
               @keydown.up="inlineArrow($event,index,-1)" @keydown.down="inlineArrow($event,index,1)"></textarea>
             <input v-if="block.type==='quote'" v-model="block.data.source" class="block-inline-source"
               placeholder="出处（可选）" @input="inlineInput">
@@ -579,7 +628,7 @@
                 <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
             <div class="block-config-form" @pointerdown.capture="rememberSelectScroll" @focusin="ensureVisible">
               <label v-if="!['heading','divider'].includes(draft.type)">区块标题（可选）<el-input v-model="draft.title" placeholder="例如 今日路线"/></label>
-              <section v-if="isLinkableBlock" class="travel-data-binding">
+              <section v-if="isLinkableBlock&&hasTravelContext" class="travel-data-binding">
                 <header><div><strong>旅行数据关联</strong><small>关联会把旅行工作台的数据填入区块；正文仍保存为稳定快照。</small></div>
                   <el-radio-group v-model="dataBinding.enabled" size="small" @change="onBindingModeChange"><el-radio-button :value="false">手动填写</el-radio-button><el-radio-button :value="true">关联数据</el-radio-button></el-radio-group></header>
                 <template v-if="dataBinding.enabled">

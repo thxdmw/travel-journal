@@ -19,7 +19,7 @@
  * 草稿的离线能力不在这里，而在 IndexedDB（js/common/local-draft.js）：
  * Service Worker 负责「打得开」，IndexedDB 负责「写得下、不丢」。
  */
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL_CACHE = 'tj-shell-' + VERSION;
 const MEDIA_CACHE = 'tj-media-' + VERSION;
 /*
@@ -56,7 +56,7 @@ const SHELL_ASSETS = [
   '/css/journal-editor.css?v=2',
   '/css/admin-workspace.css?v=4',
   '/css/journal-block-editor.css?v=3',
-  '/css/journal-editor-mobile.css?v=3',
+  '/css/journal-editor-mobile.css?v=4',
   '/css/journal-media.css?v=12',
   '/css/journal-blocks.css?v=4',
   '/css/moments.css?v=3',
@@ -68,14 +68,14 @@ const SHELL_ASSETS = [
   '/js/common/journal-media.js?v=7',
   '/js/common/journal-blocks.js?v=4',
   '/js/common/day-route.js?v=1',
-  '/js/common/journal-block-editor.js?v=9',
+  '/js/common/journal-block-editor.js?v=10',
   '/js/admin/shared.js?v=2',
   '/js/admin/trip-workspace.js?v=3',
-  '/js/admin/journal-editor.js?v=3',
+  '/js/admin/journal-editor.js?v=4',
   '/js/admin/moments.js?v=4',
   '/js/admin/studio.js?v=3',
-  '/js/admin-app.js?v=27',
-  '/js/public-app.js?v=14',
+  '/js/admin-app.js?v=28',
+  '/js/public-app.js?v=15',
   '/js/common/custom-cursor.js?v=6',
   '/js/common/pwa.js?v=2',
   '/img/home-hero-kyoto.png',

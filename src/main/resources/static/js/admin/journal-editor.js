@@ -1,4 +1,4 @@
-/* 旅行日记编辑器。正文的 inline 编辑在 js/common/journal-block-editor.js。 */
+/* 日记编辑器。日记可独立创建，也可选归入一次旅行；正文 inline 编辑在公共组件中。 */
 (function () {
   const { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
   const { api, A, JM, applyTheme, message, fail, confirm, session, loadSession,
@@ -23,7 +23,7 @@
       const form=reactive({tripId:route.query.tripId?Number(route.query.tripId):null,tripStopId:null,
         title:'',slug:'',excerpt:'',contentJson:window.JournalBlocks.emptyDocument(),occurredOn:'',
         coverMediaId:null,status:'DRAFT',themeKey:null,templateId:null,templateVersion:null,tags:[]});
-      const rules={title:[required('请填写日记标题')],tripId:[required('请选择所属旅行','change')],
+      const rules={title:[required('请填写日记标题')],
         slug:[required('请填写 Slug'),slugRule],occurredOn:[required('请选择发生日期','change')]};
       const wordCount=computed(()=>window.JournalBlocks.wordCount(form.contentJson));
       const autoSaveLabel=computed(()=>SAVE_LABELS[autoSaveState.value]||'');
@@ -31,7 +31,7 @@
       const contextLine=computed(()=>{
         const day=form.occurredOn?form.occurredOn.replace(/^(\d{4})-(\d{2})-(\d{2})$/,(_,y,m,d)=>Number(m)+'月'+Number(d)+'日'):'';
         const city=stops.value.find(item=>Number(item.id)===Number(form.tripStopId))?.cityName;
-        return [day,city].filter(Boolean).join(' · ');
+        return [day,city||(form.tripId?'':'未归入旅行')].filter(Boolean).join(' · ');
       });
       /** 摘要留空就用正文开头，作者不需要为了列表卡片再写一遍。 */
       const autoExcerpt=computed(()=>{
@@ -73,7 +73,7 @@
 
       async function loadTravelData(tripId){
         const request=++travelDataRequest;
-        if(!tripId){stops.value=[];linkedItinerary.value=[];linkedExpenses.value=[];linkedBudget.value=null;return;}
+        if(!tripId){form.tripStopId=null;stops.value=[];linkedItinerary.value=[];linkedExpenses.value=[];linkedBudget.value=null;return;}
         const result=await Promise.all([A.stops(tripId),A.itinerary(tripId),A.expenses(tripId),A.budget(tripId)]);
         if(request!==travelDataRequest)return;
         stops.value=result[0]||[];linkedItinerary.value=result[1]||[];linkedExpenses.value=result[2]||[];linkedBudget.value=result[3]||null;
@@ -105,7 +105,7 @@
         excerpt:form.excerpt||autoExcerpt.value,contentJson:contentJson,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,
         themeKey:form.themeKey,templateId:form.templateId,templateVersion:form.templateVersion,tags:form.tags||[]};}
       /** 发给服务器的正文不能带只在浏览器里有意义的 pending 状态。 */
-      function serverBody(){return payload(cleanContent());}
+      function serverBody(){return{...payload(cleanContent()),detachFromTrip:form.tripId==null};}
       /** 本机快照必须原样保留 pending key；Blob 队列正是靠这些 key 找回正文位置。 */
       function localSnapshot(){
         const content=JSON.parse(JSON.stringify(form.contentJson||window.JournalBlocks.emptyDocument()));
@@ -133,15 +133,13 @@
       /**
        * 保证手上有一个真实的草稿 id。
        *
-       * 旅行途中打开编辑器就该能立刻拍照、打字、自动保存，而这些都需要 id。
+       * 打开编辑器就该能立刻拍照、打字、自动保存，而这些都需要 id。
        * 所以进页面先向后端要一篇空草稿，标题、slug 之类由后端补默认值。
        */
       async function ensureDraft(){
         if(id.value)return true;
-        const tripId=form.tripId||trips.value.find(x=>x.status==='ONGOING')?.id||trips.value[0]?.id;
-        if(!tripId){ElementPlus.ElMessage.warning('请先建立一次旅行，再开始写日记');return false;}
         try{
-          const created=await A.createJournalDraft({tripId:tripId,occurredOn:form.occurredOn||today()});
+          const created=await A.createJournalDraft({tripId:form.tripId||null,occurredOn:form.occurredOn||today()});
           id.value=created.id;
           Object.assign(form,{tripId:created.tripId,slug:created.slug,occurredOn:created.occurredOn,status:created.status});
           router.replace({path:'/journals/'+created.id,query:route.query.from?{from:route.query.from}:{}});
@@ -468,7 +466,14 @@
           else if(block.type==='gallery')templateData.value[block.id]={mediaIds:[]};
         });
       }
-      function openTemplate(){templateDialog.value=true;if(selectedTemplate.value)selectTemplate(selectedTemplate.value);else if(templates.value.length)selectTemplate(templates.value[0]);}
+      function openTemplate(){
+        if(!form.tripId){
+          metaCollapsed.value=false;metaOpen.value=true;
+          ElementPlus.ElMessage.info('模板会读取城市、行程等旅行数据；请先选择所属旅行，也可以直接在正文中开始写。');
+          return;
+        }
+        templateDialog.value=true;if(selectedTemplate.value)selectTemplate(selectedTemplate.value);else if(templates.value.length)selectTemplate(templates.value[0]);
+      }
       async function generateFromTemplate(){
         if(!selectedTemplate.value)return;
         if(form.contentJson.blocks?.length)try{await confirm('使用模板会替换当前正文，是否继续？');}catch(_){return;}
@@ -489,7 +494,7 @@
       function addTag(){const value=tagInput.value.trim();if(value&&!form.tags.includes(value))form.tags.push(value);tagInput.value='';}
       function removeTag(value){form.tags=form.tags.filter(x=>x!==value);}
       function backToTrip(){
-        if(!form.tripId)return router.push('/trips');
+        if(!form.tripId)return router.push('/');
         const tab=TAB_ORDER.includes(route.query.from)?route.query.from:'journals';
         router.push({path:'/trips/'+form.tripId,query:{tab}});
       }
@@ -599,8 +604,8 @@
         </button>
         <el-form ref="formRef" :model="form" :rules="rules" class="editor-meta-group editor-meta-form" :class="{collapsed:metaCollapsed,'is-open':metaOpen}"><div class="editor-meta-inner">
           <div class="editor-meta"><el-form-item prop="title"><el-input v-model="form.title" placeholder="日记标题（发布前必填）"/></el-form-item>
-            <el-form-item prop="tripId"><el-select v-model="form.tripId" filterable placeholder="所属旅行（必填）"><el-option v-for="x in trips" :key="x.id" :label="x.title" :value="x.id"/></el-select></el-form-item>
-            <el-form-item><el-select v-model="form.tripStopId" clearable placeholder="城市"><el-option v-for="x in stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item>
+            <el-form-item prop="tripId"><el-select v-model="form.tripId" filterable clearable placeholder="所属旅行（可选）"><el-option v-for="x in trips" :key="x.id" :label="x.title" :value="x.id"/></el-select></el-form-item>
+            <el-form-item v-if="form.tripId"><el-select v-model="form.tripStopId" clearable placeholder="城市（可选）"><el-option v-for="x in stops" :key="x.id" :label="x.cityName" :value="x.id"/></el-select></el-form-item>
             <el-form-item prop="occurredOn"><el-date-picker :editable="$allowTextInput" v-model="form.occurredOn" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="发生日期（必填）"/></el-form-item></div>
           <div class="editor-meta editor-meta-secondary"><el-form-item><el-input v-model="form.excerpt" maxlength="500" :placeholder="excerptHint"/></el-form-item>
             <el-form-item><el-select v-model="form.themeKey" clearable placeholder="继承旅行 / 全站主题"><el-option v-for="x in themes" :key="x.themeKey" :label="x.name" :value="x.themeKey"/></el-select></el-form-item></div>

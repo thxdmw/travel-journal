@@ -84,16 +84,17 @@ public class PublicContentService {
     public Home home() {
         List<JournalEntry> published = publishedJournals();
         if (published.isEmpty()) return new Home(List.of(), List.of(), List.of(), 0, 0, 0, 0);
-        Set<Long> tripIds = published.stream().map(JournalEntry::getTripId).collect(Collectors.toSet());
-        Map<Long, Trip> tripMap = tripMapper.selectByIds(tripIds).stream()
+        Set<Long> tripIds = published.stream().map(JournalEntry::getTripId).filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, Trip> tripMap = tripIds.isEmpty() ? Collections.emptyMap() : tripMapper.selectByIds(tripIds).stream()
                 .collect(Collectors.toMap(Trip::getId, Function.identity()));
-        List<TripStop> allStops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+        List<TripStop> allStops = tripIds.isEmpty() ? List.of() : stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
                 .in(TripStop::getTripId, tripIds).orderByAsc(TripStop::getSortOrder, TripStop::getId));
         Map<Long, TripStop> stopMap = allStops.stream().collect(Collectors.toMap(TripStop::getId, Function.identity()));
         Map<Long, List<TripStop>> stopsByTrip = allStops.stream().collect(Collectors.groupingBy(TripStop::getTripId));
         List<JournalCard> journals = published.stream().limit(6)
                 .map(entry -> card(entry, tripMap.get(entry.getTripId()), stopMap.get(entry.getTripStopId()))).toList();
-        Map<Long, Long> journalCounts = published.stream()
+        Map<Long, Long> journalCounts = published.stream().filter(entry -> entry.getTripId() != null)
                 .collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
         List<TripCard> allTrips = tripMap.values().stream()
                 .sorted(Comparator.comparing(Trip::getStartDate).reversed())
@@ -110,7 +111,8 @@ public class PublicContentService {
     /** 前台旅行列表。只展示至少有一篇已发布日记的旅行，草稿阶段的旅行不对外可见。 */
     public List<TripCard> publicTrips() {
         List<JournalEntry> published = publishedJournals();
-        Map<Long, Long> counts = published.stream().collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
+        Map<Long, Long> counts = published.stream().filter(entry -> entry.getTripId() != null)
+                .collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
         if (counts.isEmpty()) return List.of();
         return tripMapper.selectByIds(counts.keySet()).stream()
                 .sorted(Comparator.comparing(Trip::getStartDate).reversed())
@@ -165,17 +167,18 @@ public class PublicContentService {
         JournalEntry entry = journalMapper.selectOne(new LambdaQueryWrapper<JournalEntry>()
                 .eq(JournalEntry::getSlug, slug).eq(JournalEntry::getStatus, "PUBLISHED"));
         if (entry == null) throw BusinessException.notFound("日记不存在");
-        List<JournalEntry> tripJournals = journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
+        List<JournalEntry> tripJournals = entry.getTripId() == null ? List.of(entry)
+                : journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
                 .eq(JournalEntry::getTripId, entry.getTripId()).eq(JournalEntry::getStatus, "PUBLISHED")
                 .orderByAsc(JournalEntry::getOccurredOn, JournalEntry::getId));
         int index = java.util.stream.IntStream.range(0, tripJournals.size())
                 .filter(i -> tripJournals.get(i).getId().equals(entry.getId())).findFirst().orElse(-1);
         String previous = index > 0 ? tripJournals.get(index - 1).getSlug() : null;
         String next = index >= 0 && index < tripJournals.size() - 1 ? tripJournals.get(index + 1).getSlug() : null;
-        Trip trip = tripMapper.selectById(entry.getTripId());
+        Trip trip = entry.getTripId() == null ? null : tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return new JournalDetail(card(entry, trip, stop), entry.getContentJson(), mediaService.list(entry.getId()),
-                previous, next, themePresetService.effective(entry.getThemeKey(), trip.getThemeKey()),
+                previous, next, themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()),
                 dayRouteService.forJournal(entry));
     }
 
@@ -187,7 +190,7 @@ public class PublicContentService {
      */
     public JournalDetail previewByToken(String token) {
         JournalEntry entry = previewService.resolve(token);
-        Trip trip = tripMapper.selectById(entry.getTripId());
+        Trip trip = entry.getTripId() == null ? null : tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return new JournalDetail(card(entry, trip, stop), entry.getContentJson(),
                 mediaService.list(entry.getId()), null, null,
@@ -197,7 +200,7 @@ public class PublicContentService {
 
     public List<CityMarker> mapCities() {
         List<JournalEntry> published = publishedJournals();
-        Map<Long, JournalEntry> byTrip = published.stream().collect(Collectors.toMap(
+        Map<Long, JournalEntry> byTrip = published.stream().filter(entry -> entry.getTripId() != null).collect(Collectors.toMap(
                 JournalEntry::getTripId, Function.identity(), (a, b) -> a));
         if (byTrip.isEmpty()) return List.of();
         Map<Long, Trip> trips = tripMapper.selectByIds(byTrip.keySet()).stream()
@@ -258,14 +261,14 @@ public class PublicContentService {
     }
 
     private JournalCard card(JournalEntry entry) {
-        Trip trip = tripMapper.selectById(entry.getTripId());
+        Trip trip = entry.getTripId() == null ? null : tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return card(entry, trip, stop);
     }
 
     private JournalCard card(JournalEntry entry, Trip trip, TripStop stop) {
         return new JournalCard(entry.getId(), entry.getTitle(), entry.getSlug(), entry.getExcerpt(),
-                entry.getOccurredOn(), trip.getTitle(), trip.getSlug(),
+                entry.getOccurredOn(), trip == null ? null : trip.getTitle(), trip == null ? null : trip.getSlug(),
                 stop == null ? null : stop.getCityName(), mediaUrl(entry.getCoverMediaId(), "display"));
     }
 

@@ -1,17 +1,27 @@
 import { test, expect } from '@playwright/test';
-import { login, openNewJournal, paragraphs, writeParagraphs, waitSaved, isMobile } from './helpers';
+import { login, ensureTrip, openNewJournal, paragraphs, writeParagraphs, waitSaved, isMobile } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await login(page);
 });
 
-test('@smoke 打开编辑器就有草稿 id，不必先填表', async ({ page }) => {
+test('@smoke 不建旅行也能直接打开独立日记草稿', async ({ page }) => {
   const id = await openNewJournal(page);
   expect(id).toBeGreaterThan(0);
   // 标题、slug 都还没填，但状态已经是「已保存」——这正是「新建即草稿」要的效果
   await waitSaved(page);
-  // 日期和城市是推出来的，不需要作者选
-  await expect(page.locator('.editor-context')).not.toBeEmpty();
+  const entry = await page.evaluate(id => (window as any).TravelApi.admin.journal(id), id);
+  expect(entry.tripId).toBeNull();
+  await expect(page.locator('.editor-context')).toContainText('未归入旅行');
+  if (isMobile(page)) await page.locator('.editor-more').click();
+  await expect(page.getByPlaceholder('所属旅行（可选）')).toBeVisible();
+});
+
+test('从旅行工作台进入仍会自动带上旅行', async ({ page }) => {
+  const tripId = await ensureTrip(page);
+  const id = await openNewJournal(page, tripId);
+  const entry = await page.evaluate(id => (window as any).TravelApi.admin.journal(id), id);
+  expect(entry.tripId).toBe(tripId);
 });
 
 test('连续写三段，全程不弹任何窗', async ({ page }) => {
@@ -155,6 +165,28 @@ test.describe('手机端布局', () => {
     // 不该弹配置窗，光标应当直接落在新标题上
     await expect(page.locator('.block-config-dialog')).toHaveCount(0);
     await expect(page.locator('.block-inline--heading textarea')).toBeFocused();
+  });
+
+  test('快捷组件弹出软键盘后光标仍在可见区域', async ({ page }) => {
+    await openNewJournal(page);
+    for (let index = 0; index < 9; index++) {
+      await page.locator('.editor-toolbar button', { hasText: '标题' }).click();
+      await page.locator('.block-inline--heading textarea').last().fill('小标题 ' + index);
+    }
+    const input = page.locator('.block-inline--heading textarea').last();
+    await expect(input).toBeFocused();
+    await page.evaluate(() => {
+      const viewport = window.visualViewport;
+      if (!viewport) throw new Error('当前浏览器不支持 visualViewport');
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    await expect.poll(async () => {
+      const [inputBox, toolbarBox] = await Promise.all([
+        input.boundingBox(), page.locator('.editor-toolbar').boundingBox(),
+      ]);
+      return !!inputBox && !!toolbarBox && inputBox.y + inputBox.height <= toolbarBox.y - 8;
+    }).toBeTruthy();
   });
 
   test('添加内容先给常用几项，正文不在其中', async ({ page }) => {

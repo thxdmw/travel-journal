@@ -99,14 +99,13 @@ public class JournalService {
     }
 
     /**
-     * 开一篇空草稿，只要求知道属于哪次旅行。
+     * 开一篇空草稿。旅行是可选归属：从旅行工作台进入时带上，直接写日记时可以为空。
      *
      * <p>旅行途中打开编辑器就该能立刻拍照和打字，而不是先把标题、slug、日期填完再说。
      * 数据库上这四个字段都是 not null，所以缺的由服务端补默认值：标题空串、slug 自动生成、
      * 日期默认今天。作者随后在「日记信息」里改就行。</p>
      */
     public JournalEntry createDraft(Long tripId, Long tripStopId, LocalDate occurredOn) {
-        if (tripId == null) throw BusinessException.badRequest("请先选择所属旅行");
         JournalEntry entry = new JournalEntry();
         entry.setTripId(tripId);
         entry.setTripStopId(tripStopId);
@@ -128,13 +127,25 @@ public class JournalService {
      * 已发布的日记不走这里——公开内容只能由「更新发布」显式改变。</p>
      */
     public JournalEntry updateDraft(Long id, JournalEntry input) {
+        return updateDraft(id, input, false);
+    }
+
+    /**
+     * 草稿部分更新。{@code detachFromTrip} 用来区分“请求没传 tripId”和“作者明确清空旅行”。
+     */
+    public JournalEntry updateDraft(Long id, JournalEntry input, boolean detachFromTrip) {
         JournalEntry current = get(id);
         if (!"DRAFT".equals(current.getStatus()))
             throw BusinessException.badRequest("已发布的日记请使用「更新发布」保存");
         input.setId(id);
         input.setStatus("DRAFT");
         input.setPublishedAt(null);
-        if (input.getTripId() == null) input.setTripId(current.getTripId());
+        if (detachFromTrip) {
+            input.setTripId(null);
+            input.setTripStopId(null);
+        } else if (input.getTripId() == null) {
+            input.setTripId(current.getTripId());
+        }
         if (input.getTitle() == null) input.setTitle(current.getTitle());
         if (!StringUtils.hasText(input.getSlug())) input.setSlug(current.getSlug());
         if (input.getOccurredOn() == null) input.setOccurredOn(current.getOccurredOn());
@@ -275,8 +286,12 @@ public class JournalService {
      * @param publishing 是否按发布标准校验；发布时正文不能为空，草稿允许空正文和空标题
      */
     private void validate(JournalEntry entry, boolean publishing) {
-        Trip trip = tripMapper.selectById(entry.getTripId());
-        if (trip == null) throw BusinessException.badRequest("所属旅行不存在");
+        if (entry.getTripId() != null) {
+            Trip trip = tripMapper.selectById(entry.getTripId());
+            if (trip == null) throw BusinessException.badRequest("所属旅行不存在");
+        } else if (entry.getTripStopId() != null) {
+            throw BusinessException.badRequest("未选择旅行时不能选择所属城市");
+        }
         // 草稿允许没有 slug：直接补一个，别让作者为了存一句话去想网址
         if (!publishing && !StringUtils.hasText(entry.getSlug()))
             entry.setSlug(SlugUtils.autoSlug(entry.getOccurredOn()));

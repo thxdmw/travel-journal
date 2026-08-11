@@ -56,9 +56,13 @@ class FlywayMigrationTest {
                           and indexname in ('uq_moment_trip_client_id','idx_moment_trip_local_date','uq_moment_media_client_id')
                         """)).isEqualTo(3);
                 assertThat(value(connection, """
+                        select is_nullable from information_schema.columns
+                        where table_schema='public' and table_name='journal_entry' and column_name='trip_id'
+                        """)).isEqualTo("YES");
+                assertThat(value(connection, """
                         select version from flyway_schema_history
                         where success = true order by installed_rank desc limit 1
-                        """)).isEqualTo("17");
+                        """)).isEqualTo("18");
             }
         } finally {
             if (postgres != null) {

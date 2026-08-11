@@ -33,7 +33,7 @@
         <div class="card-body">
           <h3>{{ item.title }}</h3>
           <p>{{ item.excerpt || '这段旅程，值得慢慢写下来。' }}</p>
-          <div class="card-meta"><span>◷ {{ item.occurredOn }}</span><span>⌖ {{ item.cityName || item.tripTitle }}</span></div>
+          <div class="card-meta"><span>◷ {{ item.occurredOn }}</span><span v-if="item.cityName||item.tripTitle">⌖ {{ item.cityName || item.tripTitle }}</span><span v-else>✎ 独立日记</span></div>
         </div>
       </router-link>`
   };
@@ -482,7 +482,7 @@
       <main v-if="data" class="page article">
         <div class="reading-progress" aria-hidden="true"><span :style="{width:progress+'%'}"></span></div>
         <div v-if="preview" class="preview-banner">草稿预览 · 这篇日记尚未发布，链接会过期</div>
-        <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle}} · {{data.journal.cityName || '旅途中'}}</div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div>
+        <header class="article-head"><div class="hero-kicker">{{data.journal.tripTitle || '独立日记'}}<template v-if="data.journal.cityName"> · {{data.journal.cityName}}</template></div><h1>{{data.journal.title}}</h1><p v-if="data.journal.excerpt" class="article-excerpt">{{data.journal.excerpt}}</p><div class="article-meta">{{data.journal.occurredOn}} · 约 {{readingMinutes}} 分钟阅读</div>
           <div class="reading-scale"><button type="button" aria-label="减小正文字号" :disabled="scaleIndex===0" @click="stepScale(-1)">A−</button><span>{{scaleLabel}}</span><button type="button" aria-label="增大正文字号" :disabled="scaleIndex===scaleMax" @click="stepScale(1)">A+</button></div></header>
         <article ref="article" class="journal-document" v-html="html" @click="openArticleImage"></article>
         <section v-if="routePoints.length" class="day-route">

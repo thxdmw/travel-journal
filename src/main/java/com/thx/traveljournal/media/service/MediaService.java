@@ -110,7 +110,10 @@ public class MediaService {
                 .eq(JournalMedia::getJournalEntryId, journalId));
         if (count >= properties.upload().maxImagesPerJournal()) throw BusinessException.badRequest("单篇日记图片数量已达上限");
 
-        MediaAsset asset = storeImage(file, "trips/" + journal.getTripId() + "/journals/" + journalId + "/");
+        String keyPrefix = journal.getTripId() == null
+                ? "journals/" + journalId + "/"
+                : "trips/" + journal.getTripId() + "/journals/" + journalId + "/";
+        MediaAsset asset = storeImage(file, keyPrefix);
         JournalMedia relation = new JournalMedia();
         relation.setJournalEntryId(journalId);
         relation.setMediaAssetId(asset.getId());
@@ -169,6 +172,7 @@ public class MediaService {
      */
     public CitySuggestion suggestCity(Long journalId) {
         JournalEntry journal = requireJournal(journalId);
+        if (journal.getTripId() == null) return null;
         List<MediaAsset> located = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
                         .eq(JournalMedia::getJournalEntryId, journalId))
                 .stream().map(relation -> assetMapper.selectById(relation.getMediaAssetId()))
