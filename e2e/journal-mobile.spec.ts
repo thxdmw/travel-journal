@@ -11,7 +11,8 @@ test('@smoke 不建旅行也能直接打开独立日记草稿', async ({ page })
   // 标题、slug 都还没填，但状态已经是「已保存」——这正是「新建即草稿」要的效果
   await waitSaved(page);
   const entry = await page.evaluate(id => (window as any).TravelApi.admin.journal(id), id);
-  expect(entry.tripId).toBeNull();
+  // 全局 JSON 策略会省略 null 字段；null 和 undefined 在这里都表示未归入旅行。
+  expect(entry.tripId ?? null).toBeNull();
   await expect(page.locator('.editor-context')).toContainText('未归入旅行');
   if (isMobile(page)) await page.locator('.editor-more').click();
   await expect(page.getByPlaceholder('所属旅行（可选）')).toBeVisible();
