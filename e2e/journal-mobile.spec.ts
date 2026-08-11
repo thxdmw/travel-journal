@@ -15,7 +15,9 @@ test('@smoke 不建旅行也能直接打开独立日记草稿', async ({ page })
   expect(entry.tripId ?? null).toBeNull();
   await expect(page.locator('.editor-context')).toContainText('未归入旅行');
   if (isMobile(page)) await page.locator('.editor-more').click();
-  await expect(page.getByPlaceholder('所属旅行（可选）')).toBeVisible();
+  const tripSelect = page.locator('.editor-meta').first().locator('.el-select').first();
+  await expect(tripSelect).toBeVisible();
+  await expect(tripSelect).toContainText('所属旅行（可选）');
 });
 
 test('从旅行工作台进入仍会自动带上旅行', async ({ page }) => {

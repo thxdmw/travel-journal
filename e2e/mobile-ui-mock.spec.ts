@@ -2,7 +2,8 @@ import { test, expect, Page } from '@playwright/test';
 
 type BudgetRow = { id:number; code:string; name:string; planned:number; actual:number; remaining:number };
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, options: { standaloneJournal?: boolean } = {}) {
+  const { standaloneJournal = false } = options;
   const budgetRows: BudgetRow[] = [
     { id: 11, code: 'FOOD', name: '餐饮', planned: 1200, actual: 360, remaining: 840 },
     { id: 12, code: 'TRAFFIC', name: '交通', planned: 1800, actual: 520, remaining: 1280 },
@@ -10,7 +11,7 @@ async function mockApi(page: Page) {
   const updatedIds: number[] = [];
   const trip = { id:1, title:'移动端测试旅行', slug:'mobile-test', summary:'用于验证手机布局', status:'ONGOING',
     startDate:'2026-08-01', endDate:'2026-08-31', defaultCurrency:'CNY', themeKey:null };
-  const journal = { id:1, tripId:1, tripStopId:null, title:'', slug:'journal-mobile-test', excerpt:'',
+  const journal = { id:1, tripId:standaloneJournal ? null : 1, tripStopId:null, title:'', slug:'journal-mobile-test', excerpt:'',
     contentJson:{ schemaVersion:1, blocks:[] }, occurredOn:'2026-08-11', coverMediaId:null,
     status:'DRAFT', themeKey:null, templateId:null, templateVersion:null, tags:[] };
 
@@ -63,6 +64,16 @@ async function mockApi(page: Page) {
 
 test.describe('移动端 UI 隔离回归', () => {
   test.skip(({ page }) => (page.viewportSize()?.width ?? 0) > 780, '只验证手机布局');
+
+  test('独立日记信息面板显示可选的旅行归属', async ({ page }) => {
+    await mockApi(page, { standaloneJournal:true });
+    await page.goto('/admin/#/journals/1');
+    await expect(page.locator('.editor-context')).toContainText('未归入旅行');
+    await page.locator('.editor-more').click();
+    const tripSelect = page.locator('.editor-meta').first().locator('.el-select').first();
+    await expect(tripSelect).toBeVisible();
+    await expect(tripSelect).toContainText('所属旅行（可选）');
+  });
 
   test('图片设置可到底、下拉复位、回车换行与离线提示关闭', async ({ page, context }) => {
     await mockApi(page);
