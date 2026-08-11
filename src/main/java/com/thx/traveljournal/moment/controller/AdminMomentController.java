@@ -36,16 +36,21 @@ public class AdminMomentController {
     private final MomentNarrativeService narrativeService;
 
     /** 新建或修改一条。字段全部可选，缺的沿用旧值或由服务端补默认。 */
-    public record MomentRequest(Long tripId, Long tripStopId, OffsetDateTime occurredAt,
+    public record MomentRequest(String clientId, Long tripId, Long tripStopId, OffsetDateTime occurredAt,
+                                LocalDate occurredLocalDate, String occurredZoneId, Integer utcOffsetMinutes,
                                 @Size(max = 2000) String content,
                                 @Size(max = 120) String placeName,
                                 BigDecimal latitude, BigDecimal longitude,
                                 @Size(max = 40) String mood) {
         Moment toEntity() {
             Moment moment = new Moment();
+            moment.setClientId(clientId);
             moment.setTripId(tripId);
             moment.setTripStopId(tripStopId);
             moment.setOccurredAt(occurredAt);
+            moment.setOccurredLocalDate(occurredLocalDate);
+            moment.setOccurredZoneId(occurredZoneId);
+            moment.setUtcOffsetMinutes(utcOffsetMinutes);
             moment.setContent(content);
             moment.setPlaceName(placeName);
             moment.setLatitude(latitude);
@@ -101,8 +106,9 @@ public class AdminMomentController {
 
     @PostMapping("/{id}/media")
     public ApiResponse<MediaService.MediaView> addPhoto(@PathVariable Long id,
+                                                        @RequestParam(required = false) String clientId,
                                                         @RequestPart("file") MultipartFile file) {
-        return ApiResponse.ok(service.addPhoto(id, file));
+        return ApiResponse.ok(service.addPhoto(id, clientId, file));
     }
 
     @DeleteMapping("/{id}/media/{mediaId}")

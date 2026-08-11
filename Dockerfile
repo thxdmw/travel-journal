@@ -31,7 +31,7 @@ COPY src ./src
 
 # 构建项目
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn package -DskipTests -B -ntp -s /root/.m2/settings.xml
+    mvn package -B -ntp -s /root/.m2/settings.xml
 
 # ============================
 # 第二阶段：运行阶段

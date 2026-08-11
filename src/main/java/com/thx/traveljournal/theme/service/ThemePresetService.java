@@ -215,6 +215,8 @@ public class ThemePresetService {
             Token.option("blockStyles", "timeline", "line", "line", "dots", "stamps", "tickets"),
             Token.option("blockStyles", "stats", "plain", "plain", "badge", "ticket"),
             Token.option("blockStyles", "locationCard", "plain", "plain", "postcard", "label", "passport"),
+            Token.option("blockStyles", "journalMoment", "classic", "classic", "spring", "summer",
+                    "autumn", "winter", "retro"),
 
             /*
              * 互动。

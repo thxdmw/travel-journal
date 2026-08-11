@@ -80,20 +80,61 @@
     if (row) Object.keys(template).forEach(key => { if (row[key] !== undefined) form[key] = row[key]; });
   }
 
-  const session = reactive({ user: null, checked: false });
+  const SESSION_CACHE_KEY = 'travel-journal.admin-session';
+  const session = reactive({ user: null, checked: false, offline: false });
+  function rememberSession(user) {
+    if (!user) return;
+    try {
+      const safe = { id:user.id, username:user.username, displayName:user.displayName,
+        avatarUrl:user.avatarUrl, themeKey:user.themeKey, savedAt:Date.now() };
+      localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(safe));
+    } catch (_) {}
+  }
+  function cachedSession() {
+    try { return JSON.parse(localStorage.getItem(SESSION_CACHE_KEY) || 'null'); }
+    catch (_) { return null; }
+  }
+  function forgetSession() {
+    try { localStorage.removeItem(SESSION_CACHE_KEY); } catch (_) {}
+  }
   async function loadSession() {
     if (session.checked) return session.user;
-    try { session.user = await api.auth.session(); if (session.user) { const profile=await api.public.profile();applyTheme(profile.theme||session.user.themeKey); await api.ensureCsrf(); } }
-    catch (_) { session.user = null; }
+    if (!navigator.onLine) {
+      session.user=cachedSession();
+      session.offline=!!session.user;
+      session.checked=true;
+      return session.user;
+    }
+    try {
+      session.user = await api.auth.session();
+      session.offline = false;
+      if (session.user) {
+        rememberSession(session.user);
+        try { const profile=await api.public.profile();applyTheme(profile.theme||session.user.themeKey); } catch (_) {}
+        try { await api.ensureCsrf(); } catch (_) {}
+      } else forgetSession();
+    } catch (error) {
+      // 客户端路由守卫不是安全边界，真正鉴权始终在服务端。离线时只用上次已验证的
+      // 最小会话提示打开本机队列；401 仍会清缓存并由拦截器送回登录页。
+      const cached=(error?.network||!navigator.onLine)?cachedSession():null;
+      session.user=cached;
+      session.offline=!!cached;
+      if(!cached&&!error?.network)forgetSession();
+    }
     session.checked = true;
     return session.user;
   }
+  window.addEventListener('online',()=>{
+    if(!session.offline)return;
+    session.checked=false;
+    loadSession().finally(()=>window.dispatchEvent(new CustomEvent('travel-session-ready')));
+  });
 
 
   // 页面拆到了 js/admin/ 下的多个文件里，彼此不通过模块系统，而是走这个全局对象。
   // 保持项目「Spring Boot Jar + Vue 全局版 + 无前端构建」的约定不变。
   window.AdminShared = {
-    api, A, JM, applyTheme, message, fail, confirm, session, loadSession,
+    api, A, JM, applyTheme, message, fail, confirm, session, loadSession, rememberSession, forgetSession,
     tripStatusOptions, itineraryTypeOptions, journalStatusLabels, statusLabel, itineraryTypeLabel,
     shortTime, timeRange, IMAGE_TYPES, TAB_ORDER, renderTemplateSample,
     required, check, slugRule, validateForm, fillForm

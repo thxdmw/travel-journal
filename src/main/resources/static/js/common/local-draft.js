@@ -10,7 +10,8 @@
  */
 (function () {
   'use strict';
-  const DB_NAME = 'travel-journal', STORE = 'drafts', PHOTO_STORE = 'photos', VERSION = 2;
+  const DB_NAME = 'travel-journal', STORE = 'drafts', PHOTO_STORE = 'photos';
+  const MOMENT_STORE = 'pending-moments', VERSION = 3;
   const POINTER_KEY = 'travel-journal.last-draft';
   const FALLBACK_PREFIX = 'travel-journal.blocks-draft.';
   let dbPromise = null;
@@ -21,6 +22,7 @@
     if (dbPromise) return dbPromise;
     dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, VERSION);
+      let abandoned = false;
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
@@ -30,10 +32,29 @@
           const store = db.createObjectStore(PHOTO_STORE, { keyPath: 'key' });
           store.createIndex('journalId', 'journalId');
         }
+        // v3：随手记的文字和照片作为一个可重放命令保存。clientId 同时是服务端幂等键。
+        if (!db.objectStoreNames.contains(MOMENT_STORE)) {
+          const store = db.createObjectStore(MOMENT_STORE, { keyPath: 'clientId' });
+          store.createIndex('tripId', 'tripId');
+        }
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        if (abandoned) { request.result.close(); return; }
+        request.result.onversionchange = () => request.result.close();
+        resolve(request.result);
+      };
       request.onerror = () => reject(request.error);
-    }).catch(error => { usable = false; dbPromise = null; throw error; });
+      request.onblocked = () => {
+        abandoned = true;
+        const error = new Error('另一个旧页面正在占用本地存储，请关闭后重试');
+        error.name = 'BlockedError';
+        reject(error);
+      };
+    }).catch(error => {
+      if (error?.name !== 'BlockedError') usable = false;
+      dbPromise = null;
+      throw error;
+    });
     return dbPromise;
   }
 
@@ -45,8 +66,14 @@
     return open().then(db => new Promise((resolve, reject) => {
       const tx = db.transaction(store, mode);
       const request = work(tx.objectStore(store));
-      request.onsuccess = () => resolve(request.result);
+      let result;
+      request.onsuccess = () => { result = request.result; };
       request.onerror = () => reject(request.error);
+      // IndexedDB 的 request 成功只表示操作已排入事务；等 transaction complete
+      // 才能保证照片 Blob 和离线命令确实落盘，随后再清空编辑器才不会丢数据。
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error || request.error);
+      tx.onabort = () => reject(tx.error || new Error('本地存储事务已中止'));
     }));
   }
 
@@ -130,5 +157,47 @@
     try { await runOn(PHOTO_STORE, 'readwrite', store => store.delete(key)); } catch (_) {}
   }
 
-  window.LocalDraft = { put, get, remove, pointer, queuePhoto, pendingPhotos, dropPhoto };
+  /** 离线随手记整体入队；照片直接保存 Blob，不转 base64。 */
+  async function queueMoment(moment) {
+    if (!moment?.clientId || moment.tripId == null) return false;
+    const now = Date.now();
+    const record = Object.assign({ state: 'pending', retryCount: 0, createdAt: now }, moment, { updatedAt: now });
+    try {
+      await runOn(MOMENT_STORE, 'readwrite', store => store.put(record));
+      return true;
+    } catch (_) { return false; }
+  }
+
+  async function pendingMoments(tripId) {
+    try {
+      const records = tripId == null
+        ? await runOn(MOMENT_STORE, 'readonly', store => store.getAll())
+        : await runOn(MOMENT_STORE, 'readonly', store => store.index('tripId').getAll(IDBKeyRange.only(Number(tripId))));
+      return (records || []).sort((a, b) => a.createdAt - b.createdAt);
+    } catch (_) { return []; }
+  }
+
+  async function pendingMoment(clientId) {
+    if (!clientId) return null;
+    try { return await runOn(MOMENT_STORE, 'readonly', store => store.get(clientId)) || null; }
+    catch (_) { return null; }
+  }
+
+  async function updatePendingMoment(clientId, patch) {
+    const current = await pendingMoment(clientId);
+    if (!current) return null;
+    const updated = Object.assign({}, current, patch || {}, { clientId: clientId, updatedAt: Date.now() });
+    try {
+      await runOn(MOMENT_STORE, 'readwrite', store => store.put(updated));
+      return updated;
+    } catch (_) { return null; }
+  }
+
+  async function dropPendingMoment(clientId) {
+    if (!clientId) return;
+    try { await runOn(MOMENT_STORE, 'readwrite', store => store.delete(clientId)); } catch (_) {}
+  }
+
+  window.LocalDraft = { put, get, remove, pointer, queuePhoto, pendingPhotos, dropPhoto,
+    queueMoment, pendingMoments, pendingMoment, updatePendingMoment, dropPendingMoment };
 })();

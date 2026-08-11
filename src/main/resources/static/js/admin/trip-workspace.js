@@ -1,7 +1,7 @@
 /* 登录、管理首页、旅行列表与旅行工作台。 */
 (function () {
   const { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
-  const { api, A, JM, applyTheme, message, fail, confirm, session, loadSession,
+  const { api, A, JM, applyTheme, message, fail, confirm, session, loadSession, rememberSession,
     tripStatusOptions, itineraryTypeOptions, journalStatusLabels, statusLabel, itineraryTypeLabel,
     shortTime, timeRange, IMAGE_TYPES, TAB_ORDER, renderTemplateSample,
     required, check, slugRule, validateForm, fillForm } = window.AdminShared;
@@ -15,6 +15,8 @@
         try {
           session.user = await api.auth.login(form);
           session.checked = true;
+          session.offline = false;
+          rememberSession(session.user);
           const profile=await api.public.profile();applyTheme(profile.theme||session.user.themeKey);
           await api.ensureCsrf();
           router.replace('/');

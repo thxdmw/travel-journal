@@ -9,21 +9,24 @@
  * 章节和照片的草稿，作者在上面接着写就行，而不是对着空白页回忆。
  */
 (function () {
-  const { ref, reactive, computed, onMounted, watch, nextTick } = Vue;
-  const { api, A, message, fail, confirm, shortTime } = window.AdminShared;
+  const { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
+  const { api, A, message, fail, confirm, shortTime, session } = window.AdminShared;
 
   const Moments = {
     setup() {
       const router = VueRouter.useRouter(), route = VueRouter.useRoute();
       const trips = ref([]), moments = ref([]), loading = ref(false), saving = ref(false);
+      const pending = ref([]), syncing = ref(false), online = ref(navigator.onLine);
       const composing = ref(''), photoInput = ref(null), cameraInput = ref(null), photoSheet = ref(false);
-      const tripId = ref(route.query.tripId ? Number(route.query.tripId) : null);
+      const LAST_TRIP_KEY = 'travel-journal.moment-last-trip', TRIPS_CACHE_KEY = 'travel-journal.moment-trips';
+      const tripId = ref(route.query.tripId ? Number(route.query.tripId) : Number(localStorage.getItem(LAST_TRIP_KEY)) || null);
       const editing = ref(null), locating = ref(false);
+      const LD = window.LocalDraft;
       // 还没提交的那一条。照片先攒在本地，等 moment 落库拿到 id 才真正上传
       const draft = reactive({ content: '', placeName: '', mood: '', latitude: null, longitude: null, files: [] });
 
       const trip = computed(() => trips.value.find(item => Number(item.id) === Number(tripId.value)) || null);
-      /** 按天分组。day 是服务端按站点时区算好的，前端不重复算一遍时区。 */
+      /** 按天分组。day 是服务端按事件发生地日期算好的，前端不重复猜时区。 */
       const grouped = computed(() => {
         const groups = new Map();
         moments.value.forEach(item => {
@@ -38,31 +41,47 @@
         name: file.name, url: URL.createObjectURL(file)
       })));
       const canSubmit = computed(() => !!tripId.value && (draft.content.trim() || draft.files.length));
+      const localDate = date => [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),
+        String(date.getDate()).padStart(2,'0')].join('-');
 
       function dayLabel(day) {
-        const today = new Date().toLocaleDateString('sv-SE');
+        const today = localDate(new Date());
         if (day === today) return '今天';
-        const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('sv-SE');
+        const previous = new Date(); previous.setDate(previous.getDate()-1);
+        const yesterday = localDate(previous);
         if (day === yesterday) return '昨天';
         return String(day).replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_, y, m, d) => Number(m) + '月' + Number(d) + '日');
       }
-      function timeLabel(value) {
-        return value ? new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+      function timeLabel(value, zoneId) {
+        if (!value) return '';
+        try {
+          return new Intl.DateTimeFormat('zh-CN', { timeZone: zoneId || undefined,
+            hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+        } catch (_) {
+          return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        }
       }
 
       async function load() {
         if (!tripId.value) { moments.value = []; return; }
         loading.value = true;
         try { moments.value = await A.moments(tripId.value); }
-        catch (e) { fail(e); }
+        catch (e) { if (navigator.onLine) fail(e); }
         finally { loading.value = false; }
       }
       async function loadTrips() {
         try {
           trips.value = (await A.trips({ page: 1, pageSize: 100 })).items || [];
+          localStorage.setItem(TRIPS_CACHE_KEY,JSON.stringify(trips.value));
           // 没指定就默认进行中的那次旅行——路上打开这一页，想记的几乎总是当前这趟
-          if (!tripId.value) tripId.value = (trips.value.find(item => item.status === 'ONGOING') || trips.value[0])?.id || null;
-        } catch (e) { fail(e); }
+          if (!trips.value.some(item=>Number(item.id)===Number(tripId.value)))
+            tripId.value = (trips.value.find(item => item.status === 'ONGOING') || trips.value[0])?.id || null;
+        } catch (e) {
+          try { trips.value=JSON.parse(localStorage.getItem(TRIPS_CACHE_KEY)||'[]'); } catch (_) { trips.value=[]; }
+          if (!trips.value.some(item=>Number(item.id)===Number(tripId.value)))
+            tripId.value=(trips.value.find(item=>item.status==='ONGOING')||trips.value[0])?.id||null;
+          if(navigator.onLine)fail(e);
+        }
       }
 
       /*
@@ -71,36 +90,96 @@
        * 先建记录再传照片：照片可能很大、网络可能很差，但文字必须立刻落库。
        * 反过来做的话，一次上传失败就会把已经写好的那句话一起弄丢。
        */
+      const clientId = prefix => prefix + '_' + (window.crypto?.randomUUID
+        ? window.crypto.randomUUID().replaceAll('-','')
+        : Date.now().toString(36)+Math.random().toString(36).slice(2));
+      function occurrencePayload() {
+        const now=new Date(),offset=-now.getTimezoneOffset();
+        let zone='';
+        try{zone=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(_){}
+        if(!zone){const sign=offset>=0?'+':'-',abs=Math.abs(offset);zone=sign+String(Math.floor(abs/60)).padStart(2,'0')+':'+String(abs%60).padStart(2,'0');}
+        return {occurredAt:now.toISOString(),occurredLocalDate:localDate(now),
+          occurredZoneId:zone,utcOffsetMinutes:offset};
+      }
+      async function refreshPending() {
+        pending.value=tripId.value?await LD.pendingMoments(tripId.value):[];
+      }
+
       async function submit() {
         if (!canSubmit.value || saving.value) return;
         saving.value = true;
         const files = draft.files.slice();
         try {
-          const created = await A.createMoment({
-            tripId: tripId.value, content: draft.content.trim(), placeName: draft.placeName.trim() || null,
-            mood: draft.mood.trim() || null, latitude: draft.latitude, longitude: draft.longitude
-          });
+          const id=clientId('moment');
+          const queued=await LD.queueMoment({clientId:id,tripId:Number(tripId.value),
+            payload:Object.assign({clientId:id,tripId:Number(tripId.value),content:draft.content.trim(),
+              placeName:draft.placeName.trim()||null,mood:draft.mood.trim()||null,
+              latitude:draft.latitude,longitude:draft.longitude},occurrencePayload()),
+            photos:files.map((file,index)=>({clientId:clientId('photo'),name:file.name||('photo-'+(index+1)+'.jpg'),
+              type:file.type||'image/jpeg',blob:file,uploaded:false}))});
+          if(!queued)throw new Error('这台设备的离线存储不可用或空间不足，请先不要关闭页面');
           Object.assign(draft, { content: '', placeName: '', mood: '', latitude: null, longitude: null, files: [] });
-          moments.value = [created, ...moments.value];
-          if (files.length) await uploadPhotos(created.id, files);
-          message('记下了');
-        } catch (e) { fail(e); }
+          await refreshPending();
+          if(navigator.onLine)syncPending();
+          message(navigator.onLine?'已安全记在本机，正在同步':'已安全记在本机，联网后自动同步');
+        } catch (e) { ElementPlus.ElMessage.error(e?.message||'没能写入本机，请保留当前页面后重试'); }
         finally { saving.value = false; }
       }
-      async function uploadPhotos(momentId, files) {
-        for (const file of files) {
-          try {
-            const form = new FormData();
-            form.append('file', file);
-            await A.addMomentPhoto(momentId, form);
-          } catch (_) { ElementPlus.ElMessage.warning('有照片没传上去，可以在这一条上重新添加'); }
+      let syncPromise=null;
+      async function syncOne(original) {
+        let record=await LD.updatePendingMoment(original.clientId,{state:'syncing',error:null});
+        if(!record)return;
+        try{
+          let serverId=record.serverId;
+          if(!serverId){
+            const created=await A.createMoment(record.payload);
+            serverId=created.id;
+            const persisted=await LD.updatePendingMoment(record.clientId,{serverId:serverId,state:'syncing'});
+            record=persisted||Object.assign({},record,{serverId:serverId,state:'syncing'});
+          }
+          let photos=(record?.photos||[]).slice();
+          for(let index=0;index<photos.length;index++){
+            const photo=photos[index];
+            if(photo.uploaded)continue;
+            const form=new FormData();
+            form.append('file',photo.blob,photo.name);
+            await A.addMomentPhoto(serverId,form,photo.clientId);
+            photos=photos.map((item,i)=>i===index?Object.assign({},item,{uploaded:true}):item);
+            const persisted=await LD.updatePendingMoment(original.clientId,{serverId:serverId,photos:photos,state:'syncing'});
+            record=persisted||Object.assign({},record,{serverId:serverId,photos:photos,state:'syncing'});
+          }
+          await LD.dropPendingMoment(original.clientId);
+        }catch(e){
+          await LD.updatePendingMoment(original.clientId,{state:'failed',
+            retryCount:(record?.retryCount||0)+1,error:navigator.onLine?'同步失败，点此重试':'等待网络'});
         }
-        const index = moments.value.findIndex(item => item.id === momentId);
-        if (index >= 0) moments.value[index] = await A.moment(momentId);
+      }
+      async function syncPending() {
+        if(!navigator.onLine)return;
+        if(syncPromise)return syncPromise;
+        syncing.value=true;
+        syncPromise=(async()=>{
+          const queue=await LD.pendingMoments();
+          for(const record of queue){if(!navigator.onLine)break;await syncOne(record);}
+          await refreshPending();
+          if(tripId.value)await load();
+        })().finally(()=>{syncing.value=false;syncPromise=null;});
+        return syncPromise;
+      }
+      async function retryPending(item){
+        await LD.updatePendingMoment(item.clientId,{state:'pending',error:null});
+        await refreshPending();syncPending();
+      }
+      async function discardPending(item){
+        try{await confirm('放弃这条尚未同步的随手记吗？本机文字和照片会被删除。');}catch(_){return;}
+        await LD.dropPendingMoment(item.clientId);await refreshPending();
       }
 
       function pickPhotos(event) {
-        draft.files.push(...Array.from(event.target.files || []).filter(file => file.type?.startsWith('image/')));
+        const selected=Array.from(event.target.files||[]).filter(file=>file.type?.startsWith('image/'));
+        const available=Math.max(0,9-draft.files.length);
+        draft.files.push(...selected.slice(0,available));
+        if(selected.length>available)ElementPlus.ElMessage.warning('一条随手记最多保留 9 张照片');
         event.target.value = '';
       }
       function dropDraftPhoto(index) { draft.files.splice(index, 1); }
@@ -226,18 +305,28 @@
 
       watch(tripId, value => {
         router.replace({ path: '/moments', query: value ? { tripId: value } : {} });
-        load();
+        if(value)localStorage.setItem(LAST_TRIP_KEY,String(value));
+        load();refreshPending();
       });
+      const onOnline=()=>{online.value=true;if(!session.offline)syncPending();};
+      const onOffline=()=>{online.value=false;refreshPending();};
+      const onSessionReady=()=>{if(session.user&&!session.offline)syncPending();};
       onMounted(async () => {
         await loadTrips();
-        await load();
+        await Promise.all([load(),refreshPending()]);
+        window.addEventListener('online',onOnline);
+        window.addEventListener('offline',onOffline);
+        window.addEventListener('travel-session-ready',onSessionReady);
+        if(navigator.onLine)syncPending();
         try { aiAvailable.value = (await A.momentAiStatus()).available; } catch (_) { aiAvailable.value = false; }
       });
+      onBeforeUnmount(()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);
+        window.removeEventListener('travel-session-ready',onSessionReady);});
 
-      return { trips, tripId, trip, moments, grouped, loading, saving, composing, draft, draftPreviews, canSubmit,
+      return { trips, tripId, trip, moments, grouped, pending, syncing, online, loading, saving, composing, draft, draftPreviews, canSubmit,
         photoInput, cameraInput, photoSheet, editing, locating,
         dayLabel, timeLabel, shortTime, submit, pickPhotos, dropDraftPhoto, capture, locate,
-        removeMoment, startEdit, saveEdit, removePhoto, compose,
+        removeMoment, startEdit, saveEdit, removePhoto, compose, retryPending, discardPending,
         routeDay, routeEl, routePoints, replaying, replayIndex, toggleRoute, toggleReplay, aiAvailable };
     },
     template: `
@@ -267,6 +356,18 @@
           </div>
         </section>
 
+        <section v-if="pending.length" class="moment-pending panel" aria-live="polite">
+          <header><div><strong>待同步</strong><small>{{pending.length}} 条已安全保存在这台设备</small></div>
+            <span :class="{active:syncing}">{{!online?'等待网络':(syncing?'正在同步':'等待重试')}}</span></header>
+          <article v-for="item in pending" :key="item.clientId">
+            <time>{{timeLabel(item.payload.occurredAt,item.payload.occurredZoneId)}}</time>
+            <div><p v-if="item.payload.content">{{item.payload.content}}</p>
+              <small><template v-if="item.photos?.length">{{item.photos.length}} 张照片 · </template>{{item.error||(item.state==='syncing'?'正在同步':'已保存在本机')}}</small></div>
+            <button v-if="item.state==='failed'" type="button" @click="retryPending(item)">重试</button>
+            <button type="button" class="danger" @click="discardPending(item)">放弃</button>
+          </article>
+        </section>
+
         <div v-loading="loading" class="moment-timeline">
           <section v-for="group in grouped" :key="group.day" class="moment-day">
             <header><h3>{{dayLabel(group.day)}}</h3><small>{{group.items.length}} 条<template v-if="group.unsorted"> · {{group.unsorted}} 条待整理</template></small>
@@ -278,7 +379,7 @@
               <button type="button" class="moment-route-play" :class="{playing:replaying}" @click="toggleReplay">{{replaying?'停止回放':'▶ 回放这一天'}}</button>
             </div>
             <article v-for="item in group.items" :key="item.id" class="moment-item" :class="{'is-sorted':item.sorted}">
-              <time>{{timeLabel(item.occurredAt)}}</time>
+              <time>{{timeLabel(item.occurredAt,item.occurredZoneId)}}</time>
               <div class="moment-body">
                 <template v-if="editing&&editing.id===item.id">
                   <el-input v-model="editing.content" type="textarea" :rows="3"/>

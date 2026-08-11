@@ -126,7 +126,7 @@
         stickers:{density:'none',items:[]},
         dividers:{style:'line',glyph:'none'},
         ambient:{glow:'none',drift:'none',intensity:0.4},
-        blockStyles:{callout:'plain',quote:'plain',timeline:'line',stats:'plain',locationCard:'plain'},
+        blockStyles:{callout:'plain',quote:'plain',timeline:'line',stats:'plain',locationCard:'plain',journalMoment:'classic'},
         interactions:{stickerClick:'none',imageHover:'none',heroEntrance:'none'},
         hero:{mediaId:null,shape:'none',overlay:'none'}};
 
@@ -225,7 +225,8 @@
           {key:'quote',label:'引用',type:'select',options:[['plain','默认'],['mark','大引号'],['card','卡片'],['handwritten','手写感']]},
           {key:'timeline',label:'时间线',type:'select',options:[['line','竖线'],['dots','圆点'],['stamps','邮戳时间'],['tickets','车票时间']]},
           {key:'stats',label:'数字亮点',type:'select',options:[['plain','默认'],['badge','药丸'],['ticket','票根']]},
-          {key:'locationCard',label:'地点卡片',type:'select',options:[['plain','默认'],['postcard','明信片'],['label','标签条'],['passport','护照页']]}
+          {key:'locationCard',label:'地点卡片',type:'select',options:[['plain','默认'],['postcard','明信片'],['label','标签条'],['passport','护照页']]},
+          {key:'journalMoment',label:'开场/章节/小结',type:'select',options:[['classic','经典'],['spring','春日花枝'],['summer','夏日阳光'],['autumn','秋日车票'],['winter','冬日霜花'],['retro','复古邮戳']]}
         ]},
         {key:'interactions',label:'互动',hint:'只能从预先写好的这几种里选，主题配置里永远不会出现脚本',fields:[
           {key:'stickerClick',label:'点击贴纸',type:'select',options:[['none','无反应'],['pop','弹一下'],['wiggle','摇一摇'],['drift','飘走'],['heart-pop','心跳']]},
@@ -338,6 +339,12 @@
         try{frame.postMessage({type:'travel-theme-preview',theme:{themeKey:'preview',baseThemeKey:form.baseThemeKey,definitionJson:deep(form.definitionJson)}},location.origin);}
         catch(_){}
       });}
+      function postCardPreview(event,item){
+        const frame=event.currentTarget?.contentWindow;
+        if(!frame)return;
+        try{frame.postMessage({type:'travel-theme-preview',theme:{themeKey:item.themeKey,baseThemeKey:item.baseThemeKey,definitionJson:deep(item.definitionJson)}},location.origin);}
+        catch(_){}
+      }
       function exportTheme(item){const payload={schemaVersion:1,name:item.name,description:item.description,baseThemeKey:item.baseThemeKey,previewImageUrl:item.previewImageUrl,definitionJson:item.definitionJson};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=item.themeKey+'.json';link.click();URL.revokeObjectURL(link.href);}
       function chooseImport(){importInput.value.click();}
       async function imported(event){const file=event.target.files[0];event.target.value='';if(!file)return;try{const data=JSON.parse(await file.text());if(!data.definitionJson)throw new Error('文件中缺少 definitionJson');assignSnapshot({name:(data.name||'导入的主题')+' · 导入',description:data.description||'',baseThemeKey:data.baseThemeKey||'travel-classic',previewImageUrl:data.previewImageUrl||'',enabled:true,definitionJson:data.definitionJson});editing.value=null;editor.value=true;nextTick(()=>{seedHistory();postPreview();});}catch(e){fail(new Error('导入失败：'+e.message));}}
@@ -394,7 +401,7 @@
       watch(previewMode,()=>nextTick(measurePreview));
       onMounted(load);
       onBeforeUnmount(()=>{clearTimeout(historyTimer);previewObserver?.disconnect();});
-      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor,
+      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,postCardPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor,
         siteState,isAuto,isActive,seasonHint,followSeason,
         stickerItems,stickerAreas:STICKER_AREAS,stickerAssets:STICKER_ASSETS,addSticker,removeSticker,stickerPreview};
     },
@@ -409,8 +416,8 @@
           <el-button v-else type="primary" :loading="changing==='__auto__'" @click="followSeason">跟随季节</el-button>
         </div>
       </article>
-      <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey" class="panel theme-preview" :class="{selected:isActive(item)}">
-        <img :src="item.previewImageUrl||'/img/theme-travel-classic-preview.png'" :alt="item.name"><div class="theme-info"><div><div class="theme-card-title"><h3>{{item.name}}</h3><small>{{item.builtin?'系统预设':'我的主题'}} · v{{item.version}}</small></div><p>{{item.description}}</p></div><span v-if="isActive(item)" class="theme-badge">当前主题</span><span v-else-if="isAuto&&item.themeKey===siteState?.seasonThemeKey" class="theme-badge theme-badge--season">本季正在使用</span></div>
+      <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey+'-'+item.version" class="panel theme-preview" :class="{selected:isActive(item)}">
+        <div class="theme-card-live"><iframe loading="lazy" src="/theme-card-preview.html" :title="item.name+'实时预览'" @load="postCardPreview($event,item)"></iframe></div><div class="theme-info"><div><div class="theme-card-title"><h3>{{item.name}}</h3><small>{{item.builtin?'系统预设':'我的主题'}} · v{{item.version}}</small></div><p>{{item.description}}</p></div><span v-if="isActive(item)" class="theme-badge">当前主题</span><span v-else-if="isAuto&&item.themeKey===siteState?.seasonThemeKey" class="theme-badge theme-badge--season">本季正在使用</span></div>
         <footer class="theme-card-actions"><el-button v-if="!isActive(item)" type="primary" :loading="changing===item.themeKey" @click="selectTheme(item)">固定使用</el-button><el-button v-if="!item.builtin" @click="openEditor(item)">设计</el-button><el-button @click="duplicateTheme(item)">复制</el-button><el-button @click="exportTheme(item)">导出</el-button><el-button v-if="!item.builtin" type="danger" link @click="removeTheme(item)">删除</el-button></footer>
       </article></div>
       <el-dialog v-model="editor" class="theme-designer-dialog" :title="editing?'设计主题':'新建主题'" width="min(1240px,97vw)" destroy-on-close>

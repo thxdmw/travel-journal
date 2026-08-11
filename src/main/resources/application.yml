@@ -56,7 +56,8 @@ app:
     timezone: ${APP_SITE_TIMEZONE:Asia/Shanghai}
   admin:
     username: ${APP_ADMIN_USERNAME:admin}
-    password: ${APP_ADMIN_PASSWORD:123456}
+    # 仅用于管理员表为空时的首次创建，不提供任何默认值。
+    password: ${APP_ADMIN_PASSWORD:}
     display-name: ${APP_ADMIN_DISPLAY_NAME:旅行者}
   upload:
     max-file-size-mb: ${APP_UPLOAD_MAX_FILE_SIZE_MB:20}

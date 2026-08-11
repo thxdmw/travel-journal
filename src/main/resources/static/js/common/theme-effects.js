@@ -14,7 +14,7 @@
 
   // 每种粒子的形态参数：数量系数、大小、下落速度、横向漂移、旋转、颜色
   const PARTICLE_KINDS = {
-    snow:   { density: 0.000055, size: [2, 5],   fall: [18, 46],  drift: 26, spin: 0,   color: 'rgba(255,255,255,.86)' },
+    snow:   { density: 0.000045, size: [5, 10],  fall: [18, 46],  drift: 26, spin: .35, color: 'rgba(255,255,255,.86)' },
     sakura: { density: 0.000034, size: [6, 11],  fall: [22, 50],  drift: 44, spin: 1.6, color: 'rgba(255,183,197,.82)' },
     leaves: { density: 0.000026, size: [7, 13],  fall: [26, 58],  drift: 52, spin: 2.1, color: 'rgba(196,140,66,.78)' },
     stars:  { density: 0.000075, size: [1, 2.4], fall: [0, 0],    drift: 0,  spin: 0,   color: 'rgba(255,255,255,.9)' },
@@ -47,7 +47,8 @@
       drift: random(-spec.drift, spec.drift),
       angle: Math.random() * Math.PI * 2,
       spin: random(-spec.spin, spec.spin),
-      alpha: random(0.45, 1)
+      alpha: random(0.45, 1),
+      variant: Math.random()
     };
   }
 
@@ -67,6 +68,43 @@
     return Math.min(220, Math.round(area * PARTICLE_KINDS[kind].density));
   }
 
+  /** 每种季节粒子都有自己的轮廓；颜色圆点只留给尘埃。 */
+  function drawParticle(kind, p, spec) {
+    const size=p.size;
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.rotate(p.angle);
+    ctx.globalAlpha=p.alpha;
+    if(kind==='snow'){
+      ctx.strokeStyle=spec.color;ctx.lineWidth=Math.max(.7,size*.16);ctx.lineCap='round';
+      for(let i=0;i<3;i++){
+        ctx.rotate(Math.PI/3);ctx.beginPath();ctx.moveTo(-size/2,0);ctx.lineTo(size/2,0);
+        ctx.moveTo(size*.22,0);ctx.lineTo(size*.36,-size*.14);ctx.moveTo(size*.22,0);ctx.lineTo(size*.36,size*.14);
+        ctx.moveTo(-size*.22,0);ctx.lineTo(-size*.36,-size*.14);ctx.moveTo(-size*.22,0);ctx.lineTo(-size*.36,size*.14);ctx.stroke();
+      }
+    }else if(kind==='sakura'){
+      ctx.fillStyle=spec.color;
+      for(let i=0;i<5;i++){
+        ctx.rotate(Math.PI*2/5);ctx.beginPath();
+        ctx.ellipse(0,-size*.25,size*.22,size*.38,0,0,Math.PI*2);ctx.fill();
+      }
+      ctx.fillStyle='rgba(246,205,116,.9)';ctx.beginPath();ctx.arc(0,0,size*.1,0,Math.PI*2);ctx.fill();
+    }else if(kind==='leaves'){
+      ctx.fillStyle=p.variant>.55?'rgba(181,91,43,.82)':(p.variant>.22?spec.color:'rgba(219,166,70,.82)');
+      ctx.beginPath();ctx.moveTo(0,-size*.55);
+      ctx.bezierCurveTo(size*.55,-size*.3,size*.48,size*.34,0,size*.58);
+      ctx.bezierCurveTo(-size*.48,size*.34,-size*.55,-size*.3,0,-size*.55);ctx.fill();
+      ctx.strokeStyle='rgba(104,67,37,.42)';ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(0,-size*.4);ctx.lineTo(0,size*.66);ctx.stroke();
+    }else if(kind==='stars'){
+      ctx.fillStyle=spec.color;ctx.beginPath();
+      ctx.moveTo(0,-size);ctx.lineTo(size*.22,-size*.22);ctx.lineTo(size,0);ctx.lineTo(size*.22,size*.22);
+      ctx.lineTo(0,size);ctx.lineTo(-size*.22,size*.22);ctx.lineTo(-size,0);ctx.lineTo(-size*.22,-size*.22);ctx.closePath();ctx.fill();
+    }else{
+      ctx.fillStyle=spec.color;ctx.beginPath();ctx.arc(0,0,size/2,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function draw(now) {
     if (!ctx || currentKind === 'none') return;
     const spec = PARTICLE_KINDS[currentKind];
@@ -74,7 +112,6 @@
     lastTime = now;
     const width = window.innerWidth, height = window.innerHeight;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = spec.color;
 
     particles.forEach(p => {
       if (spec.fall[1] > 0) {
@@ -89,10 +126,7 @@
         p.alpha += Math.sin(now / 900 + p.angle) * 0.008;
         p.alpha = Math.max(0.15, Math.min(1, p.alpha));
       }
-      ctx.globalAlpha = p.alpha;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
-      ctx.fill();
+      drawParticle(currentKind,p,spec);
     });
     ctx.globalAlpha = 1;
     rafId = requestAnimationFrame(draw);
@@ -160,13 +194,33 @@
     'section-gap', 'image-corner', 'footer'];
   const SAFE_ASSET = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+  function contentAnchor(area,index) {
+    if(area==='section-gap'){
+      const chapters=document.querySelectorAll('.journal-document > .journal-block--chapter');
+      if(chapters.length)return chapters[index%chapters.length];
+      const blocks=document.querySelectorAll('.journal-document > .journal-block');
+      if(blocks.length)return blocks[Math.min(blocks.length-1,2+(index*3)%Math.max(1,blocks.length-2))];
+      const sections=document.querySelectorAll('.public-shell > section, main > section');
+      return sections.length?sections[index%sections.length]:null;
+    }
+    if(area==='image-corner'){
+      const figures=document.querySelectorAll('.journal-document .journal-figure, .journal-document .journal-gallery');
+      if(figures.length)return figures[index%figures.length];
+      const images=document.querySelectorAll('.hero-photo, .trip-card__cover, .journal-card__cover');
+      return images.length?images[index%images.length]:null;
+    }
+    if(area==='footer')return document.querySelector('.public-footer, .article-footer, body > footer');
+    return null;
+  }
+
   function syncStickers() {
     document.querySelectorAll('.tj-sticker').forEach(el => el.remove());
+    document.querySelectorAll('.tj-sticker-anchor').forEach(el=>el.classList.remove('tj-sticker-anchor'));
     const definition = window.TravelTheme?.current()?.definitionJson || {};
     const config = definition.stickers || {};
     if (config.density === 'none' || !config.density) return;
     if (!Array.isArray(config.items) || !config.items.length) return;
-    const host = layer();
+    const viewportHost = layer(),areaIndex={};
     config.items.forEach(item => {
       const asset = String(item?.asset || '');
       const area = String(item?.area || '');
@@ -186,6 +240,11 @@
           element.classList.add('is-playing');
         });
       }
+      const anchored=['section-gap','image-corner','footer'].includes(area);
+      const index=areaIndex[area]||0;areaIndex[area]=index+1;
+      const host=anchored?contentAnchor(area,index):viewportHost;
+      if(!host)return;
+      if(anchored){host.classList.add('tj-sticker-anchor');element.classList.add('tj-sticker--anchored');}
       host.appendChild(element);
     });
   }
@@ -202,6 +261,22 @@
       'data-stickers-density', 'data-interactions-sticker-click'] });
   // 贴纸列表不是 data-* 属性（它是个数组），所以额外听一次主题应用完成
   window.addEventListener('travel-theme-applied', syncStickers);
+
+  // Vue 会在主题已经应用之后才把日记正文放进 DOM。只监听 <html> 属性会让内容锚点
+  // 永远错过章节和图片，因此在结构真正出现后再补一次；忽略本运行时自己增删的节点，
+  // 避免贴纸同步触发观察器、观察器又触发贴纸同步的循环。
+  let contentSyncTimer = null;
+  const managedNode = node => node.nodeType === 1 && node.matches?.(
+    '.tj-effect-layer,.tj-particle-canvas,.tj-sticker');
+  const contentObserver = new MutationObserver(mutations => {
+    const meaningful = mutations.some(mutation =>
+      [...mutation.addedNodes, ...mutation.removedNodes]
+        .some(node => node.nodeType === 1 && !managedNode(node)));
+    if (!meaningful) return;
+    clearTimeout(contentSyncTimer);
+    contentSyncTimer = setTimeout(() => { syncScrollReveal(); syncStickers(); }, 0);
+  });
+  if (document.body) contentObserver.observe(document.body, { childList:true, subtree:true });
 
   window.addEventListener('resize', () => { resize(); if (currentKind !== 'none') start(currentKind); });
   // 切到后台标签就停，别在看不见的地方空转耗电

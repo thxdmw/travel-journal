@@ -101,9 +101,29 @@
         });
         return {schemaVersion:1,blocks:blocks};
       }
-      function body(){return{tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,
-        excerpt:form.excerpt||autoExcerpt.value,contentJson:cleanContent(),occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,
+      function payload(contentJson){return{tripId:form.tripId,tripStopId:form.tripStopId,title:form.title,slug:form.slug,
+        excerpt:form.excerpt||autoExcerpt.value,contentJson:contentJson,occurredOn:form.occurredOn,coverMediaId:form.coverMediaId,
         themeKey:form.themeKey,templateId:form.templateId,templateVersion:form.templateVersion,tags:form.tags||[]};}
+      /** 发给服务器的正文不能带只在浏览器里有意义的 pending 状态。 */
+      function serverBody(){return payload(cleanContent());}
+      /** 本机快照必须原样保留 pending key；Blob 队列正是靠这些 key 找回正文位置。 */
+      function localSnapshot(){
+        const content=JSON.parse(JSON.stringify(form.contentJson||window.JournalBlocks.emptyDocument()));
+        return payload(content);
+      }
+      function hasPendingContent(){
+        return (form.contentJson?.blocks||[]).some(block=>block.data?.pendingKey||(block.data?.pendingKeys||[]).length);
+      }
+      /**
+       * 服务端保存成功后也不能无条件删本机快照：保存期间可能又写了字，或者仍有照片待上传。
+       * 返回 true 表示这次请求已经覆盖当前可提交内容，调用方可以清除 dirty 标记。
+       */
+      async function reconcileLocalAfterServer(serverSnapshot){
+        const synchronized=JSON.stringify(serverSnapshot)===JSON.stringify(serverBody());
+        if(synchronized&&!hasPendingContent())await LD.remove(id.value);
+        else await LD.put(id.value,localSnapshot());
+        return synchronized;
+      }
       const today=()=>new Date().toLocaleDateString('sv-SE');
       /** 今天正好停在哪个城市——新建日记时自动带出来，不用作者自己去选。 */
       function stopOfDay(day){
@@ -131,6 +151,7 @@
       }
       async function load(){
         pageLoading.value=true;
+        let recovered=false;
         try{
           const result=await Promise.all([(await A.trips({page:1,pageSize:100})).items,A.templates(true),A.themes(true)]);
           trips.value=result[0];templates.value=result[1];themes.value=result[2];
@@ -144,11 +165,17 @@
           const saved=await LD.get(id.value);
           // 本机快照比服务器新才值得问——正常关页面时已经 flush 过，通常不会走到这里
           if(saved?.form&&JSON.stringify(saved.form.contentJson)!==JSON.stringify(form.contentJson)){
-            try{await confirm('发现本机保存的编辑快照，是否恢复？');Object.assign(form,saved.form);}catch(_){}
+            try{
+              await confirm('发现本机保存的编辑快照，是否恢复？');
+              Object.assign(form,saved.form);recovered=true;
+            }catch(_){}
           }
-          await LD.remove(id.value);
-          dirty.value=false;
+          // 恢复后的快照要留到 pending 照片上传并同步成功；拒绝恢复才明确丢弃。
+          if(!recovered)await LD.remove(id.value);
+          dirty.value=recovered;
+          if(recovered)autoSaveState.value='local';
         }catch(e){fail(e);}finally{pageLoading.value=false;}
+        if(recovered){scheduleLocal();scheduleRemote();}
       }
       watch(()=>form.tripId,async value=>{try{await loadTravelData(value);}catch(e){fail(e);}});
       watch(()=>form.occurredOn,value=>{if(value&&!form.slug)form.slug='journal-'+value.replaceAll('-','')+'-'+Date.now().toString().slice(-5);});
@@ -168,7 +195,7 @@
       },{deep:true});
       function scheduleLocal(){
         if(localTimer)clearTimeout(localTimer);
-        localTimer=setTimeout(()=>{localTimer=null;LD.put(id.value,body());},600);
+        localTimer=setTimeout(()=>{localTimer=null;LD.put(id.value,localSnapshot());},600);
       }
       function scheduleRemote(){
         if(remoteTimer)clearTimeout(remoteTimer);
@@ -199,12 +226,12 @@
           // 排队期间可能已经被前一次保存带走了，或者作者已经发布
           if(!dirty.value||form.status!=='DRAFT')return false;
           saving.value=true;autoSaveState.value='saving';
-          const snapshot=body();
+          const snapshot=serverBody();
           try{
             await A.saveJournalDraft(id.value,snapshot);
             // 保存期间作者可能又敲了几个字，那就还是脏的，留给下一轮
-            if(JSON.stringify(snapshot)===JSON.stringify(body()))dirty.value=false;
-            autoSaveState.value='saved';await LD.remove(id.value);
+            if(await reconcileLocalAfterServer(snapshot))dirty.value=false;
+            autoSaveState.value=hasPendingContent()?'local':'saved';
             return true;
           }catch(e){autoSaveState.value=navigator.onLine?'failed':'offline';return false;}
           finally{saving.value=false;}
@@ -221,9 +248,11 @@
         if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;}
         return enqueue(async()=>{
           saving.value=true;autoSaveState.value='saving';
+          const snapshot=serverBody();
           try{
-            await A.saveJournalDraft(id.value,body());
-            dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);
+            await A.saveJournalDraft(id.value,snapshot);
+            if(await reconcileLocalAfterServer(snapshot))dirty.value=false;
+            autoSaveState.value=hasPendingContent()?'local':'saved';
             if(!silent)message('草稿已保存');return true;
           }catch(e){autoSaveState.value='failed';fail(e);return false;}finally{saving.value=false;}
         });
@@ -234,7 +263,11 @@
         if(!await validateForm(formRef)){metaCollapsed.value=false;return;}
         if(!await save(true))return;
         return enqueue(async()=>{
-          try{await A.publishJournal(id.value);form.status='PUBLISHED';await nextTick();dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);message('日记已发布');}catch(e){fail(e);}
+          try{
+            await A.publishJournal(id.value);form.status='PUBLISHED';await nextTick();dirty.value=false;
+            if(hasPendingContent())await LD.put(id.value,localSnapshot());else await LD.remove(id.value);
+            autoSaveState.value=hasPendingContent()?'local':'saved';message('日记已发布');
+          }catch(e){fail(e);}
         });
       }
       async function updatePublished(){
@@ -242,14 +275,20 @@
         if(!await validateForm(formRef)){metaCollapsed.value=false;return;}
         return enqueue(async()=>{
           saving.value=true;
-          try{await A.updateJournal(id.value,body());await nextTick();dirty.value=false;
-            autoSaveState.value='saved';await LD.remove(id.value);message('公开文章已更新');
+          const snapshot=serverBody();
+          try{await A.updateJournal(id.value,snapshot);await nextTick();
+            if(await reconcileLocalAfterServer(snapshot))dirty.value=false;
+            autoSaveState.value=hasPendingContent()?'local':'saved';message('公开文章已更新');
           }catch(e){fail(e);autoSaveState.value='failed';}finally{saving.value=false;}
         });
       }
       async function unpublish(){
         return enqueue(async()=>{
-          try{await A.unpublishJournal(id.value);form.status='DRAFT';await nextTick();dirty.value=false;autoSaveState.value='saved';await LD.remove(id.value);message('日记已撤回');}catch(e){fail(e);}
+          try{
+            await A.unpublishJournal(id.value);form.status='DRAFT';await nextTick();dirty.value=false;
+            if(hasPendingContent())await LD.put(id.value,localSnapshot());else await LD.remove(id.value);
+            autoSaveState.value=hasPendingContent()?'local':'saved';message('日记已撤回');
+          }catch(e){fail(e);}
         });
       }
       /*
@@ -268,7 +307,10 @@
         blockEditor.value?.insertPending(tasks);
         // 先把照片本身落进 IndexedDB 再开始传：File 只活在内存里，浏览器一被系统
         // 杀掉就没了。存下来之后即使这次没传成，重新打开还能接着传。
-        await Promise.all(tasks.map(task=>LD.queuePhoto(id.value,task.key,task.file,task.name)));
+        const persisted=await Promise.all(tasks.map(task=>LD.queuePhoto(id.value,task.key,task.file,task.name)));
+        // Blob 和带 key 的正文快照都落库后才开始上传，强杀浏览器也能把两边重新对上。
+        await LD.put(id.value,localSnapshot());
+        if(persisted.some(ok=>!ok))ElementPlus.ElMessage.warning('部分照片无法写入离线存储，请保持页面打开直到上传完成');
         await runUploadQueue(tasks);
       }
       /*
@@ -288,7 +330,10 @@
           (block.data?.pendingKeys||[]).forEach(key=>keys.add(key));
         });
         const orphans=queued.filter(item=>!keys.has(item.key));
-        orphans.forEach(item=>LD.dropPhoto(item.key));
+        // 启动时不立即清掉孤儿 Blob：快照与 Blob 分两次落库，中途强杀会留下短暂的不一致。
+        // 明确删除区块仍会走 discard-upload 立即回收；这里只清理超过一天的真正孤儿。
+        const orphanGrace=24*60*60*1000,now=Date.now();
+        orphans.filter(item=>now-(item.queuedAt||0)>=orphanGrace).forEach(item=>LD.dropPhoto(item.key));
         const resumable=queued.filter(item=>keys.has(item.key));
         if(!resumable.length)return;
         const tasks=resumable.map(item=>reactive({key:item.key,name:item.name,file:item.blob,
@@ -461,7 +506,7 @@
         if(token)headers['X-XSRF-TOKEN']=decodeURIComponent(token);
         try{
           fetch('/api/admin/journals/'+id.value+'/draft',
-            {method:'PATCH',credentials:'include',keepalive:true,headers:headers,body:JSON.stringify(body())})
+            {method:'PATCH',credentials:'include',keepalive:true,headers:headers,body:JSON.stringify(serverBody())})
             .catch(()=>{});
         }catch(_){}
       }
@@ -480,7 +525,7 @@
         if(localTimer){clearTimeout(localTimer);localTimer=null;}
         if(!dirty.value)return;
         // 本机快照总是先落：即使服务端那次没成功或时序错乱，下次打开还能恢复
-        LD.put(id.value,body());
+        LD.put(id.value,localSnapshot());
         if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;}
         if(form.status!=='DRAFT'||!navigator.onLine)return;
         if(closing)keepaliveSave();else autoSave();
@@ -503,16 +548,18 @@
         window.removeEventListener('visibilitychange',onHidden);
         window.removeEventListener('online',onOnline);
         // 父组件的 onBeforeUnmount 比子组件先跑，所以正文那 300ms 去抖里的击键
-        // 这时还没上来，必须先主动压一次再取 body()
+        // 这时还没上来，必须先主动压一次再取快照
         flushEditor();
         if(localTimer)clearTimeout(localTimer);
         if(remoteTimer){clearTimeout(remoteTimer);remoteTimer=null;}
         const journalId=id.value;if(!journalId)return;
         if(dirty.value&&form.status==='DRAFT'){
-          const snapshot=body();
+          const snapshot=serverBody();
           // 排在队尾，别和还在路上的自动保存抢；写失败就留在本机等下次打开恢复
-          try{await enqueue(()=>A.saveJournalDraft(journalId,snapshot));await LD.remove(journalId);}
-          catch(_){LD.put(journalId,snapshot);}
+          try{
+            await enqueue(()=>A.saveJournalDraft(journalId,snapshot));
+            await reconcileLocalAfterServer(snapshot);
+          }catch(_){LD.put(journalId,localSnapshot());}
         }
         /*
          * 这里不再删「看起来是空的」草稿。

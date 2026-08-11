@@ -24,6 +24,21 @@
 .moment-composer-actions button[type="button"] span { font-size: 13px; }
 .moment-spacer { flex: 1; }
 
+/* 离线队列：明确告诉作者内容已经落在本机，以及它当前同步到哪一步。 */
+.moment-pending { display:grid; gap:10px; padding:14px 16px; border-color:color-mix(in srgb,var(--tj-accent) 38%,var(--tj-border)); }
+.moment-pending > header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.moment-pending > header div { display:grid; gap:2px; }
+.moment-pending > header small { color:var(--tj-muted); font-size:12px; }
+.moment-pending > header span { color:var(--tj-muted); font-size:12px; }
+.moment-pending > header span.active { color:var(--tj-accent); }
+.moment-pending article { display:grid; grid-template-columns:48px 1fr auto auto; align-items:center; gap:10px;
+  padding-top:10px; border-top:1px dashed var(--tj-border); }
+.moment-pending article time { color:var(--tj-accent); font:700 12px var(--tj-serif); }
+.moment-pending article p { margin:0 0 3px; line-height:1.5; overflow-wrap:anywhere; }
+.moment-pending article small { color:var(--tj-muted); }
+.moment-pending article button { border:0; background:none; color:var(--tj-accent); cursor:pointer; }
+.moment-pending article button.danger { color:var(--tj-danger); }
+
 /* 照片缩略图。删除按钮压在右上角，手指点得到 */
 .moment-shots { display: flex; flex-wrap: wrap; gap: 8px; }
 .moment-shots figure { position: relative; margin: 0; width: 76px; height: 76px; border-radius: 10px; overflow: hidden; }
@@ -58,6 +73,8 @@
   .moments-trip { width: 100%; }
   .moment-composer-meta, .moment-edit-meta { grid-template-columns: 1fr; }
   .moment-item { grid-template-columns: 46px 1fr; gap: 8px; }
+  .moment-pending article { grid-template-columns:42px 1fr auto; }
+  .moment-pending article button.danger { grid-column:3; }
   /* 手机上「记下」要够大——单手操作时它是唯一必须点中的东西 */
   .moment-composer-actions .el-button { min-height: 40px; padding: 0 22px; }
 }

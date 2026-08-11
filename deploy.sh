@@ -1,85 +1,126 @@
 #!/bin/bash
 
-# 部署脚本 - travel-journal 生产环境部署
-set -e
+# travel-journal 生产部署：先构建候选镜像，再短暂停机切换；健康检查失败时回滚。
+set -Eeuo pipefail
 
-# 定义颜色
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# 彩色输出函数
-info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
+step() { echo -e "${CYAN}[STEP]${NC} $1"; }
 
-success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-step() {
-    echo -e "${CYAN}[STEP]${NC} $1"
-}
-
-# 始终切换到脚本所在目录，确保从任意路径执行时 Dockerfile、.env 和构建上下文一致。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# 非 Compose 部署通过 docker --env-file 读取配置，密钥包含 &、*、# 时也不会被 Shell 误解析。
 ENV_FILE="${SCRIPT_DIR}/../config/.env"
-if [ -f "${ENV_FILE}" ]; then
-    success "使用生产环境变量文件: ${ENV_FILE}"
-else
+if [[ ! -f "${ENV_FILE}" ]]; then
     error "未找到 ${ENV_FILE}，请先复制 .env.example 并填写真实配置。"
     exit 1
 fi
 
-info "开始部署 travel-journal 应用..."
-
-# 配置变量
 APP_NAME="travel-journal"
-IMAGE_NAME="${APP_NAME}:latest"
 CONTAINER_NAME="${APP_NAME}-container"
-PORT=20007
+STABLE_IMAGE="${APP_NAME}:latest"
+RELEASE_TAG="${DEPLOY_RELEASE_TAG:-$(git rev-parse --short=12 HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
+if [[ ! "${RELEASE_TAG}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    error "DEPLOY_RELEASE_TAG 只能包含字母、数字、点、下划线和短横线。"
+    exit 1
+fi
+CANDIDATE_IMAGE="${APP_NAME}:${RELEASE_TAG}"
+HEALTH_RETRIES="${DEPLOY_HEALTH_RETRIES:-40}"
+HEALTH_INTERVAL_SECONDS="${DEPLOY_HEALTH_INTERVAL_SECONDS:-2}"
+if [[ ! "${HEALTH_RETRIES}" =~ ^[1-9][0-9]*$ || ! "${HEALTH_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+    error "健康检查次数与间隔必须是正整数。"
+    exit 1
+fi
 
-# 【关键】强制启用 BuildKit，否则 Dockerfile 中的 --mount=type=cache 不生效
+# 只解析端口这一项，不 source 含密钥的 .env，避免特殊字符被 Shell 二次解释。
+PORT="$(sed -n 's/^[[:space:]]*SERVER_PORT=//p' "${ENV_FILE}" | tail -n 1 | tr -d '\r')"
+PORT="${PORT:-8080}"
+if [[ ! "${PORT}" =~ ^[0-9]+$ ]] || ((PORT < 1 || PORT > 65535)); then
+    error "SERVER_PORT 必须是 1 到 65535 的数字，当前值：${PORT}"
+    exit 1
+fi
+HEALTH_URL="http://127.0.0.1:${PORT}/actuator/health"
+
 export DOCKER_BUILDKIT=1
+OLD_IMAGE="$(docker inspect --format '{{.Image}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
+if [[ -z "${OLD_IMAGE}" ]]; then
+    OLD_IMAGE="$(docker image inspect --format '{{.Id}}' "${STABLE_IMAGE}" 2>/dev/null || true)"
+fi
 
-# 停止并删除旧容器
-step "停止并删除旧容器..."
-docker stop ${CONTAINER_NAME} || true
-docker rm ${CONTAINER_NAME} || true
+run_container() {
+    local image="$1"
+    docker run -d \
+      --name "${CONTAINER_NAME}" \
+      --network host \
+      --env-file "${ENV_FILE}" \
+      -e SPRING_PROFILES_ACTIVE=prod \
+      -v /app/travel-journal/logs:/app/travel-journal/logs \
+      --restart unless-stopped \
+      "${image}"
+}
 
-# ⚠️ 【已移除】不再执行 docker rmi ${IMAGE_NAME}
-# 原因：删除旧镜像会清除 Docker 层缓存，导致 BuildKit 缓存挂载的优势被部分抵消
-# Docker 会自动管理悬空镜像，无需手动清理
+healthy() {
+    local attempt
+    for ((attempt=1; attempt<=HEALTH_RETRIES; attempt++)); do
+        if ! docker inspect --format '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -q true; then
+            return 1
+        fi
+        if curl --fail --silent --max-time 3 "${HEALTH_URL}" >/dev/null; then
+            return 0
+        fi
+        info "等待应用就绪（${attempt}/${HEALTH_RETRIES}）..."
+        sleep "${HEALTH_INTERVAL_SECONDS}"
+    done
+    return 1
+}
 
-# 构建新镜像（BuildKit 已通过环境变量全局启用）
-step "构建 Docker 镜像（BuildKit + 缓存挂载模式）..."
-docker build -t ${IMAGE_NAME} .
+rollback() {
+    warn "新版本未通过健康检查，开始恢复上一镜像。"
+    docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    if [[ -z "${OLD_IMAGE}" ]]; then
+        error "没有可回滚的上一镜像，请查看候选容器日志。"
+        return 1
+    fi
+    if run_container "${OLD_IMAGE}" >/dev/null && healthy; then
+        success "已恢复上一版本 ${OLD_IMAGE}。"
+        return 0
+    fi
+    error "上一版本也未能恢复，请立即检查 Docker 与应用日志。"
+    return 1
+}
 
-# 运行新容器
-step "启动新容器..."
-docker run -d \
-  --name ${CONTAINER_NAME} \
-  --network host \
-  --env-file "${ENV_FILE}" \
-  -e SPRING_PROFILES_ACTIVE=prod \
-  -v /app/travel-journal/logs:/app/travel-journal/logs \
-  --restart unless-stopped \
-  ${IMAGE_NAME}
+step "构建候选镜像 ${CANDIDATE_IMAGE}（现有服务继续运行）..."
+docker build -t "${CANDIDATE_IMAGE}" .
 
-success "部署完成！"
-info "应用访问地址: http://localhost:${PORT}"
-info "查看日志: docker logs -f ${CONTAINER_NAME}"
+step "切换到候选镜像..."
+if docker inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+    docker stop "${CONTAINER_NAME}" >/dev/null
+    docker rm "${CONTAINER_NAME}" >/dev/null
+fi
+
+if ! run_container "${CANDIDATE_IMAGE}" >/dev/null; then
+    error "候选容器启动失败。"
+    rollback || true
+    exit 1
+fi
+
+if ! healthy; then
+    docker logs --tail 120 "${CONTAINER_NAME}" || true
+    rollback || true
+    exit 1
+fi
+
+# 只有已验证的候选镜像才更新 latest；旧镜像 ID 仍保留，可供下一次部署回滚。
+docker tag "${CANDIDATE_IMAGE}" "${STABLE_IMAGE}"
+success "部署完成：${CANDIDATE_IMAGE} 已通过健康检查。"
+info "应用地址：http://localhost:${PORT}"
+info "查看日志：docker logs -f ${CONTAINER_NAME}"

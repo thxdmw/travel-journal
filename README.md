@@ -91,7 +91,7 @@ cp .env.example .env
 
 AI 整理也是可选能力。配置 `ANTHROPIC_API_KEY` 即启用，不配就不显示那个按钮，随手记照常可以整理成日记，只是不润色文字。
 
-APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。创建完成后不会覆盖数据库中的密码，也不会在日志中输出明文。
+APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。创建完成后不会覆盖数据库中的密码，也不会在日志中输出明文。生产环境首次启动必须提供至少 16 位且不是常见默认值的强密码；缺失或过弱时应用会拒绝启动。已有管理员的环境可留空。
 
 生产密码建议不少于 16 位。首次登录后可通过认证接口修改密码。
 
@@ -177,6 +177,8 @@ mvn spring-boot:run
 
 照片复用同一份 `media_asset` 不重新上传；原始随手记保留下来（回填 `journal_entry_id`），这样「那天到底发生了什么」永远还能翻回最初写下的样子。同一天可以整理多次，默认追加，也可以选择重新生成整篇。
 
+整理过程会锁定本次可处理的随手记，并只接收「尚未整理」或「已属于当前目标日记」的记录；已被其他日记占用的记录不会被重复拿走。重复点击、请求重放或并发整理也不会把同一批内容写进两篇日记。
+
 日记页附带当天路线。路线优先取随手记的坐标（实际去过，实线），没有随手记时才回落到当天的城市和行程（计划要去，虚线）——计划里写了但没去成的地方不该出现在回放里。
 
 AI 整理是叠在上面的可选一层，**只改文字，不改结构**。顺序、时间、地点、照片归属全部由规则决定，模型只负责把碎片句子串成能读的话。理由是前者必须百分之百可靠，而它们恰好是规则最擅长的。没配 Key、网络不通、模型拒答、返回内容对不上——每一种都退回原文，整理照常完成。
@@ -186,6 +188,12 @@ AI 整理是叠在上面的可选一层，**只改文字，不改结构**。顺�
 前端依赖全部随 Jar 发布，加上 `manifest.json` 和 `service-worker.js`，可以「添加到桌面」。
 
 照片选中后先把 Blob 落进 IndexedDB 再开始传。`File` 只活在内存里，浏览器被系统杀掉就没了；存下来之后，断网拍照 → 继续写 → 浏览器被杀 → 重新打开 → 照片还在 → 有网自动续传。直接存 Blob 而不转 base64，是因为一张 4MB 的照片转成 base64 是 5.5MB 的字符串，十几张就能把手机浏览器的内存吃光。
+
+随手记也采用完整离线队列：文字、发生时间和照片先在同一个 IndexedDB 命令中提交成功，页面才会清空输入。每条随手记和每张照片都有设备端幂等标识，断网重试、刷新页面或上传中途恢复都只会补齐未完成部分，不会重复创建。待同步列表可手动重试或明确放弃。
+
+时间同时保存绝对时刻、事件发生地的当地日期、IANA 时区和 UTC 偏移。因此跨时区旅行时，东京深夜记录不会因为站点部署在上海或数据库使用 UTC 而落到错误的一天；筛选、路线和整理均按事件当地日期进行。
+
+后台在成功登录后只缓存显示离线外壳所需的最小会话提示。PWA 被彻底关闭后也能在断网时重新进入随手记页；恢复网络后会先向服务端重新验证会话，再继续同步。本地提示不替代服务端鉴权，所有 API 仍由 Spring Security 校验。
 
 Service Worker 的缓存策略按用途分，不是一刀切：
 
@@ -243,7 +251,7 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 
 ## 前端说明
 
-前端文件位于 src/main/resources/static，不存在 package.json，也没有 npm 构建步骤。
+前端文件位于 src/main/resources/static，不需要 npm 打包；根目录 package.json 只提供 JavaScript 语法检查和 Playwright 端到端测试命令，运行应用不依赖 Node.js。
 
 主要入口：
 
@@ -288,6 +296,10 @@ target/travel-journal.jar
 ~~~
 
 ## Docker 部署
+
+仓库以 Gitee 为代码与构建来源，`.drone.yml` 由 Gitee 的 push 事件触发。流水线先并行执行 Maven（包含真实 PostgreSQL Flyway 迁移）和前端 JavaScript 检查，全部通过后才连接服务器。远端也从 Gitee 获取代码，并按本次 `DRONE_COMMIT_SHA` 精确部署，避免构建期间 master 前移导致版本错配。
+
+`deploy.sh` 会在旧容器仍运行时先构建候选镜像，随后切换容器并检查 `/actuator/health`。候选版本不健康时自动恢复上一镜像；只有通过检查的镜像才会更新 `travel-journal:latest`。
 
 构建：
 
@@ -355,6 +367,7 @@ mc mirror minio/travel-journal /backup/travel-journal
 
 - Slug 处理
 - 登录失败限流
+- 生产环境初始管理员强密码约束
 - 旅行日期校验
 - 预算汇总和超支判断
 - 日记草稿与发布的两套校验（草稿允许空标题空正文，发布严格）
@@ -365,12 +378,13 @@ mc mirror minio/travel-journal /backup/travel-journal
 - 主题互动只收枚举，脚本类取值退回默认或被剔除
 - 全站主题的 AUTO / FIXED 模式切换
 - 图片上传处理
-- 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行）
+- 随手记客户端幂等与当地日期换算
+- 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行；Drone 使用流水线 PostgreSQL 服务强制执行）
 
-前端 JavaScript 可使用 Node.js 的 check 模式做语法检查，但运行项目不依赖 Node.js：
+前端 JavaScript 可使用 Node.js 做统一语法检查，但运行项目不依赖 Node.js：
 
 ~~~bash
-find src/main/resources/static/js -name '*.js' -exec node --check {} \;
+npm run check:js
 ~~~
 
 移动端布局还有一套可选的 Playwright 端到端测试，覆盖 iPhone 13、Pixel 7 和桌面 Chrome。它只是开发依赖，**不参与 Maven 打包和 Docker 构建**，运行和部署项目仍然不需要 Node.js。需要一个已经跑起来的应用实例：

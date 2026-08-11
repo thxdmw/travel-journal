@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -76,13 +78,20 @@ public class MomentComposer {
         Trip trip = tripMapper.selectById(tripId);
         if (trip == null) throw BusinessException.badRequest("所属旅行不存在");
         if (day == null) day = clock.today();
-        List<Moment> moments = momentService.ofDay(tripId, day);
-        if (moments.isEmpty()) throw BusinessException.badRequest("这一天还没有随手记");
-
         boolean created = journalId == null;
-        JournalEntry journal = created ? newDraft(trip, day) : journalService.get(journalId);
-        if (!"DRAFT".equals(journal.getStatus()))
-            throw BusinessException.badRequest("已发布的日记不能直接整理，请先撤回");
+        JournalEntry journal = created ? null : journalService.get(journalId);
+        if (journal != null) {
+            if (!tripId.equals(journal.getTripId()))
+                throw BusinessException.badRequest("目标日记不属于当前旅行");
+            if (!"DRAFT".equals(journal.getStatus()))
+                throw BusinessException.badRequest("已发布的日记不能直接整理，请先撤回");
+        }
+
+        List<Moment> moments = momentService.forCompose(tripId, day, journalId, replace);
+        if (moments.isEmpty()) {
+            throw BusinessException.badRequest(replace ? "这一天没有可重新整理的随手记" : "这一天没有新的随手记");
+        }
+        if (created) journal = newDraft(trip, day);
 
         // 照片先过继给日记：正文里的图片区块只存 media id，而日记只认属于自己的图片，
         // 所以必须先建立 journal_media 关系，正文才通得过校验
@@ -113,7 +122,9 @@ public class MomentComposer {
         document.set("blocks", blocks);
         journal.setContentJson(document);
         journalService.updateDraft(journal.getId(), journal);
-        momentService.markSorted(moments.stream().map(Moment::getId).toList(), journal.getId());
+        int marked = momentService.markSorted(moments.stream().map(Moment::getId).toList(), journal.getId());
+        if (marked != moments.size())
+            throw BusinessException.conflict("随手记已被其他整理操作占用，请刷新后重试");
         return new ComposeResult(journal.getId(), moments.size(), photoCount, created, !rewritten.isEmpty());
     }
 
@@ -168,7 +179,7 @@ public class MomentComposer {
      */
     private void appendMoment(ArrayNode blocks, Moment moment, Map<Long, String> rewritten) {
         String time = moment.getOccurredAt() == null ? ""
-                : moment.getOccurredAt().atZoneSameInstant(clock.zone()).format(HOUR_MINUTE);
+                : moment.getOccurredAt().atZoneSameInstant(occurrenceZone(moment)).format(HOUR_MINUTE);
         ObjectNode chapter = block("chapter");
         ObjectNode chapterData = (ObjectNode) chapter.get("data");
         chapterData.put("time", time);
@@ -252,5 +263,13 @@ public class MomentComposer {
                         && (stop.getDepartureDate() == null || !stop.getDepartureDate().isBefore(day)))
                 .map(TripStop::getCityName).filter(StringUtils::hasText)
                 .findFirst().orElse(trip.getTitle() == null ? "" : trip.getTitle());
+    }
+
+    private ZoneId occurrenceZone(Moment moment) {
+        try { return ZoneId.of(moment.getOccurredZoneId()); }
+        catch (Exception ignored) {
+            try { return ZoneOffset.ofTotalSeconds(moment.getUtcOffsetMinutes() * 60); }
+            catch (Exception fallback) { return clock.zone(); }
+        }
     }
 }

@@ -18,7 +18,10 @@
           && !location.hash.includes('/login')) {
         location.hash = '#/login';
       }
-      return Promise.reject(new Error(message));
+      const wrapped = new Error(message);
+      wrapped.status = response?.status || 0;
+      wrapped.network = !response;
+      return Promise.reject(wrapped);
     }
   );
 
@@ -46,7 +49,7 @@
     auth: {
       login: body => http.post('/admin/auth/login', body),
       logout: () => http.post('/admin/auth/logout'),
-      session: () => http.get('/admin/auth/session'),
+      session: () => http.get('/admin/auth/session', { timeout: 5000 }),
       me: () => http.get('/admin/auth/me'),
       changePassword: body => http.post('/admin/auth/change-password', body),
       uploadAvatar: form => http.post('/admin/profile/avatar', form),
@@ -136,8 +139,8 @@
       createMoment: body => http.post('/admin/moments', body),
       updateMoment: (id, body) => http.put('/admin/moments/' + id, body),
       deleteMoment: id => http.delete('/admin/moments/' + id),
-      addMomentPhoto: (id, form) => http.post('/admin/moments/' + id + '/media', form, {
-        headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000
+      addMomentPhoto: (id, form, clientId) => http.post('/admin/moments/' + id + '/media', form, {
+        params: clientId ? { clientId } : {}, headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000
       }),
       removeMomentPhoto: (id, mediaId) => http.delete('/admin/moments/' + id + '/media/' + mediaId),
       momentRoute: (tripId, day) => http.get('/admin/moments/route', { params: { tripId, day } }),

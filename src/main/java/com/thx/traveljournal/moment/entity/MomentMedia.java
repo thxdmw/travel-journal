@@ -17,6 +17,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("moment_media")
 public class MomentMedia extends BaseEntity {
+    /** 离线照片的客户端幂等键；同一随手记内唯一。 */
+    private String clientId;
     /** 所属随手记，随手记删除时级联删除 */
     private Long momentId;
     /** 引用的图片 */

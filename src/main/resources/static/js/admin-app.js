@@ -1,7 +1,7 @@
 /* 后台外壳：路由表、侧边栏与挂载。页面组件在 js/admin/ 下的各文件里。 */
 (function () {
   const { createApp, ref, computed, watch } = Vue;
-  const { api, session, loadSession, applyTheme, fail } = window.AdminShared;
+  const { api, session, loadSession, applyTheme, fail, forgetSession } = window.AdminShared;
   const { Login, Dashboard, Trips, TripWorkspace, JournalEditor,
     TemplateManager, Theme, Profile, TagManager, Moments } = window.AdminPages;
 
@@ -31,7 +31,10 @@
         document.body.classList.toggle('sidebar-collapsed',value);
       },{immediate:true});
       watch(()=>route.fullPath,()=>drawer.value=false);
-      async function logout(){try{await api.auth.logout();session.user=null;session.checked=true;router.replace('/login');}catch(e){fail(e);}}
+      async function logout(){
+        try{await api.auth.logout();}catch(e){if(!e?.network)fail(e);}
+        finally{forgetSession();session.user=null;session.checked=true;session.offline=false;router.replace('/login');}
+      }
       return{session,drawer,route,full,collapsed,logout};
     },
     template: `<router-view v-if="route.meta.public"></router-view><div v-else class="admin-shell">

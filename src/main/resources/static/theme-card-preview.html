@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="travel-classic">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/css/themes/travel-classic.css?v=7">
+  <link rel="stylesheet" href="/css/theme-tokens.css?v=3">
+  <link rel="stylesheet" href="/css/public.css?v=15">
+  <link rel="stylesheet" href="/css/journal-blocks.css?v=4">
+  <link rel="stylesheet" href="/css/theme-pack.css?v=2">
+  <style>
+    html,body{margin:0;min-height:100%;overflow:hidden;background:var(--tj-bg);color:var(--tj-text);font-family:var(--tj-sans)}
+    body{font-size:10px}.mini-shell{min-height:100vh;padding:12px 16px 16px;box-sizing:border-box}
+    .mini-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:8px}
+    .mini-hero small{display:block;color:var(--tj-muted);letter-spacing:.14em}.mini-hero h1{margin:2px 0 0;color:var(--tj-primary);font:700 19px/1.1 var(--tj-serif)}
+    .mini-photo{width:29%;height:auto;min-height:0;aspect-ratio:16/9;border-radius:var(--tj-image-radius);background:var(--tj-hero-image,url('/img/home-hero-kyoto.png')) center/cover;box-shadow:var(--tj-shadow-soft)}
+    .journal-document{--journal-block-gap:5px;display:grid;gap:5px;font-size:9.5px;line-height:1.3}
+    .journal-block{margin:0}.journal-day-opener{padding:.45em .7em!important}.journal-day-opener>strong{font-size:14px}.journal-day-opener__metrics{display:none}
+    .journal-chapter{margin:0;padding-top:.25em}.journal-block--paragraph p{margin:0}.journal-day-summary{grid-template-columns:repeat(2,1fr)}
+    .journal-day-summary article{padding:.3em .5em}.journal-figure{width:34%;margin:0 auto}.journal-figure img{max-height:38px;object-fit:cover}
+    @media(max-width:360px){.mini-shell{padding:14px}.mini-photo{width:34%}.mini-hero h1{font-size:20px}}
+  </style>
+</head>
+<body>
+  <main class="mini-shell public-shell">
+    <header class="mini-hero"><div><small>TRAVEL JOURNAL</small><h1>路上的夏天</h1></div><div class="mini-photo hero-photo"></div></header>
+    <article id="demo" class="journal-document"></article>
+  </main>
+  <script src="/js/common/theme.js?v=4"></script>
+  <script src="/js/common/journal-blocks.js?v=4"></script>
+  <script src="/js/common/theme-effects.js?v=3"></script>
+  <script>
+    const demo={schemaVersion:1,blocks:[
+      {id:'demo_opener',type:'day-opener',version:1,title:'',data:{city:'京都',dayLabel:'Day 3',date:'2026-08-11',weather:'晴',route:['清水寺','鸭川'],metrics:[]},settings:{}},
+      {id:'demo_chapter',type:'chapter',version:1,title:'',data:{time:'16:20',title:'风吹过河岸',note:'慢慢走'},settings:{}},
+      {id:'demo_text',type:'paragraph',version:1,title:'',data:{text:'把今天的光和风，都留在这一页。'},settings:{style:'normal',align:'left'}},
+      {id:'demo_image',type:'image',version:1,title:'',data:{mediaId:1,caption:''},settings:{size:'medium',align:'center',frame:'',tone:''}},
+      {id:'demo_summary',type:'day-summary',version:1,title:'',data:{items:[{icon:'☀',label:'今日天气',value:'晴朗'},{icon:'⌁',label:'走过',value:'12 km'}]},settings:{}}
+    ]};
+    const media=[{id:1,thumbnailUrl:'/img/home-hero-kyoto.png',mediumUrl:'/img/home-hero-kyoto.png',displayUrl:'/img/home-hero-kyoto.png'}];
+    document.getElementById('demo').innerHTML=window.JournalBlocks.render(demo,media);
+    window.TravelTheme.apply('travel-classic',{persist:false});
+    window.addEventListener('message',event=>{
+      if(event.origin!==location.origin||event.data?.type!=='travel-theme-preview')return;
+      window.TravelTheme.apply(event.data.theme,{persist:false});
+      // 卡片预览可以有完整皮肤和贴纸，但不启动多个持续动画；设计器的大预览仍展示全部动效。
+      document.documentElement.dataset.effectsParticles='none';
+      document.documentElement.dataset.motionScrollReveal='off';
+    });
+  </script>
+</body>
+</html>

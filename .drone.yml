@@ -1,56 +1,61 @@
 kind: pipeline
-name: drone
+name: gitee-drone
 
 platform:
   os: linux
   arch: amd64
 
-clone:
-  disable: true  # 禁用自动克隆
+# Drone 由 Gitee 推送触发，并使用 Gitee 绑定凭据自动检出当前提交。
+# 不再禁用 clone，验证步骤针对的代码与触发提交保持一致。
+services:
+  - name: postgres
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: travel_journal
+      POSTGRES_USER: travel_journal
+      POSTGRES_PASSWORD: travel_journal
 
-#服务器操作
 steps:
-  - name: ssh
+  - name: verify-backend
+    image: maven:3.9.11-eclipse-temurin-21
+    environment:
+      FLYWAY_TEST_JDBC_URL: jdbc:postgresql://postgres:5432/travel_journal
+      FLYWAY_TEST_DB_USERNAME: travel_journal
+      FLYWAY_TEST_DB_PASSWORD: travel_journal
+    commands:
+      - mvn test -B -ntp
+
+  - name: verify-frontend
+    image: node:22-alpine
+    commands:
+      - npm run check:js
+
+  - name: deploy-from-gitee
     image: appleboy/drone-ssh
+    depends_on:
+      - verify-backend
+      - verify-frontend
     settings:
-      host: 43.130.247.22       # 远程服务器 IP
-      port: 2222                # SSH 端口
-      username: tanghaixin      # SSH 用户
+      host: 43.130.247.22
+      port: 2222
+      username: tanghaixin
       password:
         from_secret: ssh_password
-      # 首次构建需要拉取 Maven 依赖和基础镜像，2 分钟会在编译阶段被强制终止。
-      command_timeout: 20m
+      command_timeout: 30m
       script:
-        - echo "done 流水线启动"
-
-        # 1. 确保基础目录存在（兼容首次部署）
+        - set -eu
         - sudo mkdir -p /app/travel-journal
-
-        # 2. 判断代码仓库是否存在，不存在则 clone，存在则更新
         - |
           if [ ! -d "/app/travel-journal/travel-journal/.git" ]; then
-            echo "📦 检测到首次部署，开始克隆代码..."
-            # ⚠️ 请替换为实际的代码仓库地址
-            sudo git clone https://gitee.com/tang-haixin/travel-journal.git /app/travel-journal/travel-journal
-          else
-            echo "🔄 检测到已有代码，清理本地修改并拉取最新..."
-            cd /app/travel-journal/travel-journal
-            sudo git restore .
-            sudo git pull
+            echo "首次部署：从 Gitee 克隆仓库"
+            sudo git clone --origin origin --branch master https://gitee.com/tang-haixin/travel-journal.git /app/travel-journal/travel-journal
           fi
-
-        # 3. 确保部署脚本存在且有执行权限
-        - |
-          if [ ! -f "/app/travel-journal/travel-journal/deploy.sh" ]; then
-            echo "❌ 错误：deploy.sh 不存在，请检查代码仓库中是否包含该文件"
-            exit 1
-          fi
-          sudo chmod +x /app/travel-journal/travel-journal/deploy.sh
-
-        # 4. 执行部署脚本
-        - cd /app/travel-journal/travel-journal && sudo ./deploy.sh
-
-        - echo "done 流水线结束"
+        - cd /app/travel-journal/travel-journal
+        - sudo git fetch --prune origin master
+        # 按 Gitee 本次触发的提交部署，避免流水线期间 master 前移造成版本错配。
+        - sudo git checkout --detach ${DRONE_COMMIT_SHA}
+        - sudo chmod +x deploy.sh
+        - sudo env DEPLOY_RELEASE_TAG=${DRONE_COMMIT_SHA} ./deploy.sh
 
 trigger:
   event:

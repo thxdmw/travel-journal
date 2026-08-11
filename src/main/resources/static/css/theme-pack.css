@@ -134,20 +134,26 @@
   user-select: none;
   z-index: 2;
 }
+.tj-sticker-anchor { position: relative; }
+.tj-sticker--anchored {
+  position: absolute;
+  width: clamp(34px, 4.4vw, 58px);
+}
 [data-stickers-density="medium"] .tj-sticker { opacity: .9; }
 .tj-sticker--hero-left     { left: clamp(8px, 4vw, 64px);  top: 12vh; }
 .tj-sticker--hero-right    { right: clamp(8px, 4vw, 64px); top: 16vh; }
 .tj-sticker--page-left     { left: clamp(4px, 2vw, 28px);  top: 52vh; }
 .tj-sticker--page-right    { right: clamp(4px, 2vw, 28px); top: 42vh; }
-.tj-sticker--section-gap   { right: 12vw; bottom: 34vh; }
-.tj-sticker--image-corner  { right: 8vw;  top: 34vh; }
-.tj-sticker--footer        { left: 10vw;  bottom: 6vh; }
+.tj-sticker--section-gap   { right: clamp(-22px,-2vw,-8px); top: -30px; }
+.tj-sticker--image-corner  { right: -18px; top: -18px; }
+.tj-sticker--footer        { left: clamp(18px,10vw,120px); bottom: calc(100% - 12px); }
 /* 手机上只留两张，屏幕就那么大，多了就是挡字 */
 @media (max-width: 860px) {
   .tj-sticker { width: 34px; opacity: .6; }
   .tj-sticker--page-left,
-  .tj-sticker--page-right,
-  .tj-sticker--image-corner { display: none; }
+  .tj-sticker--page-right { display: none; }
+  .tj-sticker--anchored { width:30px; opacity:.72; }
+  .tj-sticker--image-corner { right:-8px; top:-10px; }
 }
 
 /* ============================================================ 白名单互动 */
@@ -391,6 +397,112 @@
   background:
     repeating-linear-gradient(135deg, transparent 0 9px, color-mix(in srgb, var(--tj-accent) 5%, transparent) 9px 10px),
     var(--tj-surface);
+}
+
+/* 今日开场、章节节点和今日小结：它们决定一篇旅行日记第一眼属于哪个季节。 */
+[data-block-styles-journal-moment]:not([data-block-styles-journal-moment="classic"]) .journal-day-opener {
+  position:relative; overflow:hidden; padding:1.25em 1.35em; border-radius:var(--tj-radius); border-bottom:0;
+}
+[data-block-styles-journal-moment]:not([data-block-styles-journal-moment="classic"]) .journal-chapter {
+  position:relative; min-height:34px;
+}
+[data-block-styles-journal-moment]:not([data-block-styles-journal-moment="classic"]) .journal-chapter time {
+  justify-self:start;
+}
+
+/* 春：奶白卡片、樱花小枝和柔软的小结。 */
+[data-block-styles-journal-moment="spring"] .journal-day-opener {
+  padding-right:5em; border:1px solid #eadfe0;
+  background:linear-gradient(135deg,color-mix(in srgb,#f7eff0 78%,white),var(--tj-surface));
+}
+[data-block-styles-journal-moment="spring"] .journal-day-opener::after {
+  content:"";position:absolute;right:.7em;top:.45em;width:72px;height:72px;opacity:.72;
+  background:url('/assets/themes/stickers/spring-sakura.svg') center/contain no-repeat;
+}
+[data-block-styles-journal-moment="spring"] .journal-chapter { padding-left:2.35em;border-top:0; }
+[data-block-styles-journal-moment="spring"] .journal-chapter::before {
+  content:"";position:absolute;left:.2em;top:.7em;width:25px;height:25px;
+  background:url('/assets/themes/stickers/spring-sprout.svg') center/contain no-repeat;
+}
+[data-block-styles-journal-moment="spring"] .journal-day-summary article {
+  border-color:#eadfe0;background:color-mix(in srgb,#f7eff0 72%,white);border-radius:16px;
+}
+
+/* 夏：阳光与波浪，开场像一张透亮的海边邀请卡。 */
+[data-block-styles-journal-moment="summer"] .journal-day-opener {
+  padding-bottom:1.8em;background:linear-gradient(135deg,#e8f6fc 0%,#fffdf0 100%);
+  box-shadow:0 12px 30px rgba(46,155,201,.12);
+}
+[data-block-styles-journal-moment="summer"] .journal-day-opener::after {
+  content:"";position:absolute;left:0;right:0;bottom:0;height:22px;opacity:.78;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 24' preserveAspectRatio='none'%3E%3Cpath d='M0 12c20-12 40-12 60 0s40 12 60 0 40-12 60 0 40 12 60 0v12H0z' fill='%232E9BC9' fill-opacity='.22'/%3E%3C/svg%3E") center/100% 100% no-repeat;
+}
+[data-block-styles-journal-moment="summer"] .journal-chapter { border-top:2px solid color-mix(in srgb,#2e9bc9 24%,transparent); }
+[data-block-styles-journal-moment="summer"] .journal-chapter time {
+  padding:.2em .65em;border-radius:99px;color:#1b5e78;background:#f5d547;
+}
+[data-block-styles-journal-moment="summer"] .journal-day-summary article {
+  border:0;background:linear-gradient(120deg,#e8f4fa,color-mix(in srgb,#f5d547 18%,white));
+  box-shadow:0 6px 18px rgba(46,155,201,.1);
+}
+
+/* 秋：车票、撕纸边和温暖旧纸。 */
+[data-block-styles-journal-moment="autumn"] .journal-day-opener {
+  border:2px dashed #dcc69c;border-radius:5px;
+  background:
+    radial-gradient(circle at 0 50%,var(--tj-bg) 0 7px,transparent 8px),
+    radial-gradient(circle at 100% 50%,var(--tj-bg) 0 7px,transparent 8px),#fffaf0;
+}
+[data-block-styles-journal-moment="autumn"] .journal-chapter { border-top:1px dashed #c67a3e; }
+[data-block-styles-journal-moment="autumn"] .journal-chapter time {
+  padding:.18em .5em;border-radius:2px;color:#fffaf0;background:#b4462f;
+}
+[data-block-styles-journal-moment="autumn"] .journal-day-summary article {
+  border:2px dashed #dcc69c;border-radius:4px;background:#fffaf0;
+  box-shadow:3px 3px 0 color-mix(in srgb,#c67a3e 14%,transparent);
+}
+
+/* 冬：霜线、冰蓝玻璃和一枚安静的雪花。 */
+[data-block-styles-journal-moment="winter"] .journal-day-opener {
+  padding-right:4.8em;border:1px solid #c9dce8;
+  background:linear-gradient(140deg,rgba(255,255,255,.92),rgba(231,239,245,.82));
+  box-shadow:inset 0 0 28px rgba(169,200,220,.18);
+}
+[data-block-styles-journal-moment="winter"] .journal-day-opener::after {
+  content:"";position:absolute;right:1em;top:1em;width:48px;height:48px;opacity:.64;
+  background:url('/assets/themes/stickers/winter-snowflake.svg') center/contain no-repeat;
+}
+[data-block-styles-journal-moment="winter"] .journal-chapter { padding-left:2.2em;border-top:1px solid #d8e3eb; }
+[data-block-styles-journal-moment="winter"] .journal-chapter::before {
+  content:"❄";position:absolute;left:.35em;top:.75em;color:#a9c8dc;font-size:1.1em;
+}
+[data-block-styles-journal-moment="winter"] .journal-day-summary article {
+  border-color:#d8e3eb;background:rgba(247,250,252,.82);box-shadow:inset 3px 0 0 #a9c8dc;
+}
+
+/* 复古：护照页、日期戳和双线框。 */
+[data-block-styles-journal-moment="retro"] .journal-day-opener {
+  padding-right:5.4em;border:3px double #a8402f;border-radius:0;
+  background:repeating-linear-gradient(135deg,transparent 0 12px,rgba(168,64,47,.035) 12px 13px),#fbf4e4;
+}
+[data-block-styles-journal-moment="retro"] .journal-day-opener::after {
+  content:"";position:absolute;right:.8em;top:.65em;width:68px;height:68px;opacity:.68;transform:rotate(-9deg);
+  background:url('/assets/themes/stickers/retro-postmark.svg') center/contain no-repeat;
+}
+[data-block-styles-journal-moment="retro"] .journal-chapter { border-top:2px dashed #c4ac83; }
+[data-block-styles-journal-moment="retro"] .journal-chapter time {
+  display:grid;place-items:center;min-width:3.5em;min-height:3.5em;padding:.2em;
+  border:2px dashed #a8402f;border-radius:50%;color:#a8402f;transform:rotate(-4deg);
+}
+[data-block-styles-journal-moment="retro"] .journal-day-summary article {
+  border:3px double #c4ac83;border-radius:0;background:#fbf4e4;
+}
+
+@media (max-width:680px) {
+  [data-block-styles-journal-moment]:not([data-block-styles-journal-moment="classic"]) .journal-day-opener { padding:1em; }
+  [data-block-styles-journal-moment="spring"] .journal-day-opener,
+  [data-block-styles-journal-moment="winter"] .journal-day-opener,
+  [data-block-styles-journal-moment="retro"] .journal-day-opener { padding-right:4em; }
 }
 
 /* ========================================================== 首页封面 */

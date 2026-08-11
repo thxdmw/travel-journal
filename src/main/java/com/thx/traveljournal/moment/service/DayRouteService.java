@@ -18,6 +18,8 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -79,8 +81,7 @@ public class DayRouteService {
     public List<RoutePoint> forDay(Long tripId, java.time.LocalDate day) {
         List<Moment> moments = momentMapper.selectList(new LambdaQueryWrapper<Moment>()
                         .eq(Moment::getTripId, tripId)
-                        .ge(Moment::getOccurredAt, clock.startOfDay(day))
-                        .lt(Moment::getOccurredAt, clock.endOfDay(day)))
+                        .eq(Moment::getOccurredLocalDate, day))
                 .stream().filter(this::hasPosition)
                 .sorted(Comparator.comparing(Moment::getOccurredAt)).toList();
         if (!moments.isEmpty()) return fromMoments(moments);
@@ -101,7 +102,7 @@ public class DayRouteService {
         int order = 1;
         for (Moment moment : moments) {
             points.add(new RoutePoint(order++,
-                    moment.getOccurredAt().atZoneSameInstant(clock.zone()).format(HOUR_MINUTE),
+                    moment.getOccurredAt().atZoneSameInstant(occurrenceZone(moment)).format(HOUR_MINUTE),
                     StringUtils.hasText(moment.getPlaceName()) ? moment.getPlaceName() : "这里",
                     moment.getContent(), moment.getLatitude(), moment.getLongitude(),
                     photos.getOrDefault(moment.getId(), List.of()).stream()
@@ -154,5 +155,13 @@ public class DayRouteService {
     private Photo photo(Long mediaId) {
         MediaService.MediaView view = mediaService.viewOf(mediaId);
         return new Photo(view.id(), view.thumbnailUrl(), view.displayUrl());
+    }
+
+    private ZoneId occurrenceZone(Moment moment) {
+        try { return ZoneId.of(moment.getOccurredZoneId()); }
+        catch (Exception ignored) {
+            try { return ZoneOffset.ofTotalSeconds(moment.getUtcOffsetMinutes() * 60); }
+            catch (Exception fallback) { return clock.zone(); }
+        }
     }
 }

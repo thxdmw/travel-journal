@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
@@ -21,12 +22,20 @@ import java.time.OffsetDateTime;
 @EqualsAndHashCode(callSuper = true)
 @TableName("moment")
 public class Moment extends BaseEntity {
+    /** 浏览器离线队列生成的幂等键；同一旅行内唯一。 */
+    private String clientId;
     /** 所属旅行，旅行删除时级联删除 */
     private Long tripId;
     /** 所在城市，可为空 */
     private Long tripStopId;
     /** 这件事发生的时刻，不是写下的时刻——补记昨天的事很常见 */
     private OffsetDateTime occurredAt;
+    /** 事情发生地的当地日期，按天分组与整理都以它为准。 */
+    private LocalDate occurredLocalDate;
+    /** 事情发生地的 IANA 时区。 */
+    private String occurredZoneId;
+    /** 当时相对 UTC 的分钟偏移，作为时区解析失败时的后备。 */
+    private Integer utcOffsetMinutes;
     /** 正文，通常一两句话 */
     private String content;
     /** 地点名称，可以来自定位反查，也可以手填 */
