@@ -23,18 +23,69 @@ steps:
       FLYWAY_TEST_DB_USERNAME: travel_journal
       FLYWAY_TEST_DB_PASSWORD: travel_journal
     commands:
-      - mvn test -B -ntp
+      # package 会先跑完整测试，再留下供 Playwright 启动的可执行 jar。
+      - mvn package -B -ntp
 
   - name: verify-frontend
     image: node:22-alpine
     commands:
       - npm run check:js
 
+  - name: verify-mobile-smoke
+    image: mcr.microsoft.com/playwright:v1.49.0-noble
+    depends_on:
+      - verify-backend
+      - verify-frontend
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: travel_journal
+      DB_USERNAME: travel_journal
+      DB_PASSWORD: travel_journal
+      DB_SSL_MODE: disable
+      MINIO_ENDPOINT: http://127.0.0.1:9000
+      MINIO_ACCESS_KEY: ci-minio-access
+      MINIO_SECRET_KEY: ci-minio-secret
+      MINIO_BUCKET: travel-journal-ci
+      MINIO_VERIFY_ON_STARTUP: "false"
+      APP_ADMIN_USERNAME: admin
+      APP_ADMIN_PASSWORD: ci-only-password-2026
+      APP_ADMIN_DISPLAY_NAME: CI 旅行者
+      APP_MAP_SEARCH_ENABLED: "false"
+      APP_EMPTY_DRAFT_CLEANUP: "false"
+      E2E_BASE_URL: http://127.0.0.1:8080
+      E2E_ADMIN_USER: admin
+      E2E_ADMIN_PASS: ci-only-password-2026
+    commands:
+      - apt-get update
+      - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-21-jre-headless
+      - npm install --no-audit --no-fund
+      - |
+        set -eu
+        java -jar target/travel-journal.jar >/tmp/travel-journal-e2e.log 2>&1 &
+        app_pid=$!
+        trap 'kill "$${app_pid}" >/dev/null 2>&1 || true' EXIT
+        ready=0
+        for attempt in $(seq 1 60); do
+          if curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [ "$${ready}" != "1" ]; then
+          cat /tmp/travel-journal-e2e.log
+          exit 1
+        fi
+        npm run e2e -- --project=iphone-13 --grep @smoke
+
   - name: deploy-from-gitee
     image: appleboy/drone-ssh
     depends_on:
       - verify-backend
       - verify-frontend
+      - verify-mobile-smoke
     settings:
       host: 43.130.247.22
       port: 2222

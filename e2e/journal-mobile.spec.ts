@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
   await login(page);
 });
 
-test('打开编辑器就有草稿 id，不必先填表', async ({ page }) => {
+test('@smoke 打开编辑器就有草稿 id，不必先填表', async ({ page }) => {
   const id = await openNewJournal(page);
   expect(id).toBeGreaterThan(0);
   // 标题、slug 都还没填，但状态已经是「已保存」——这正是「新建即草稿」要的效果
@@ -32,6 +32,20 @@ test('连续写三段，全程不弹任何窗', async ({ page }) => {
   ]);
   expect(dialogs).toHaveLength(0);
   await expect(page.locator('.block-config-dialog')).toHaveCount(0);
+});
+
+test('@smoke 回车在正文组件内换行，新增正文按钮才会拆出新组件', async ({ page }) => {
+  await openNewJournal(page);
+  await writeParagraphs(page, ['第一行']);
+  const first = page.locator('[data-inline-input]').first();
+  await first.press('End');
+  await first.press('Enter');
+  await first.type('第二行');
+  await expect.poll(() => paragraphs(page)).toEqual(['第一行\n第二行']);
+
+  await first.locator('xpath=..').getByRole('button', { name: '新增正文组件' }).click();
+  await expect.poll(() => paragraphs(page)).toEqual(['第一行\n第二行', '']);
+  await waitSaved(page);
 });
 
 test('段首退格与上一段合并', async ({ page }) => {
@@ -150,6 +164,41 @@ test.describe('手机端布局', () => {
     await expect(quick).toHaveCount(8);
     await expect(quick.filter({ hasText: '正文' })).toHaveCount(0);
     await page.locator('.block-catalog-more').click();
-    await expect(page.locator('.block-catalog > button')).toHaveCount(26);
+    await expect(page.locator('.block-catalog > button')).toHaveCount(29);
+  });
+
+  test('@smoke 图片四个设置页都能滚到底，下拉选完恢复位置，组件可双击编辑', async ({ page }) => {
+    await openNewJournal(page);
+    await page.locator('.editor-toolbar button', { hasText: '内容' }).click();
+    await page.locator('.block-catalog--quick > button').filter({ hasText: '单张图片' }).click();
+
+    const dialog = page.locator('.block-config-dialog');
+    const scroller = dialog.locator('.image-setting-tabs > .el-tabs__content');
+    const footer = dialog.locator('.el-dialog__footer');
+    await expect(dialog).toBeVisible();
+
+    for (const name of ['内容', '版式', '外观', '图注']) {
+      await dialog.getByRole('tab', { name, exact: true }).click();
+      await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      const last = dialog.locator('.el-tab-pane:visible .image-setting-section > *').last();
+      await expect(last).toBeVisible();
+      const [lastBox, footerBox] = await Promise.all([last.boundingBox(), footer.boundingBox()]);
+      expect(lastBox!.y + lastBox!.height).toBeLessThanOrEqual(footerBox!.y + 1);
+    }
+
+    await dialog.getByRole('tab', { name: '外观', exact: true }).click();
+    const effect = dialog.locator('.image-setting-section label').filter({ hasText: '电脑悬停效果' }).locator('.el-select');
+    await effect.scrollIntoViewIfNeeded();
+    const before = await scroller.evaluate(element => element.scrollTop);
+    await effect.click();
+    await scroller.evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 36); });
+    await page.locator('.el-select-dropdown__item').filter({ hasText: '轻轻浮起' }).click();
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(before);
+
+    await dialog.getByRole('button', { name: '确认插入' }).click();
+    const card = page.locator('.block-editor-card').last();
+    await card.dblclick();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: '确认修改' })).toBeVisible();
   });
 });

@@ -36,8 +36,9 @@ fi
 CANDIDATE_IMAGE="${APP_NAME}:${RELEASE_TAG}"
 HEALTH_RETRIES="${DEPLOY_HEALTH_RETRIES:-40}"
 HEALTH_INTERVAL_SECONDS="${DEPLOY_HEALTH_INTERVAL_SECONDS:-2}"
-if [[ ! "${HEALTH_RETRIES}" =~ ^[1-9][0-9]*$ || ! "${HEALTH_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
-    error "健康检查次数与间隔必须是正整数。"
+RELEASES_TO_KEEP="${DEPLOY_RELEASES_TO_KEEP:-4}"
+if [[ ! "${HEALTH_RETRIES}" =~ ^[1-9][0-9]*$ || ! "${HEALTH_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ || ! "${RELEASES_TO_KEEP}" =~ ^[1-9][0-9]*$ ]]; then
+    error "健康检查次数、间隔与镜像保留数必须是正整数。"
     exit 1
 fi
 
@@ -98,6 +99,30 @@ rollback() {
     return 1
 }
 
+# Docker 按镜像创建时间返回标签。latest 不计入版本数，默认保留当前版本和前三个历史版本。
+# 清理只匹配本项目的 release 标签；失败只告警，不影响已经通过健康检查的新服务。
+cleanup_release_images() {
+    local image index
+    local -a releases=()
+    while IFS= read -r image; do
+        [[ -z "${image}" || "${image}" == "${STABLE_IMAGE}" ]] && continue
+        releases+=("${image}")
+    done < <(docker image ls --filter "reference=${APP_NAME}:*" --format '{{.Repository}}:{{.Tag}}')
+
+    if ((${#releases[@]} <= RELEASES_TO_KEEP)); then
+        info "release 镜像共 ${#releases[@]} 个，无需清理。"
+        return 0
+    fi
+    for ((index=RELEASES_TO_KEEP; index<${#releases[@]}; index++)); do
+        image="${releases[index]}"
+        if docker image rm "${image}" >/dev/null; then
+            info "已清理旧镜像 ${image}。"
+        else
+            warn "旧镜像 ${image} 清理失败，可稍后手动检查。"
+        fi
+    done
+}
+
 step "构建候选镜像 ${CANDIDATE_IMAGE}（现有服务继续运行）..."
 docker build -t "${CANDIDATE_IMAGE}" .
 
@@ -122,5 +147,6 @@ fi
 # 只有已验证的候选镜像才更新 latest；旧镜像 ID 仍保留，可供下一次部署回滚。
 docker tag "${CANDIDATE_IMAGE}" "${STABLE_IMAGE}"
 success "部署完成：${CANDIDATE_IMAGE} 已通过健康检查。"
+cleanup_release_images || warn "旧 release 镜像清理未完成，不影响当前版本运行。"
 info "应用地址：http://localhost:${PORT}"
 info "查看日志：docker logs -f ${CONTAINER_NAME}"

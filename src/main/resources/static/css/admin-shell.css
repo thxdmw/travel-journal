@@ -131,6 +131,8 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
   .admin-main { grid-column:1; }
   .mobile-toggle { display:inline-flex; }
   .admin-topbar,.admin-content { padding-left:16px; padding-right:16px; }
+  /* Android WebView / Chromium 在滚动固定模糊层时容易整页重绘闪白，触屏端改用实色。 */
+  .admin-topbar { background:var(--tj-bg); -webkit-backdrop-filter:none; backdrop-filter:none; }
   .admin-content { padding-bottom:calc(56px + env(safe-area-inset-bottom) + var(--browser-bottom-inset,0px)); }
   .workspace-tabs .el-tabs__header { padding:0; overflow:hidden; }
   /* 不要 scroll-snap：吸附会在滑到末尾时把 tab 拽回来，滑到哪停哪才跟手 */

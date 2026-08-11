@@ -71,8 +71,8 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-inline-variants button:hover,.block-inline-tools button:hover{border-color:var(--tj-border);color:var(--tj-accent)}
 .block-inline-variants button.active{border-color:var(--tj-accent);background:color-mix(in srgb,var(--tj-accent) 10%,transparent);color:var(--tj-accent)}
 .block-inline-tools button:disabled{opacity:.3;cursor:default}
-/* 段内换行：手机键盘没有 Shift，只能给个显式按钮 */
-.block-inline-break{font-size:13px}
+/* 回车负责段内换行；这个按钮负责明确地在下方新建一块正文。 */
+.block-inline-add{white-space:nowrap;font-size:11px}
 .block-inline-tools button.danger:hover{border-color:var(--tj-danger);color:var(--tj-danger)}
 /* 刚拍的照片先在正文占位，边传边显示进度；传完这块会换成正常的图片区块 */
 .block-pending{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;padding:12px;border:1px dashed var(--tj-border);border-radius:var(--tj-radius);background:var(--tj-surface-soft)}

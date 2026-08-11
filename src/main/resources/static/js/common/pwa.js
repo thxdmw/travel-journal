@@ -8,6 +8,7 @@
 (function () {
   'use strict';
   if (!('serviceWorker' in navigator)) return;
+  const DISMISSED_KEY = 'travel-journal.offline-banner-dismissed';
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {
@@ -22,7 +23,19 @@
       element = document.createElement('div');
       element.className = 'tj-offline-banner';
       element.setAttribute('role', 'status');
-      element.textContent = '离线中 · 现在写的内容会先存在这台设备上，有网后自动同步';
+      element.setAttribute('aria-live', 'polite');
+      const text = document.createElement('span');
+      text.textContent = '离线中 · 现在写的内容会先存在这台设备上，有网后自动同步';
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'tj-offline-banner__close';
+      close.setAttribute('aria-label', '关闭离线提示');
+      close.textContent = '×';
+      close.addEventListener('click', () => {
+        try { sessionStorage.setItem(DISMISSED_KEY, '1'); } catch (_) {}
+        element.classList.remove('is-visible');
+      });
+      element.append(text, close);
       document.body.appendChild(element);
     }
     return element;
@@ -30,7 +43,14 @@
 
   function sync() {
     if (!document.body) return;
-    banner().classList.toggle('is-visible', !navigator.onLine);
+    if (navigator.onLine) {
+      try { sessionStorage.removeItem(DISMISSED_KEY); } catch (_) {}
+      banner().classList.remove('is-visible');
+      return;
+    }
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem(DISMISSED_KEY) === '1'; } catch (_) {}
+    banner().classList.toggle('is-visible', !dismissed);
   }
 
   window.addEventListener('online', sync);

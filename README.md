@@ -10,7 +10,7 @@
 - 随手记：路上二十秒记一条（一句话、几张照片、一个地点），晚上一键整理成带开场、章节和照片的日记草稿
 - 结构化旅行日记、草稿、发布、更新发布、撤回和区块化日记模板
 - 以 Blocks JSON 作为正文唯一数据源，不保存 Markdown、任意 HTML 或第二套预览文本
-- 正文里直接连续写作：段落、小标题、引用和提示卡不弹窗，回车分段、退格合并，段内换行有独立按钮（手机键盘没有 Shift）
+- 正文里直接连续写作：段落、小标题、引用和提示卡不弹窗，回车按普通输入换行，“＋正文”另起组件，段首退格可与上一组件合并
 - 发布前可就地预览整篇文章，用的是和公开页面同一套渲染
 - 打开编辑器即建草稿，标题和 slug 可以留到发布前再补；停手自动保存，正文快照存本机 IndexedDB
 - 照片选完立刻插入正文并显示上传进度，并发上传但保持挑选顺序，单张失败可重试
@@ -297,9 +297,9 @@ target/travel-journal.jar
 
 ## Docker 部署
 
-仓库以 Gitee 为代码与构建来源，`.drone.yml` 由 Gitee 的 push 事件触发。流水线先并行执行 Maven（包含真实 PostgreSQL Flyway 迁移）和前端 JavaScript 检查，全部通过后才连接服务器。远端也从 Gitee 获取代码，并按本次 `DRONE_COMMIT_SHA` 精确部署，避免构建期间 master 前移导致版本错配。
+仓库以 Gitee 为代码与构建来源，`.drone.yml` 由 Gitee 的 push 事件触发。流水线先并行执行 Maven（包含真实 PostgreSQL Flyway 迁移）和前端 JavaScript 检查，再启动打包后的应用运行 iPhone 13 Playwright smoke；全部通过后才连接服务器。远端也从 Gitee 获取代码，并按本次 `DRONE_COMMIT_SHA` 精确部署，避免构建期间 master 前移导致版本错配。
 
-`deploy.sh` 会在旧容器仍运行时先构建候选镜像，随后切换容器并检查 `/actuator/health`。候选版本不健康时自动恢复上一镜像；只有通过检查的镜像才会更新 `travel-journal:latest`。
+`deploy.sh` 会在旧容器仍运行时先构建候选镜像，随后切换容器并检查 `/actuator/health`。候选版本不健康时自动恢复上一镜像；只有通过检查的镜像才会更新 `travel-journal:latest`。部署成功后默认保留当前 release 和最近 3 个历史 release，可用 `DEPLOY_RELEASES_TO_KEEP` 调整数量，旧标签会自动清理。
 
 构建：
 
@@ -387,14 +387,14 @@ mc mirror minio/travel-journal /backup/travel-journal
 npm run check:js
 ~~~
 
-移动端布局还有一套可选的 Playwright 端到端测试，覆盖 iPhone 13、Pixel 7 和桌面 Chrome。它只是开发依赖，**不参与 Maven 打包和 Docker 构建**，运行和部署项目仍然不需要 Node.js。需要一个已经跑起来的应用实例：
+移动端布局还有一套 Playwright 端到端测试，覆盖 iPhone 13、Pixel 7 和桌面 Chrome。完整套件是开发依赖，**不参与 Maven 打包和 Docker 镜像构建**；Drone 只在部署前运行标记为 `@smoke` 的 4 条关键路径。日常运行项目仍然不需要 Node.js。完整测试需要一个已经跑起来的应用实例：
 
 ~~~bash
 npm install && npx playwright install chromium
 E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=你的密码 npx playwright test
 ~~~
 
-用例在 `e2e/journal-mobile.spec.ts`，覆盖新建即草稿、连续写作不弹窗、退格合并、刷新恢复、空标题被拦、发布、退出不误删草稿，以及手机端的单一滚动、底栏可见和 Bottom Sheet 开合。
+用例位于 `e2e/`：除新建即草稿、连续写作、刷新恢复、发布和手机端布局外，还覆盖图片设置四个 Tab 的底部可达性、下拉关闭后的滚动复位、工作台无横向溢出、预算全部保存，以及“白天整理、晚上追加”仍写入同一篇日记。
 
 ## 项目结构
 

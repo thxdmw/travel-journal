@@ -21,6 +21,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://localhost:8080',
+    // 本地可复用已安装的 Edge / Chrome；CI 镜像仍使用自带的 Chromium。
+    channel: process.env.E2E_BROWSER_CHANNEL as 'chrome' | 'msedge' | undefined,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     locale: 'zh-CN',

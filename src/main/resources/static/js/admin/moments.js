@@ -280,6 +280,19 @@
       const aiAvailable = ref(false);
       async function compose(group, useAi) {
         const sorted = group.items.filter(item => item.sorted);
+        const journalIds = [...new Set(sorted
+          .map(item => item.journalEntryId)
+          .filter(value => value !== null && value !== undefined))];
+        if (journalIds.length > 1) {
+          ElementPlus.ElMessage.warning('这一天的随手记已被整理进多篇日记，请先进入目标日记后再继续追加。');
+          return;
+        }
+        // 已整理记录按接口约定一定带目标 id；缺失时宁可停下，也不能误建第二篇日记。
+        if (sorted.length && journalIds.length !== 1) {
+          ElementPlus.ElMessage.warning('暂时无法确认要追加到哪篇日记，请刷新页面后重试。');
+          return;
+        }
+        const journalId = journalIds[0] ?? null;
         let replace = false;
         if (sorted.length) {
           try {
@@ -293,7 +306,7 @@
         }
         composing.value = group.day + (useAi ? '-ai' : '');
         try {
-          const result = await A.composeMoments({ tripId: tripId.value, day: group.day, replace, useAi: !!useAi });
+          const result = await A.composeMoments({ tripId: tripId.value, day: group.day, journalId, replace, useAi: !!useAi });
           await load();
           const parts = ['已整理 ' + result.momentCount + ' 条随手记'];
           if (result.photoCount) parts.push(result.photoCount + ' 张照片');

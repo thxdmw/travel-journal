@@ -15,8 +15,37 @@ export async function login(page: Page) {
   }
 }
 
+/** 为全新 CI 数据库准备一次旅行；已有数据时直接复用第一条。 */
+export async function ensureTrip(page: Page) {
+  return page.evaluate(async () => {
+    const api = (window as any).TravelApi.admin;
+    const existing = await api.trips({ page: 1, pageSize: 1 });
+    if (existing.items?.length) return Number(existing.items[0].id);
+    const stamp = Date.now();
+    const trip = await api.createTrip({
+      title: 'E2E 移动端旅程', slug: `e2e-mobile-${stamp}`, summary: '自动化测试专用',
+      status: 'ONGOING', startDate: '2026-08-01', endDate: '2026-08-31',
+      defaultCurrency: 'CNY', coverMediaId: null, internalNote: '可清理', themeKey: null,
+    });
+    return Number(trip.id);
+  });
+}
+
+/** 创建一条隔离旅行，适合会生成 Moment / 日记等关联数据的测试。 */
+export async function createTestTrip(page: Page, name = 'E2E 随手记旅程') {
+  return page.evaluate(async ({ title, stamp }) => {
+    const trip = await (window as any).TravelApi.admin.createTrip({
+      title, slug: `e2e-smoke-${stamp}`, summary: '自动化测试专用', status: 'ONGOING',
+      startDate: '2099-01-01', endDate: '2099-01-31', defaultCurrency: 'CNY',
+      coverMediaId: null, internalNote: '可清理', themeKey: null,
+    });
+    return Number(trip.id);
+  }, { title: name, stamp: Date.now() });
+}
+
 /** 打开一篇新日记。编辑器会自己去后端要一个草稿 id，URL 上的 new 会被换成真实 id。 */
 export async function openNewJournal(page: Page, tripId?: number) {
+  tripId = tripId || await ensureTrip(page);
   await page.goto(`/admin/#/journals/new${tripId ? `?tripId=${tripId}` : ''}`);
   await page.waitForURL(/#\/journals\/\d+/, { timeout: 20_000 });
   return Number(page.url().match(/#\/journals\/(\d+)/)![1]);
@@ -28,7 +57,7 @@ export async function paragraphs(page: Page) {
     nodes.map(n => (n as HTMLTextAreaElement).value));
 }
 
-/** 往正文里连续写几段，用回车分段——这正是移动端最常走的路径。 */
+/** 往正文里连续写几个正文组件；回车现在留给组件内部换行。 */
 export async function writeParagraphs(page: Page, texts: string[]) {
   const ghost = page.locator('.block-inline--ghost textarea');
   if (await ghost.count()) {
@@ -39,8 +68,7 @@ export async function writeParagraphs(page: Page, texts: string[]) {
   for (const text of texts) {
     const last = page.locator('[data-inline-input]').last();
     await last.click();
-    await last.press('End');
-    await last.press('Enter');
+    await last.locator('xpath=..').getByRole('button', { name: '新增正文组件' }).click();
     await page.locator('[data-inline-input]').last().fill(text);
   }
 }

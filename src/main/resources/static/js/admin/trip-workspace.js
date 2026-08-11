@@ -172,6 +172,9 @@
        * 返回和刷新都能停在原来那一栏。
        */
       const active = ref(TAB_ORDER.includes(route.query.tab) ? route.query.tab : 'overview');
+      const mobileQuery = window.matchMedia('(max-width:760px)');
+      const isMobile = ref(mobileQuery.matches);
+      const syncMobile = event => { isMobile.value = event.matches; };
       watch(active, value => {
         if (route.query.tab !== value) router.replace({ query: { ...route.query, tab: value } });
       });
@@ -246,6 +249,7 @@
       const editingStop = ref(null), editingItem = ref(null), editingExpense = ref(null);
       const stopFormRef = ref(null), itemFormRef = ref(null), expenseFormRef = ref(null);
       const savingStop = ref(false), savingItem = ref(false), savingExpense = ref(false);
+      const savingBudgetAll = ref(false), savingCategoryIds = ref([]);
 
       const mapStatus = ref({ searchEnabled:false }), locationKeyword = ref(''), locationResults = ref([]),
             locationLoading = ref(false), stopMapEl = ref(null);
@@ -386,12 +390,45 @@
         }catch(e){fail(e);}finally{savingExpense.value=false;}
       }
       // 保存预算分类的计划金额。不传 sortOrder，后端会跳过 null 字段，保留原有排序。
+      const isCategorySaving = id => savingCategoryIds.value.includes(id);
+      const categoryBody = row => ({code:row.code,name:row.name,plannedAmount:row.planned});
+      function categoryDrafts(excludedIds=[]){
+        const excluded=new Set(excludedIds);
+        return new Map((data.budget?.categories||[]).filter(row=>!excluded.has(row.id)).map(row=>[row.id,row.planned]));
+      }
+      function restoreCategoryDrafts(drafts){
+        (data.budget?.categories||[]).forEach(row=>{if(drafts.has(row.id))row.planned=drafts.get(row.id);});
+      }
+      async function refreshBudget(drafts){
+        await invalidate('budget');
+        if(drafts)restoreCategoryDrafts(drafts);
+      }
       async function saveCategory(row){
+        if(savingBudgetAll.value||isCategorySaving(row.id))return;
+        // 刷新汇总前保住其他输入框里的未提交金额，逐项保存不会误清掉它们。
+        const drafts=categoryDrafts([row.id]);
+        savingCategoryIds.value=[...savingCategoryIds.value,row.id];
         try{
-          await A.updateCategory(row.id,{code:row.code,name:row.name,plannedAmount:row.planned});
+          await A.updateCategory(row.id,categoryBody(row));
+          await refreshBudget(drafts);
           message('预算已更新');
-          await invalidate('budget');
         }catch(e){fail(e);}
+        finally{savingCategoryIds.value=savingCategoryIds.value.filter(id=>id!==row.id);}
+      }
+      async function saveAllCategories(){
+        const rows=(data.budget?.categories||[]).slice();
+        if(!rows.length||savingBudgetAll.value)return;
+        savingBudgetAll.value=true;
+        try{
+          const results=await Promise.allSettled(rows.map(row=>A.updateCategory(row.id,categoryBody(row))));
+          const failed=results.map((result,index)=>({result,row:rows[index]})).filter(item=>item.result.status==='rejected');
+          // 成功项重新读取汇总；失败项保留作者刚输入的值，方便直接重试。
+          const failedDrafts=new Map(failed.map(item=>[item.row.id,item.row.planned]));
+          await refreshBudget(failedDrafts);
+          if(failed.length){
+            ElementPlus.ElMessage.error('有 '+failed.length+' 项预算保存失败，输入内容已保留，请重试。');
+          }else message('全部预算已保存');
+        }finally{savingBudgetAll.value=false;}
       }
 
       // ------------------------------------------------------------------ 删除
@@ -458,26 +495,43 @@
       }
       // 切 tab 时补齐这个 tab 需要、且已经过期的数据块
       watch(active,tab=>ensure(tabBlocks[tab]||[]));
-      onMounted(()=>ensure(['trip',...tabBlocks[active.value]]));
+      onMounted(()=>{mobileQuery.addEventListener?.('change',syncMobile);ensure(['trip',...tabBlocks[active.value]]);});
+      onBeforeUnmount(()=>mobileQuery.removeEventListener?.('change',syncMobile));
 
-      return {data,stale,isLoading,ready,active,
+      return {data,stale,isLoading,ready,active,isMobile,
               stopDialog,itemDialog,expenseDialog,editingStop,editingItem,editingExpense,
               stopFormRef,itemFormRef,expenseFormRef,savingStop,savingItem,savingExpense,
               stopForm,itemForm,expenseForm,stopRules,itemRules,expenseRules,
               mapStatus,locationKeyword,locationResults,locationLoading,stopMapEl,
               openStop,closeStop,searchLocations,applyLocation,saveStop,
-              openItem,saveItem,toggleCompleted,openExpense,saveExpense,saveCategory,
+               openItem,saveItem,toggleCompleted,openExpense,saveExpense,saveCategory,saveAllCategories,savingBudgetAll,isCategorySaving,
               remove,removeJournal,beginTabSwipe,moveTabSwipe,endTabSwipe,onTabHeaderClick,router,
               itineraryTypeOptions,statusLabel,itineraryTypeLabel,timeRange};
     },
     template: `<div v-if="ready"><div class="workspace-head"><span class="back" @click="router.push('/trips')">← 返回</span><div><h2>{{data.trip.title}}</h2><div class="workspace-meta">{{data.trip.startDate}} — {{data.trip.endDate}} · {{statusLabel(data.trip.status)}}</div></div></div>
       <el-tabs v-model="active" class="workspace-tabs" @touchstart.passive="beginTabSwipe" @touchmove.passive="moveTabSwipe" @touchend.passive="endTabSwipe" @click.capture="onTabHeaderClick">
         <el-tab-pane label="概览" name="overview"><div v-loading="isLoading('trip','dashboard')" class="tab-loading-host"><div class="dashboard-grid"><div class="metric"><span>城市</span><strong>{{data.dashboard?.stopCount ?? '—'}}</strong></div><div class="metric"><span>行程</span><strong>{{data.dashboard?.itineraryCount ?? '—'}}</strong></div><div class="metric"><span>草稿</span><strong>{{data.dashboard?.draftCount ?? '—'}}</strong></div><div class="metric"><span>已发布</span><strong>{{data.dashboard?.publishedCount ?? '—'}}</strong></div></div><p>{{data.trip.summary||'还没有旅行简介。'}}</p></div></el-tab-pane>
-        <el-tab-pane label="城市" name="stops"><div class="tab-actions"><el-button type="primary" @click="openStop()">添加城市</el-button></div><el-table v-loading="isLoading('stops')" :data="data.stops" max-height="calc(100vh - 360px)"><el-table-column prop="cityName" label="城市"/><el-table-column prop="countryName" label="国家"/><el-table-column prop="arrivalDate" label="到达"/><el-table-column prop="departureDate" label="离开"/><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openStop(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('stop',row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="行程" name="itinerary"><div class="tab-actions"><el-button type="primary" @click="openItem()">添加行程</el-button></div><el-table v-loading="isLoading('itinerary')" :data="data.itinerary" max-height="calc(100vh - 360px)"><el-table-column prop="itemDate" label="日期" width="120"/><el-table-column label="时间" width="140"><template #default="{row}">{{timeRange(row.startTime,row.endTime)}}</template></el-table-column><el-table-column label="类型" width="110"><template #default="{row}">{{itineraryTypeLabel(row.type)}}</template></el-table-column><el-table-column prop="title" label="行程"/><el-table-column label="完成" width="80"><template #default="{row}"><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></template></el-table-column><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openItem(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('item',row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="预算" name="budget"><div v-loading="isLoading('budget')" class="tab-loading-host"><div class="budget-summary"><div class="item"><span>总预算</span><strong>{{data.budget?.currency}} {{data.budget?.plannedTotal ?? '—'}}</strong></div><div class="item"><span>已支出</span><strong>{{data.budget?.currency}} {{data.budget?.actualTotal ?? '—'}}</strong></div><div class="item"><span>剩余</span><strong :class="{over:data.budget?.remaining<0}">{{data.budget?.currency}} {{data.budget?.remaining ?? '—'}}</strong></div></div><el-table :data="data.budget?.categories||[]" max-height="calc(100vh - 430px)"><el-table-column prop="name" label="分类"/><el-table-column label="计划金额" min-width="180"><template #default="{row}"><el-input-number class="budget-amount-input" v-model="row.planned" :min="0" :precision="2"/></template></el-table-column><el-table-column prop="actual" label="实际支出"/><el-table-column prop="remaining" label="剩余"/><el-table-column width="90"><template #default="{row}"><el-button link @click="saveCategory(row)">保存</el-button></template></el-table-column></el-table></div></el-tab-pane>
-        <el-tab-pane label="支出" name="expenses"><div class="tab-actions"><el-button type="primary" @click="openExpense()">记录支出</el-button></div><el-table v-loading="isLoading('expenses')" :data="data.expenses" max-height="calc(100vh - 360px)"><el-table-column prop="expenseDate" label="日期"/><el-table-column prop="description" label="说明"/><el-table-column prop="merchant" label="商户"/><el-table-column prop="amount" label="金额"/><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openExpense(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('expense',row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
-        <el-tab-pane label="日记" name="journals"><div class="tab-actions"><el-button type="primary" @click="router.push('/journals/new?tripId='+data.trip.id+'&from=journals')">新建日记</el-button></div><el-table v-loading="isLoading('journals')" :data="data.journals" max-height="calc(100vh - 360px)"><el-table-column prop="title" label="标题"/><el-table-column prop="occurredOn" label="日期"/><el-table-column label="状态"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="router.push('/journals/'+row.id+'?from=journals')">编辑</el-button><el-button size="small" type="danger" plain @click="removeJournal(row)">删除</el-button></div></template></el-table-column></el-table></el-tab-pane>
+        <el-tab-pane label="城市" name="stops"><div class="tab-actions"><el-button type="primary" @click="openStop()">添加城市</el-button></div>
+          <el-table v-if="!isMobile" v-loading="isLoading('stops')" :data="data.stops" table-layout="fixed" max-height="calc(100vh - 360px)"><el-table-column prop="cityName" label="城市"/><el-table-column prop="countryName" label="国家"/><el-table-column prop="arrivalDate" label="到达"/><el-table-column prop="departureDate" label="离开"/><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openStop(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('stop',row)">删除</el-button></div></template></el-table-column></el-table>
+          <div v-else v-loading="isLoading('stops')" class="workspace-mobile-list"><article v-for="row in data.stops" :key="row.id" class="workspace-mobile-card"><header><strong :title="row.cityName">{{row.cityName}}</strong><span :title="row.countryName">{{row.countryName||'—'}}</span></header><dl><div><dt>到达</dt><dd>{{row.arrivalDate||'—'}}</dd></div><div><dt>离开</dt><dd>{{row.departureDate||'—'}}</dd></div></dl><footer><el-button size="small" @click="openStop(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('stop',row)">删除</el-button></footer></article><el-empty v-if="!isLoading('stops')&&!data.stops.length" :image-size="48" description="还没有城市"/></div>
+        </el-tab-pane>
+        <el-tab-pane label="行程" name="itinerary"><div class="tab-actions"><el-button type="primary" @click="openItem()">添加行程</el-button></div>
+          <el-table v-if="!isMobile" v-loading="isLoading('itinerary')" :data="data.itinerary" table-layout="fixed" max-height="calc(100vh - 360px)"><el-table-column prop="itemDate" label="日期" width="120"/><el-table-column label="时间" width="140"><template #default="{row}">{{timeRange(row.startTime,row.endTime)}}</template></el-table-column><el-table-column label="类型" width="110"><template #default="{row}">{{itineraryTypeLabel(row.type)}}</template></el-table-column><el-table-column prop="title" label="行程"/><el-table-column label="完成" width="80"><template #default="{row}"><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></template></el-table-column><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openItem(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('item',row)">删除</el-button></div></template></el-table-column></el-table>
+          <div v-else v-loading="isLoading('itinerary')" class="workspace-mobile-list"><article v-for="row in data.itinerary" :key="row.id" class="workspace-mobile-card"><header><strong :title="row.title">{{row.title}}</strong><span>{{itineraryTypeLabel(row.type)}}</span></header><dl><div><dt>日期</dt><dd>{{row.itemDate||'—'}}</dd></div><div><dt>时间</dt><dd>{{timeRange(row.startTime,row.endTime)||'—'}}</dd></div><div><dt>完成</dt><dd><el-checkbox v-model="row.completed" @change="toggleCompleted(row)"/></dd></div></dl><footer><el-button size="small" @click="openItem(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('item',row)">删除</el-button></footer></article><el-empty v-if="!isLoading('itinerary')&&!data.itinerary.length" :image-size="48" description="还没有行程"/></div>
+        </el-tab-pane>
+        <el-tab-pane label="预算" name="budget"><div v-loading="isLoading('budget')" class="tab-loading-host"><div class="budget-summary"><div class="item"><span>总预算</span><strong :title="data.budget?.currency+' '+(data.budget?.plannedTotal ?? '—')">{{data.budget?.currency}} {{data.budget?.plannedTotal ?? '—'}}</strong></div><div class="item"><span>已支出</span><strong :title="data.budget?.currency+' '+(data.budget?.actualTotal ?? '—')">{{data.budget?.currency}} {{data.budget?.actualTotal ?? '—'}}</strong></div><div class="item"><span>剩余</span><strong :class="{over:data.budget?.remaining<0}" :title="data.budget?.currency+' '+(data.budget?.remaining ?? '—')">{{data.budget?.currency}} {{data.budget?.remaining ?? '—'}}</strong></div></div>
+          <div class="budget-actions"><span>修改多项后可一次提交</span><el-button type="primary" :loading="savingBudgetAll" :disabled="!(data.budget?.categories||[]).length" @click="saveAllCategories">全部保存</el-button></div>
+          <el-table v-if="!isMobile" :data="data.budget?.categories||[]" table-layout="fixed" max-height="calc(100vh - 470px)"><el-table-column prop="name" label="分类"/><el-table-column label="计划金额" min-width="180"><template #default="{row}"><el-input-number class="budget-amount-input" v-model="row.planned" :min="0" :precision="2"/></template></el-table-column><el-table-column prop="actual" label="实际支出"/><el-table-column prop="remaining" label="剩余"/><el-table-column width="90"><template #default="{row}"><el-button link :loading="isCategorySaving(row.id)" :disabled="savingBudgetAll" @click="saveCategory(row)">保存</el-button></template></el-table-column></el-table>
+          <div v-else class="workspace-mobile-list workspace-mobile-list--budget"><article v-for="row in (data.budget?.categories||[])" :key="row.id" class="workspace-mobile-card"><header><strong :title="row.name">{{row.name}}</strong><span>{{data.budget?.currency}}</span></header><label class="mobile-budget-input"><span>计划金额</span><el-input-number class="budget-amount-input" v-model="row.planned" :min="0" :precision="2"/></label><dl><div><dt>实际支出</dt><dd>{{row.actual}}</dd></div><div><dt>剩余</dt><dd :class="{over:row.remaining<0}">{{row.remaining}}</dd></div></dl><footer><el-button size="small" :loading="isCategorySaving(row.id)" :disabled="savingBudgetAll" @click="saveCategory(row)">单独保存</el-button></footer></article><el-empty v-if="!(data.budget?.categories||[]).length" :image-size="48" description="还没有预算分类"/></div>
+        </div></el-tab-pane>
+        <el-tab-pane label="支出" name="expenses"><div class="tab-actions"><el-button type="primary" @click="openExpense()">记录支出</el-button></div>
+          <el-table v-if="!isMobile" v-loading="isLoading('expenses')" :data="data.expenses" table-layout="fixed" max-height="calc(100vh - 360px)"><el-table-column prop="expenseDate" label="日期"/><el-table-column prop="description" label="说明"/><el-table-column prop="merchant" label="商户"/><el-table-column prop="amount" label="金额"/><el-table-column label="操作" width="140"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="openExpense(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('expense',row)">删除</el-button></div></template></el-table-column></el-table>
+          <div v-else v-loading="isLoading('expenses')" class="workspace-mobile-list"><article v-for="row in data.expenses" :key="row.id" class="workspace-mobile-card"><header><strong :title="row.description">{{row.description}}</strong><span>{{row.expenseDate||'—'}}</span></header><dl><div><dt>商户</dt><dd :title="row.merchant">{{row.merchant||'—'}}</dd></div><div><dt>金额</dt><dd>{{data.trip.defaultCurrency}} {{row.amount}}</dd></div></dl><footer><el-button size="small" @click="openExpense(row)">编辑</el-button><el-button size="small" type="danger" plain @click="remove('expense',row)">删除</el-button></footer></article><el-empty v-if="!isLoading('expenses')&&!data.expenses.length" :image-size="48" description="还没有支出"/></div>
+        </el-tab-pane>
+        <el-tab-pane label="日记" name="journals"><div class="tab-actions"><el-button type="primary" @click="router.push('/journals/new?tripId='+data.trip.id+'&from=journals')">新建日记</el-button></div>
+          <el-table v-if="!isMobile" v-loading="isLoading('journals')" :data="data.journals" table-layout="fixed" max-height="calc(100vh - 360px)"><el-table-column prop="title" label="标题"/><el-table-column prop="occurredOn" label="日期"/><el-table-column label="状态"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="{row}"><div class="table-actions"><el-button size="small" @click="router.push('/journals/'+row.id+'?from=journals')">编辑</el-button><el-button size="small" type="danger" plain @click="removeJournal(row)">删除</el-button></div></template></el-table-column></el-table>
+          <div v-else v-loading="isLoading('journals')" class="workspace-mobile-list"><article v-for="row in data.journals" :key="row.id" class="workspace-mobile-card"><header><strong :title="row.title">{{row.title||'未命名日记'}}</strong><span>{{statusLabel(row.status)}}</span></header><dl><div><dt>日期</dt><dd>{{row.occurredOn||'—'}}</dd></div></dl><footer><el-button size="small" @click="router.push('/journals/'+row.id+'?from=journals')">编辑</el-button><el-button size="small" type="danger" plain @click="removeJournal(row)">删除</el-button></footer></article><el-empty v-if="!isLoading('journals')&&!data.journals.length" :image-size="48" description="还没有日记"/></div>
+        </el-tab-pane>
         <el-tab-pane label="设置" name="settings"><el-descriptions border :column="1"><el-descriptions-item label="Slug">{{data.trip.slug}}</el-descriptions-item><el-descriptions-item label="默认币种">{{data.trip.defaultCurrency}}</el-descriptions-item><el-descriptions-item label="封面"><img v-if="data.trip.coverMediaId" class="settings-cover" :src="'/api/media/'+data.trip.coverMediaId+'/thumbnail'" alt="旅行封面"><span v-else>还没有设置封面，可在旅行管理里编辑</span></el-descriptions-item><el-descriptions-item label="内部备注">{{data.trip.internalNote||'无'}}</el-descriptions-item></el-descriptions><el-button style="margin-top:18px" @click="router.push('/themes')">查看主题外观</el-button></el-tab-pane>
       </el-tabs>
 

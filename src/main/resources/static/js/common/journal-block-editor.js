@@ -7,7 +7,7 @@
     'day-opener','day-summary'];
   // 这四种是「一边想一边打字」的内容，直接在正文里编辑；其余的是要填表的，仍然走配置弹窗。
   const INLINE_BLOCKS=['paragraph','heading','quote','callout'];
-  // 手机上按 ＋ 先看到的是这几个，不是全部类型。正文不在其中——回车就是下一段。
+  // 手机上按 ＋ 先看到的是这几个，不是全部类型。正文直接写，另起组件用「＋正文」。
   const QUICK_BLOCKS=['image','chapter','location-card','heading','day-opener','gallery','day-summary','divider'];
   const PLACEHOLDERS={paragraph:'继续写……',heading:'小标题',quote:'想记住的一句话',callout:'写下这条提示'};
   // textarea 跟着内容长高，让正文看起来是连续的一篇，而不是一格格输入框
@@ -53,7 +53,8 @@
         const hints={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
         return draft.value?.type==='gallery'?(hints[layout]||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
       });
-      let syncing=false,inlineTimer=null;
+      let syncing=false,inlineTimer=null,ensureTimer=null,viewportFrame=null,lastViewportMetrics='';
+      let selectScrollSnapshot=null;
 
       function bindingDefaults(type){
         if(type==='trip-info')return{enabled:false,fields:['date','city','tripTitle']};
@@ -204,7 +205,7 @@
       }
       /**
        * 打字时不要每一键都 commit——那会让父组件重算整篇文档，光标很容易被顶走。
-       * 攒 300 毫秒再往上报一次；结构变化（回车分段、退格合并）走 flushInline 立即提交。
+       * 攒 300 毫秒再往上报一次；结构变化（新增正文组件、退格合并）走 flushInline 立即提交。
        */
       function scheduleCommit(){
         if(inlineTimer)clearTimeout(inlineTimer);
@@ -236,15 +237,12 @@
           el.scrollIntoView({block:'nearest'});
         });
       }
-      /** 回车＝下一段。光标后面还有字就一起带到新段落里，和普通编辑器一致。 */
-      function inlineEnter(event,index){
-        if(event.isComposing||event.keyCode===229||event.shiftKey)return;
-        event.preventDefault();
-        const el=event.target,current=document.value.blocks[index];
-        const text=String(current.data.text||''),caret=el.selectionStart;
-        const carried=caret<text.length?text.slice(caret):'';
-        if(carried)current.data.text=text.slice(0,caret);
-        const block=JB.createBlock('paragraph',carried?{text:carried}:undefined);
+      /**
+       * 回车交还给 textarea，手机软键盘和普通文本编辑器一样插入段内换行。
+       * 新建正文块改由每个组件下方的显式按钮完成，避免作者只是想换行却意外拆块。
+       */
+      function insertParagraph(index){
+        const block=JB.createBlock('paragraph');
         document.value.blocks.splice(index+1,0,block);
         flushInline();focusInline(block.id,'start');
       }
@@ -277,27 +275,6 @@
         const block=JB.createBlock('paragraph',{text:text});
         document.value.blocks.push(block);commit();focusInline(block.id,'end');
       }
-      /*
-       * 段内换行。
-       *
-       * 电脑上是 Shift+Enter，但手机软键盘没有 Shift 键——回车又被用来分段了，
-       * 于是手机上根本没有办法在一段里换行。所以工具行里给一个显式的 ↵ 按钮。
-       * 标题不需要它：一个标题换行就该拆成两个标题。
-       */
-      function canBreak(block){return block.type!=='heading';}
-      function insertBreak(index){
-        const block=document.value.blocks[index];
-        const el=window.document.querySelector('[data-inline-input="'+block.id+'"]');
-        const text=String(block.data.text||'');
-        const start=el?el.selectionStart:text.length,end=el?el.selectionEnd:text.length;
-        block.data.text=text.slice(0,start)+'\n'+text.slice(end);
-        flushInline();
-        nextTick(()=>{
-          const target=window.document.querySelector('[data-inline-input="'+block.id+'"]');
-          if(!target)return;
-          autoGrow(target);target.focus();target.setSelectionRange(start+1,start+1);
-        });
-      }
       function setHeadingLevel(block,level){block.data.level=level;flushInline();}
       function setCalloutTone(block,tone){block.data.tone=tone;flushInline();}
       function openCatalog(index){
@@ -318,6 +295,10 @@
         nextTick(()=>editorOpen.value=true);
       }
       function edit(index){draft.value=JSON.parse(JSON.stringify(document.value.blocks[index]));editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
+      function editOnDoubleClick(event,index){
+        if(event.target.closest('button,a,input,textarea,select,[role="button"]'))return;
+        edit(index);
+      }
       function backToCatalog(){editorOpen.value=false;draft.value=null;nextTick(()=>catalogOpen.value=true);}
       function confirmEdit(){
         if(!draft.value)return;
@@ -349,14 +330,50 @@
       function isMediaType(type){return IMAGE_BLOCKS.includes(type);}
       function ensureVisible(event){
         const el=event?.target||window.document.activeElement;if(!el)return;
-        requestAnimationFrame(()=>setTimeout(()=>el.scrollIntoView({block:'center',behavior:'smooth'}),120));
+        if(ensureTimer)clearTimeout(ensureTimer);
+        ensureTimer=setTimeout(()=>{
+          ensureTimer=null;
+          if(el.isConnected)el.scrollIntoView({block:'center',behavior:'smooth'});
+        },120);
       }
-      function viewport(){
+      /** 下拉打开前记住所有祖先滚动区；选完后恢复，避免表单被顶上去后停在新位置。 */
+      function rememberSelectScroll(event){
+        const select=event.target.closest?.('.el-select');
+        if(!select)return;
+        const nodes=[];
+        for(let node=select.parentElement;node&&node!==window.document.body;node=node.parentElement){
+          const overflow=window.getComputedStyle(node).overflowY;
+          if(/auto|scroll/.test(overflow)&&!nodes.includes(node))nodes.push(node);
+        }
+        selectScrollSnapshot={nodes:nodes.map(node=>({node,top:node.scrollTop,left:node.scrollLeft})),
+          x:window.scrollX,y:window.scrollY};
+      }
+      function restoreSelectScroll(){
+        const snapshot=selectScrollSnapshot;if(!snapshot)return;
+        selectScrollSnapshot=null;
+        if(ensureTimer){clearTimeout(ensureTimer);ensureTimer=null;}
+        const restore=()=>{
+          snapshot.nodes.forEach(item=>{if(item.node.isConnected){item.node.scrollTop=item.top;item.node.scrollLeft=item.left;}});
+          window.scrollTo(snapshot.x,snapshot.y);
+        };
+        nextTick(()=>requestAnimationFrame(()=>{restore();setTimeout(restore,100);}));
+      }
+      function onDocumentClick(event){
+        if(!selectScrollSnapshot)return;
+        if(event.target.closest?.('.el-select-dropdown__item'))restoreSelectScroll();
+        else if(!event.target.closest?.('.el-select,.el-select__popper'))restoreSelectScroll();
+      }
+      function applyViewport(){
+        viewportFrame=null;
         const vv=window.visualViewport,bottom=vv?Math.max(0,window.innerHeight-vv.height-vv.offsetTop):0;
+        const metrics=[Math.round(vv?vv.height:window.innerHeight),Math.round(bottom)].join(':');
+        if(metrics===lastViewportMetrics)return;
+        lastViewportMetrics=metrics;
         window.document.documentElement.style.setProperty('--visual-viewport-height',(vv?vv.height:window.innerHeight)+'px');
         window.document.documentElement.style.setProperty('--browser-bottom-inset',bottom+'px');
         if(editorOpen.value&&window.document.activeElement&&/INPUT|TEXTAREA/.test(window.document.activeElement.tagName))ensureVisible();
       }
+      function viewport(){if(viewportFrame==null)viewportFrame=requestAnimationFrame(applyViewport);}
       function selectedMedia(item){
         if(!draft.value)return false;
         return draft.value.type==='gallery'?(draft.value.data.mediaIds||[]).includes(item.id):draft.value.data.mediaId===item.id;
@@ -457,25 +474,29 @@
         draft.value=JB.createBlock(type,type==='gallery'?{mediaIds:values}:{mediaId:values[0]});
         editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
       }
-      onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);});
+      onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);
+        window.document.addEventListener('click',onDocumentClick,true);});
       onBeforeUnmount(()=>{
         if(inlineTimer){clearTimeout(inlineTimer);inlineTimer=null;commit();}
+        if(ensureTimer)clearTimeout(ensureTimer);
+        if(viewportFrame!=null)cancelAnimationFrame(viewportFrame);
         window.JournalMedia?.teardown(previewEl.value);
         window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
+        window.document.removeEventListener('click',onDocumentClick,true);
       });
       expose({openCatalog,insertMedia,insertQuick,insertPending,resolvePending,dropPending,flushInline});
       return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
         layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,dataBinding,relatedRecords,
-        catalogMode,catalogCount,quickItems,isInline,placeholderOf,inlineInput,inlineFocus,inlineEnter,inlineBackspace,inlineArrow,startWriting,canBreak,insertBreak,setHeadingLevel,setCalloutTone,insertQuick,
-        openCatalog,choose,edit,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,bindsWholeDay,
-        render,label,isMediaType,ensureVisible,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding,
+        catalogMode,catalogCount,quickItems,isInline,placeholderOf,inlineInput,inlineFocus,inlineBackspace,inlineArrow,startWriting,insertParagraph,setHeadingLevel,setCalloutTone,insertQuick,
+        openCatalog,choose,edit,editOnDoubleClick,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,bindsWholeDay,
+        render,label,isMediaType,ensureVisible,rememberSelectScroll,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding,
         isPending,pendingProgress,pendingFailed,pendingLabel,pendingPreviews,retryPending,cancelPending};
     },
     template:`
       <div class="block-editor">
         <div v-if="!document.blocks.length" class="block-inline block-inline--ghost">
           <textarea class="block-inline-input block-inline-input--paragraph" rows="1"
-            placeholder="今天发生了什么？直接开始写，回车就是下一段。" @input="startWriting"></textarea>
+            placeholder="今天发生了什么？直接开始写，回车可以换行。" @input="startWriting"></textarea>
         </div>
         <template v-for="(block,index) in document.blocks" :key="block.id">
           <div class="block-insert-line"><button type="button" @click="openCatalog(index)" aria-label="在这里添加内容">＋</button></div>
@@ -487,7 +508,7 @@
                 block.type==='paragraph'&&block.settings.style?'is-'+block.settings.style:'',
                 block.type==='callout'?'is-'+(block.data.tone||'note'):'']"
               :style="{textAlign:block.settings.align||''}" :placeholder="placeholderOf(block)"
-              @input="inlineInput" @focus="inlineFocus(index)" @keydown.enter="inlineEnter($event,index)" @keydown.backspace="inlineBackspace($event,index)"
+              @input="inlineInput" @focus="inlineFocus(index)" @keydown.backspace="inlineBackspace($event,index)"
               @keydown.up="inlineArrow($event,index,-1)" @keydown.down="inlineArrow($event,index,1)"></textarea>
             <input v-if="block.type==='quote'" v-model="block.data.source" class="block-inline-source"
               placeholder="出处（可选）" @input="inlineInput">
@@ -503,7 +524,7 @@
                 </template>
               </div>
               <div class="block-inline-tools">
-                <button v-if="canBreak(block)" type="button" class="block-inline-break" title="在段内换行（电脑上也可以按 Shift+Enter）" @click="insertBreak(index)">↵</button>
+                <button type="button" class="block-inline-add" title="在下方新增正文组件" aria-label="新增正文组件" @click="insertParagraph(index)">＋正文</button>
                 <button type="button" :disabled="index===0" title="上移" @click="move(index,-1)">↑</button>
                 <button type="button" :disabled="index===document.blocks.length-1" title="下移" @click="move(index,1)">↓</button>
                 <button type="button" title="更多设置" @click="edit(index)">⋯</button>
@@ -525,7 +546,8 @@
             </div>
           </article>
 
-          <article v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id">
+          <article v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id"
+            title="双击打开编辑" @dblclick="editOnDoubleClick($event,index)">
             <header><span>{{label(block.type)}}</span><div>
               <button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><button type="button" :disabled="index===document.blocks.length-1" @click="move(index,1)">↓</button>
               <button type="button" @click="edit(index)">编辑</button><button type="button" class="danger" @click="remove(index)">删除</button>
@@ -536,7 +558,7 @@
 
         <el-dialog v-model="catalogOpen" :title="catalogMode==='quick'?'添加内容':'全部内容类型'" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body align-center destroy-on-close>
           <template v-if="catalogMode==='quick'">
-            <p class="block-dialog-intro">写字直接在正文里打就行，回车分段。这里放的是文字之外的内容。</p>
+            <p class="block-dialog-intro">写字直接在正文里打，回车换行；需要另起正文组件时点“＋正文”。这里放的是文字之外的内容。</p>
             <div class="block-catalog block-catalog--quick"><button v-for="item in quickItems" :key="item.type" type="button" @click="choose(item)"><b>{{item.icon}}</b><span><strong>{{item.label}}</strong><small>{{item.description}}</small></span></button></div>
             <button type="button" class="block-catalog-more" @click="catalogMode='all'">更多内容（共 {{catalogCount}} 种）→</button>
           </template>
@@ -555,7 +577,7 @@
               <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>
                 <div class="journal-document" v-html="draftPreview"></div><div v-if="!draftPreview" class="block-preview-empty">选择图片后，这里会显示它在正文中的实际比例和占位</div>
                 <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
-            <div class="block-config-form" @focusin="ensureVisible">
+            <div class="block-config-form" @pointerdown.capture="rememberSelectScroll" @focusin="ensureVisible">
               <label v-if="!['heading','divider'].includes(draft.type)">区块标题（可选）<el-input v-model="draft.title" placeholder="例如 今日路线"/></label>
               <section v-if="isLinkableBlock" class="travel-data-binding">
                 <header><div><strong>旅行数据关联</strong><small>关联会把旅行工作台的数据填入区块；正文仍保存为稳定快照。</small></div>

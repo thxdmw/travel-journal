@@ -5,10 +5,10 @@
 .page-head p { margin:7px 0 0; color:var(--tj-muted); }
 .panel { border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); box-shadow:var(--tj-shadow-soft); }
 .panel-pad { padding:22px; }
-.dashboard-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
-.metric { padding:22px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); }
+.dashboard-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+.metric { min-width:0; padding:13px 15px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface); }
 .metric span { color:var(--tj-muted); font-size:13px; }
-.metric strong { display:block; margin-top:10px; color:var(--tj-primary); font:700 32px var(--tj-serif); }
+.metric strong { display:block; margin-top:4px; color:var(--tj-primary); font:700 25px var(--tj-serif); }
 .trip-list { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
 .trip-card-cover { display:block; width:100%; height:132px; margin-bottom:12px; border-radius:calc(var(--tj-radius) - 4px); object-fit:cover; }
 /* 没有封面的卡片也要占住同样的高度，否则一行里有图和无图的卡片会错位 */
@@ -46,9 +46,11 @@
 .stop-picker-map .leaflet-control-layers-expanded { padding:12px 14px; color:var(--tj-text); background:var(--tj-surface); }
 .location-form .el-form-item { margin-bottom:14px; }
 .location-form .el-input-number { width:100%; }
-.budget-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:20px; }
-.budget-summary .item { padding:18px; border:1px solid var(--tj-border); border-radius:10px; background:#fffaf2; }
-.budget-summary strong { display:block; margin-top:8px; color:var(--tj-primary); font-size:25px; }
+.budget-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:12px; }
+.budget-summary .item { min-width:0; padding:12px 14px; border:1px solid var(--tj-border); border-radius:9px; background:color-mix(in srgb,var(--tj-sand) 14%,var(--tj-surface)); }
+.budget-summary strong { display:block; overflow:hidden; margin-top:4px; color:var(--tj-primary); font-size:20px; text-overflow:ellipsis; white-space:nowrap; }
+.budget-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin:0 0 12px; }
+.budget-actions span { margin-right:auto; color:var(--tj-muted); font-size:12px; }
 .over { color:var(--tj-danger)!important; }
 .form-hint { margin-left:6px; color:var(--tj-muted); font-weight:400; font-size:12px; }
 .template-writing { min-height:480px; display:grid; grid-template-columns:260px 1fr; gap:18px; }
@@ -192,7 +194,18 @@
   .theme-live { order:1; flex:0 0 330px; min-height:330px; }
   .theme-setting-grid,.theme-color-grid { grid-template-columns:1fr; }
   .theme-designer-dialog .el-dialog__footer { padding:10px 12px; }
-  .dashboard-grid,.trip-list,.budget-summary,.theme-grid,.profile-grid { grid-template-columns:1fr; }
+  .trip-list,.theme-grid,.profile-grid { grid-template-columns:1fr; }
+  .dashboard-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-bottom:12px; }
+  .metric { padding:9px 4px; text-align:center; }
+  .metric span { font-size:11px; white-space:nowrap; }
+  .metric strong { margin-top:2px; font-size:21px; }
+  .budget-summary { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+  .budget-summary .item { padding:9px 5px; text-align:center; }
+  .budget-summary .item span { font-size:11px; white-space:nowrap; }
+  .budget-summary strong { margin-top:2px; font-size:clamp(12px,3.6vw,17px); }
+  .budget-actions { align-items:center; margin-bottom:10px; }
+  .budget-actions span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .budget-actions .el-button { flex:0 0 auto; min-height:38px; margin:0; }
   .budget-amount-input { width:100%; min-width:140px; }
   .budget-amount-input .el-input-number__decrease,.budget-amount-input .el-input-number__increase { display:none; }
   .budget-amount-input .el-input__wrapper { padding-left:10px!important; padding-right:10px!important; }
@@ -227,6 +240,26 @@
   .template-editor-dialog,.template-writing-dialog { width:100%!important; max-height:100dvh; margin:0!important; border-radius:0!important; }
   .template-editor-dialog .el-dialog__body,.template-writing-dialog .el-dialog__body { max-height:calc(100dvh - 130px); overflow:auto; padding:12px; }
   .template-block-editor { grid-template-columns:36px 1fr; }
+  .workspace-tabs,.workspace-tabs .el-tab-pane { min-width:0; }
+  .workspace-tabs .el-tabs__content { overflow:hidden; padding:12px 9px; }
+  .tab-actions { margin-bottom:10px; }
+  .workspace-mobile-list { width:100%; min-height:80px; display:grid; gap:9px; overflow:hidden; }
+  .workspace-mobile-card { min-width:0; overflow:hidden; padding:11px 12px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface); }
+  .workspace-mobile-card>header { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; }
+  .workspace-mobile-card>header strong,.workspace-mobile-card>header span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .workspace-mobile-card>header strong { color:var(--tj-primary); font-size:14px; }
+  .workspace-mobile-card>header span { max-width:34vw; color:var(--tj-muted); font-size:11px; }
+  .workspace-mobile-card dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:7px; margin:9px 0 0; }
+  .workspace-mobile-card dl>div { min-width:0; display:grid; gap:1px; }
+  .workspace-mobile-card dt { color:var(--tj-muted); font-size:10px; }
+  .workspace-mobile-card dd { min-width:0; overflow:hidden; margin:0; color:var(--tj-text); font-size:12px; line-height:24px; text-overflow:ellipsis; white-space:nowrap; }
+  .workspace-mobile-card>footer { display:flex; justify-content:flex-end; gap:7px; margin-top:9px; padding-top:8px; border-top:1px solid var(--tj-border); }
+  .workspace-mobile-card>footer .el-button { min-height:30px; margin:0; }
+  .mobile-budget-input { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:10px; margin-top:10px; color:var(--tj-muted); font-size:11px; }
+  .mobile-budget-input .el-input-number { width:100%; min-width:0; }
+  .workspace-mobile-list--budget .workspace-mobile-card>footer { border-top:0; padding-top:0; }
+  .workspace-tabs .el-descriptions__cell { min-width:0; }
+  .workspace-tabs .el-descriptions__content { overflow:hidden; text-overflow:ellipsis; }
 }
 /*
  * ================================================================ 后台列表
