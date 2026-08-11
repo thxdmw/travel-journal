@@ -39,6 +39,7 @@ RUN --mount=type=cache,target=/root/.m2/repository \
 FROM eclipse-temurin:21-jre AS runtime
 WORKDIR /app/travel-journal
 COPY --from=builder /build/target/travel-journal.jar app.jar
-EXPOSE 20007
+# EXPOSE 只声明镜像默认端口；host 网络下的实际监听端口仍由 SERVER_PORT 决定。
+EXPOSE 8080
 ENV SPRING_PROFILES_ACTIVE=prod
 ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-jar", "/app/travel-journal/app.jar"]

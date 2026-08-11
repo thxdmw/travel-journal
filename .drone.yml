@@ -52,10 +52,12 @@ steps:
           fi
         - cd /app/travel-journal/travel-journal
         - sudo git fetch --prune origin master
-        # 按 Gitee 本次触发的提交部署，避免流水线期间 master 前移造成版本错配。
-        - sudo git checkout --detach ${DRONE_COMMIT_SHA}
-        - sudo chmod +x deploy.sh
-        - sudo env DEPLOY_RELEASE_TAG=${DRONE_COMMIT_SHA} ./deploy.sh
+        # 部署目录只作为 Gitee 代码副本，不保留服务器上的跟踪文件修改。
+        # 强制切换到本次触发的精确提交，既避免 master 前移造成版本错配，
+        # 也会清理历史 chmod 或手工修改留下的脏工作树，防止 checkout 被阻塞。
+        - sudo git checkout --force --detach ${DRONE_COMMIT_SHA}
+        # 直接交给 Bash 执行，不再 chmod，避免把 deploy.sh 的权限位改成未提交状态。
+        - sudo env DEPLOY_RELEASE_TAG=${DRONE_COMMIT_SHA} bash ./deploy.sh
 
 trigger:
   event:
