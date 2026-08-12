@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.math.BigDecimal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -53,5 +54,62 @@ class TripServiceTest {
         assertThatThrownBy(() -> service.createStop(1L, stop))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不能同时为 0");
+    }
+
+    private TripService serviceWithExistingTrip(Long tripId) {
+        TripMapper tripMapper = mock(TripMapper.class);
+        Trip existing = new Trip();
+        existing.setId(tripId);
+        when(tripMapper.selectById(tripId)).thenReturn(existing);
+        return new TripService(tripMapper, mock(TripStopMapper.class),
+                mock(ItineraryMapper.class), mock(BudgetCategoryMapper.class),
+                mock(ExpenseMapper.class), mock(JournalMapper.class));
+    }
+
+    private TripStop validStop() {
+        TripStop stop = new TripStop();
+        stop.setCityName("青城山");
+        stop.setCountryName("中国");
+        stop.setLatitude(BigDecimal.valueOf(30.9021));
+        stop.setLongitude(BigDecimal.valueOf(103.5678));
+        return stop;
+    }
+
+    /** 数据库长期标准坐标是 WGS84：没传坐标系时按新标准默认，不再默认成旧的 GCJ02。 */
+    @Test
+    void defaultsCoordinateSystemToWgs84WhenNotProvided() {
+        TripService service = serviceWithExistingTrip(1L);
+        TripStop stop = validStop();
+
+        TripStop saved = service.createStop(1L, stop);
+
+        assertThat(saved.getCoordinateSystem()).isEqualTo("WGS84");
+    }
+
+    /** 新写入即使明确来自 GCJ02，也必须在服务边界转成 WGS84 再落库。 */
+    @Test
+    void convertsExplicitGcj02InputToCanonicalWgs84() {
+        TripService service = serviceWithExistingTrip(1L);
+        TripStop stop = validStop();
+        stop.setCoordinateSystem("gcj02");
+        BigDecimal originalLatitude = stop.getLatitude();
+        BigDecimal originalLongitude = stop.getLongitude();
+
+        TripStop saved = service.createStop(1L, stop);
+
+        assertThat(saved.getCoordinateSystem()).isEqualTo("WGS84");
+        assertThat(saved.getLatitude()).isNotEqualByComparingTo(originalLatitude);
+        assertThat(saved.getLongitude()).isNotEqualByComparingTo(originalLongitude);
+    }
+
+    @Test
+    void rejectsUnknownCoordinateSystem() {
+        TripService service = serviceWithExistingTrip(1L);
+        TripStop stop = validStop();
+        stop.setCoordinateSystem("BD09");
+
+        assertThatThrownBy(() -> service.createStop(1L, stop))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("坐标系");
     }
 }

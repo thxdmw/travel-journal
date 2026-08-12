@@ -225,10 +225,12 @@
       const asset = String(item?.asset || '');
       const area = String(item?.area || '');
       if (!SAFE_ASSET.test(asset) || !STICKER_AREAS.includes(area)) return;
-      const element = document.createElement('img');
+      // 用 span + 背景图而不是 <img>：主题装饰和正文照片必须在 DOM 语义上彻底分开，
+      // 否则灯箱的 querySelectorAll('img') 之类的收图逻辑会把贴纸也当成照片收进去。
+      const element = document.createElement('span');
       element.className = 'tj-sticker tj-sticker--' + area;
-      element.src = '/assets/themes/stickers/' + asset + '.svg';
-      element.alt = '';
+      element.dataset.themeDecoration = 'sticker';
+      element.style.backgroundImage = 'url(/assets/themes/stickers/' + asset + '.svg)';
       element.setAttribute('aria-hidden', 'true');
       // 贴纸互动也走白名单：主题只能说「点一下弹一下」，不能带任何脚本
       const click = document.documentElement.dataset.interactionsStickerClick;

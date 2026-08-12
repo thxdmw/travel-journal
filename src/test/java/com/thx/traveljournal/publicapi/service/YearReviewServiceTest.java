@@ -62,6 +62,13 @@ class YearReviewServiceTest {
         return s;
     }
 
+    private TripStop gcjStop(long tripId, String city, String country, double wgsLat, double wgsLon) {
+        double[] gcj = com.thx.traveljournal.common.util.CoordinateConverter.wgs84ToGcj02(wgsLat, wgsLon);
+        TripStop stop = stop(tripId, city, country, gcj[0], gcj[1]);
+        stop.setCoordinateSystem("GCJ02");
+        return stop;
+    }
+
     private JournalEntry journal(long id, Long tripId, LocalDate on) {
         JournalEntry j = new JournalEntry();
         j.setId(id);
@@ -141,6 +148,22 @@ class YearReviewServiceTest {
 
         assertThat(review.distanceKm()).isZero();
         assertThat(review.tripCount()).isEqualTo(2);
+    }
+
+    @Test
+    void 历史Gcj02停靠点按元数据转为Wgs84后再统计距离() {
+        Trip trip = new Trip();
+        trip.setId(1L); trip.setTitle("历史坐标旅行"); trip.setSlug("legacy-coordinates");
+        trip.setStartDate(LocalDate.of(2026, 4, 1)); trip.setEndDate(LocalDate.of(2026, 4, 5));
+        when(journalMapper.selectList(any())).thenReturn(List.of(journal(1L, 1L, LocalDate.of(2026, 4, 2))));
+        when(tripMapper.selectByIds(any())).thenReturn(List.of(trip));
+        when(stopMapper.selectList(any())).thenReturn(List.of(
+                gcjStop(1L, "北京", "中国", 39.9042, 116.4074),
+                gcjStop(1L, "上海", "中国", 31.2304, 121.4737)));
+
+        var review = service.review(2026);
+
+        assertThat(review.distanceKm()).isBetween(1000L, 1120L);
     }
 
     @Test

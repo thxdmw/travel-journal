@@ -214,10 +214,11 @@
        */
       const routeDay = ref(''), routeEl = ref(null), routePoints = ref([]);
       const replaying = ref(false), replayIndex = ref(-1);
-      let routeMap = null, routeControl = null;
+      let routeMap = null, routeControl = null, routeToken = 0;
       async function toggleRoute(group) {
         if (routeDay.value === group.day) { closeRoute(); return; }
         closeRoute();
+        const token = ++routeToken;
         routeDay.value = group.day;
         try { routePoints.value = await A.momentRoute(tripId.value, group.day); }
         catch (e) { fail(e); routeDay.value = ''; return; }
@@ -227,15 +228,19 @@
           return;
         }
         await nextTick();
-        routeMap = window.DayRoute?.simpleMap(routeEl.value);
+        const map = await window.DayRoute?.simpleMap(routeEl.value);
+        // 地图还没加载完就切到另一天甚至关掉了，这份已经过时，直接销毁
+        if (token !== routeToken) { map?.destroy(); return; }
+        routeMap = map;
         routeControl = window.DayRoute?.render(routeMap, routePoints.value, {
           source: routePoints.value[0]?.source,
           onState: state => { replaying.value = state.playing; replayIndex.value = state.index; }
         });
       }
       function closeRoute() {
+        routeToken++;
         routeControl?.destroy(); routeControl = null;
-        routeMap?.remove(); routeMap = null;
+        routeMap?.destroy(); routeMap = null;
         routeDay.value = ''; routePoints.value = []; replaying.value = false; replayIndex.value = -1;
       }
       function toggleReplay() { routeControl?.play(); }

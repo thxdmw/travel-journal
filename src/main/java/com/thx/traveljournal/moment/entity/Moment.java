@@ -44,6 +44,8 @@ public class Moment extends BaseEntity {
     private BigDecimal latitude;
     /** 经度，来自设备定位或照片 EXIF */
     private BigDecimal longitude;
+    /** 坐标系，恒为 WGS84——设备 GPS 和照片 EXIF GPS 按规范都直接输出 WGS84，不需要转换 */
+    private String coordinateSystem;
     /** 当时的心情，一个词 */
     private String mood;
     /** 已经被整理进哪篇日记；为空表示还散着 */

@@ -8,6 +8,7 @@ import com.drew.metadata.exif.ExifSubIFDDirectory;
 import com.drew.metadata.exif.GpsDirectory;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.config.AppProperties;
+import com.thx.traveljournal.common.util.CoordinateConverter;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.journal.service.JournalDocumentService;
@@ -193,8 +194,10 @@ public class MediaService {
         double best = Double.MAX_VALUE;
         for (var stop : stops) {
             if (stop.getLatitude() == null || stop.getLongitude() == null) continue;
+            BigDecimal[] stopWgs84 = CoordinateConverter.toWgs84(
+                    stop.getLatitude(), stop.getLongitude(), stop.getCoordinateSystem());
             double distance = haversineKm(avgLat, avgLon,
-                    stop.getLatitude().doubleValue(), stop.getLongitude().doubleValue());
+                    stopWgs84[0].doubleValue(), stopWgs84[1].doubleValue());
             if (distance < best) { best = distance; nearest = stop; }
         }
         if (nearest == null) return null;

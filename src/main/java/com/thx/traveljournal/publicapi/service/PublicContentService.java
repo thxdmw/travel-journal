@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
+import com.thx.traveljournal.common.util.CoordinateConverter;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.journal.service.JournalPreviewService;
@@ -234,8 +235,10 @@ public class PublicContentService {
                     .min(LocalDate::compareTo).orElse(null);
             List<Integer> years = cityStops.stream().map(TripStop::getArrivalDate).filter(Objects::nonNull)
                     .map(LocalDate::getYear).distinct().sorted().toList();
+            java.math.BigDecimal[] wgs84 = CoordinateConverter.toWgs84(
+                    first.getLatitude(), first.getLongitude(), first.getCoordinateSystem());
             result.add(new CityMarker(first.getCityName(), first.getRegionName(), first.getCountryName(),
-                    first.getAdcode(), first.getCoordinateSystem(), first.getLatitude(), first.getLongitude(),
+                    first.getAdcode(), "WGS84", wgs84[0], wgs84[1],
                     firstDate, years, tripIds.size(), cityJournals.size(), tripLinks, links));
         }
         return result;
@@ -285,9 +288,11 @@ public class PublicContentService {
     }
 
     private TripStopView stopView(TripStop stop) {
+        java.math.BigDecimal[] wgs84 = CoordinateConverter.toWgs84(
+                stop.getLatitude(), stop.getLongitude(), stop.getCoordinateSystem());
         return new TripStopView(stop.getCityName(), stop.getRegionName(), stop.getCountryName(),
-                stop.getLatitude(), stop.getLongitude(), stop.getFormattedAddress(), stop.getAdcode(),
-                stop.getCoordinateSystem(), stop.getArrivalDate(), stop.getDepartureDate(),
+                wgs84[0], wgs84[1], stop.getFormattedAddress(), stop.getAdcode(),
+                "WGS84", stop.getArrivalDate(), stop.getDepartureDate(),
                 stop.getSortOrder() == null ? 0 : stop.getSortOrder());
     }
 

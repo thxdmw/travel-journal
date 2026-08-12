@@ -74,7 +74,7 @@
   function createBlock(type, initial) {
     const block = { id:id(), type:type, version:1, title:'', data:clone(defaults[type] || {}), settings:{} };
     if (type === 'image' || type === 'gallery' || type === 'postcard')
-      block.settings = { size:'medium', align:'center', layout:type === 'postcard' ? 'postcard' : 'grid', columns:3,
+      block.settings = { size:type === 'postcard' ? 'medium' : '', align:'center', layout:type === 'postcard' ? 'postcard' : '', columns:null,
         ratio:'', focus:'', frame:'', radius:'', tone:'', effect:'', captionPos:'' };
     if(type==='paragraph')block.settings={style:'normal',align:'left'};
     if (initial) {
@@ -113,7 +113,11 @@
     return block.title ? '<h2 class="journal-block__title">' + esc(block.title) + '</h2>' : '';
   }
   function figureClasses(s, extra) {
-    const values=['journal-figure--'+(s.size||'medium'),'journal-figure--'+(s.align||'center')];
+    // size / align 没有显式选择时不输出覆盖类，让主题的 image.width 等默认值真正生效。
+    // 旧内容已经保存了明确值时仍按区块设置优先，不改变既有日记的排版。
+    const values=[];
+    if(s.size)values.push('journal-figure--'+s.size);
+    if(s.align)values.push('journal-figure--'+s.align);
     ['ratio','focus','frame','radius','tone','effect','captionPos'].forEach(key=>{
       if(s[key])values.push('journal-figure--'+(key==='captionPos'?'caption':key)+'-'+s[key]);
     });
@@ -133,15 +137,16 @@
     const d=block.data||{}, s=block.settings||{}, ids=Array.isArray(d.mediaIds)?d.mediaIds:[],
       previews=Array.isArray(d.previewUrls)?d.previewUrls:[];
     if (!ids.length && !previews.length) return '';
-    const mode=s.layout||'grid', columns=Math.max(1,Math.min(6,Number(s.columns)||3));
+    const mode=s.layout||'', columns=s.columns==null?null:Math.max(1,Math.min(6,Number(s.columns)||3));
     const sources=previews.length?previews:ids;
     const visibleSources=mode==='compare'?sources.slice(0,2):sources;
     const images=visibleSources.map(mediaId => {
       const item=map.get(Number(mediaId)), caption=(item&&item.caption)||'旅行照片';
       return '<img src="' + esc(previews.length?mediaId:mediaUrl(item,mediaId)) + '" alt="' + esc(caption) + '" loading="lazy">';
     }).join('');
-    return '<figure class="journal-gallery ' + figureClasses(s,'journal-gallery--'+mode) +
-      ' journal-gallery--cols-' + columns + '">' + images +
+    const layoutClass=mode?'journal-gallery--'+mode:'';
+    const columnsClass=columns==null?'':' journal-gallery--cols-'+columns;
+    return '<figure class="journal-gallery ' + figureClasses(s,layoutClass) + columnsClass + '">' + images +
       (d.caption ? '<figcaption>' + esc(d.caption) + '</figcaption>' : '') + '</figure>';
   }
   function postcard(block, map) {

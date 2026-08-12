@@ -85,3 +85,20 @@ app:
     provider: ${APP_MAP_PROVIDER:amap}
     amap-web-service-key: ${AMAP_WEB_SERVICE_KEY:}
     search-enabled: ${APP_MAP_SEARCH_ENABLED:true}
+    # 前台地图展示：AUTO 按访客网络地区判断，也可以强制固定成 AMAP 或 OSM
+    display-provider: ${APP_MAP_DISPLAY_PROVIDER:AUTO}
+    # AUTO 判断不出访客地区时的兜底 Provider
+    display-fallback: ${APP_MAP_DISPLAY_FALLBACK:AMAP}
+    # 高德「Web端(JS API)」Key，用于前台地图展示；和上面的 Web 服务 Key 是两个不同的高德产品，
+    # 不能混用。未配置时前台的「高德」选项不可用，AUTO 会一直落到 OSM
+    amap-js-key: ${AMAP_JS_KEY:}
+    # 高德 JS API 安全密钥只存在服务端，用于 /api/public/_AMapService/** 代理追加 jscode。
+    amap-security-code: ${AMAP_SECURITY_CODE:}
+    # 浏览器只拿到这个代理地址，不会拿到上面的安全密钥。也可以换成 Nginx 提供的 /_AMapService。
+    amap-service-host: ${AMAP_SERVICE_HOST:/api/public/_AMapService}
+    # OSM 兼容瓦片 Provider 可配置；地图瓦片不经过 Spring Boot，也不保存到 MinIO。
+    osm-tile-url: ${OSM_TILE_URL:https://tile.openstreetmap.org/{z}/{x}/{y}.png}
+    osm-attribution: ${OSM_ATTRIBUTION:© OpenStreetMap contributors}
+    # 判断访客地区用的可信 header 名，例如反向代理注入的国家码（Cloudflare 的 CF-IPCountry 等）；
+    # 留空表示不做地区判断，AUTO 直接使用 display-fallback
+    geo-header-name: ${APP_MAP_GEO_HEADER:}

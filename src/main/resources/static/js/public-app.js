@@ -3,7 +3,8 @@
   const api = window.TravelApi.public;
   const isThemePreview = new URLSearchParams(location.search).has('theme-preview');
   const applyTheme = (theme,options) => window.TravelTheme.apply(theme,options);
-  let siteTheme = window.TravelTheme.stored(), scopedTheme = null;
+  // Studio iframe 从纯净基础主题开始，绝不继承浏览器里真实站点上次保存的主题。
+  let siteTheme = isThemePreview ? 'travel-classic' : window.TravelTheme.stored(), scopedTheme = null;
   function setSiteTheme(theme){siteTheme=theme;if(!scopedTheme)applyTheme(theme);}
   function setScopedTheme(theme){scopedTheme=theme;applyTheme(theme);}
   function clearScopedTheme(){scopedTheme=null;applyTheme(siteTheme);}
@@ -38,20 +39,29 @@
       </router-link>`
   };
 
-  function createMap(element, markers, options = {}) {
+  /**
+   * 地图渲染的统一入口：内部走 TravelMap（AUTO/AMAP/OSM），不再直接碰 Leaflet 或高德 API。
+   * provider 加载失败时不静默换下一个——显示提示，用户自己点「尝试 OSM/高德」才切换，
+   * 不偷偷改动已经保存的手动选择。
+   */
+  async function createMap(element, markers, options = {}) {
     if (!element) return null;
     const settings = typeof options === 'boolean' ? { fit: options } : options;
-    if (!window.L) {
-      element.innerHTML = '<div class="map-load-message">地图组件加载失败，请刷新页面重试</div>';
-      element.classList.add('map-load-failed');
+    return renderMapInto(element, settings, markers || []);
+  }
+
+  async function renderMapInto(element, settings, markers, forcedProvider) {
+    element.classList.remove('map-load-failed');
+    element.querySelector('.map-load-message')?.remove();
+    const resolved = forcedProvider ? { provider: forcedProvider } : await window.TravelMap.resolveProvider();
+    let mapInstance;
+    try {
+      const mapTheme = window.TravelTheme?.mapTokens?.() || {};
+      mapInstance = await window.TravelMap.create(element, { provider: resolved.provider, zoom: 3, style: mapTheme.style });
+    } catch (_) {
+      showMapLoadFailure(element, settings, markers, resolved.provider);
       return null;
     }
-
-    const map = L.map(element, {
-      scrollWheelZoom: false,
-      tap: true,
-      zoomControl: true
-    }).setView([30, 110], 3);
     const zoomHint = document.createElement('div');
     zoomHint.className = 'map-zoom-hint';
     zoomHint.textContent = '按住 Ctrl + 滚轮缩放地图';
@@ -60,90 +70,9 @@
       if (!event.ctrlKey) return;
       event.preventDefault();
       event.stopPropagation();
-      const nextZoom = map.getZoom() + (event.deltaY < 0 ? 1 : -1);
-      map.setZoomAround(map.mouseEventToContainerPoint(event), nextZoom);
+      mapInstance.zoomBy(event.deltaY < 0 ? 1 : -1);
     };
-    element.addEventListener('wheel', ctrlWheel, { passive:false });
-    const providers = [
-      {
-        url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
-        subdomains: '1234'
-      },
-      {
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        subdomains: ''
-      }
-    ];
-    const ResilientTileLayer = L.TileLayer.extend({
-      initialize(tileProviders, options) {
-        this._tileProviders = tileProviders;
-        L.TileLayer.prototype.initialize.call(this, tileProviders[0].url, options);
-      },
-      createTile(coords, done) {
-        const tile = L.DomUtil.create('img', 'leaflet-tile');
-        tile.alt = '';
-        tile.setAttribute('role', 'presentation');
-        let providerIndex = 0;
-        let timer = null;
-        let finished = false;
-
-        const tryNextProvider = () => {
-          clearTimeout(timer);
-          if (providerIndex >= this._tileProviders.length) {
-            finished = true;
-            done(new Error('所有地图瓦片源均加载失败'), tile);
-            return;
-          }
-          const provider = this._tileProviders[providerIndex++];
-          const subdomains = provider.subdomains || '';
-          const subdomain = subdomains ? subdomains[Math.abs(coords.x + coords.y) % subdomains.length] : '';
-          tile.src = L.Util.template(provider.url, {
-            s: subdomain,
-            x: coords.x,
-            y: coords.y,
-            z: coords.z
-          });
-          timer = setTimeout(() => {
-            if (!finished) tryNextProvider();
-          }, 5000);
-        };
-
-        tile.onload = () => {
-          if (finished) return;
-          finished = true;
-          clearTimeout(timer);
-          done(null, tile);
-        };
-        tile.onerror = () => {
-          if (!finished) tryNextProvider();
-        };
-        tryNextProvider();
-        return tile;
-      }
-    });
-
-    let loadedTiles = 0;
-    let failedTiles = 0;
-    const tileLayer = new ResilientTileLayer(providers, {
-      attribution: '© 高德地图 · © OpenStreetMap contributors',
-      maxZoom: 18
-    });
-    const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors', maxZoom: 18
-    });
-    tileLayer.on('tileload', () => {
-      loadedTiles += 1;
-      element.classList.remove('map-load-failed');
-    });
-    tileLayer.on('tileerror', () => {
-      failedTiles += 1;
-      if (!loadedTiles && failedTiles >= 2) element.classList.add('map-load-failed');
-    });
-    tileLayer.addTo(map);
-    L.control.layers({ '高德街道（推荐）': tileLayer, 'OpenStreetMap': osmLayer }, null, { collapsed: true }).addTo(map);
-    setTimeout(() => {
-      if (!loadedTiles) element.classList.add('map-load-failed');
-    }, 11000);
+    element.addEventListener('wheel', ctrlWheel, { passive: false });
 
     const points = [];
     const safeMarkers = (markers || []).filter(marker => Number.isFinite(Number(marker.latitude)) && Number.isFinite(Number(marker.longitude)) && !(Number(marker.latitude) === 0 && Number(marker.longitude) === 0));
@@ -153,19 +82,47 @@
       const html = settings.route
         ? '<span class="route-marker">' + (index + 1) + '</span>'
         : '<span class="city-marker"></span>';
-      const icon = L.divIcon({ className: 'travel-map-marker', html, iconSize: settings.route ? [28, 28] : [20, 20], iconAnchor: settings.route ? [14, 14] : [10, 10] });
-      L.marker(point, { icon }).addTo(map).bindPopup(createPopup(marker, index, settings.route));
+      const iconAnchor = settings.route ? [14, 14] : [10, 10];
+      mapInstance.addMarker(point, { html, iconAnchor, popup: createPopup(marker, index, settings.route) });
     });
-    if (settings.route && points.length > 1) L.polyline(points, { color: '#c96f4e', weight: 4, opacity: .8, dashArray: '8 7' }).addTo(map);
-    if (settings.fit && points.length) map.fitBounds(points, { padding: [30, 30], maxZoom: settings.maxZoom || (settings.route ? 11 : 6) });
-    requestAnimationFrame(() => map.invalidateSize(false));
-    if (window.ResizeObserver) {
-      const observer = new ResizeObserver(() => map.invalidateSize(false));
-      observer.observe(element);
-      map.on('unload', () => observer.disconnect());
+    if (settings.route && points.length > 1) {
+      const theme = window.TravelTheme?.mapTokens?.() || {};
+      mapInstance.setRoute(points, { color: theme.color, width: theme.width, dashed: true, animate: !!theme.animateRoute });
     }
-    map.on('unload', () => element.removeEventListener('wheel', ctrlWheel));
-    return map;
+    if (settings.fit && points.length) mapInstance.fitBounds(points, { padding: [30, 30], maxZoom: settings.maxZoom || (settings.route ? 11 : 6) });
+    requestAnimationFrame(() => mapInstance.invalidateSize());
+    if (window.ResizeObserver) {
+      const observer = new ResizeObserver(() => mapInstance.invalidateSize());
+      observer.observe(element);
+      const originalDestroy = mapInstance.destroy.bind(mapInstance);
+      mapInstance.destroy = () => { observer.disconnect(); element.removeEventListener('wheel', ctrlWheel); originalDestroy(); };
+    }
+    return mapInstance;
+  }
+
+  /** provider 加载失败时的提示：不静默换下一个，用户点了才重试另一个。 */
+  function showMapLoadFailure(element, settings, markers, failedProvider) {
+    if (!element) return;
+    element.classList.add('map-load-failed');
+    const box = document.createElement('div');
+    box.className = 'map-load-message';
+    const failedLabel = failedProvider === 'OSM' ? 'OSM' : '高德';
+    const otherProvider = failedProvider === 'OSM' ? 'AMAP' : 'OSM';
+    const otherLabel = otherProvider === 'OSM' ? 'OSM' : '高德';
+    const text = document.createElement('p');
+    text.textContent = failedLabel + '地图加载失败';
+    box.appendChild(text);
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'map-retry-btn';
+    retry.textContent = '尝试' + otherLabel;
+    retry.addEventListener('click', () => {
+      element.classList.remove('map-load-failed');
+      box.remove();
+      renderMapInto(element, settings, markers, otherProvider);
+    });
+    box.appendChild(retry);
+    element.appendChild(box);
   }
 
   function createPopup(marker, index, route) {
@@ -200,17 +157,68 @@
     return link;
   }
 
+  /**
+   * 手动切换地图 Provider：自动（按访客网络地区判断）/ 高德 / OSM。选择记在
+   * localStorage，优先级高于 AUTO 判定。切换后当前地图需要重新创建才能生效，
+   * 具体怎么重渲染交给宿主页面（emit('change')），这个组件只管选择本身。
+   */
+  const MapProviderSwitch = {
+    emits: ['change'],
+    setup(_, { emit }) {
+      const current = ref(window.TravelMap?.manualProvider() || 'AUTO');
+      const amapEnabled = ref(true);
+      // AUTO 模式下额外标出「按访客地区判断，目前实际用的是哪个」，不是显示一个空泛的「自动」
+      const autoResolved = ref('');
+      window.TravelMap?.runtime?.().then(runtime=>{
+        amapEnabled.value=window.TravelMap?.providerUsable?.('AMAP',runtime)!==false;
+      }).catch(()=>{amapEnabled.value=false;});
+      function refreshAutoProvider() {
+        return window.TravelMap?.resolveProvider?.()
+          .then(r => { if (current.value === 'AUTO') autoResolved.value = r.provider; })
+          .catch(() => { if (current.value === 'AUTO') autoResolved.value = ''; });
+      }
+      if (current.value === 'AUTO') refreshAutoProvider();
+      const autoLabel = computed(() => '自动' + (autoResolved.value ? '（' + (autoResolved.value === 'AMAP' ? '高德' : 'OSM') + '）' : ''));
+      function select(value) {
+        if (current.value === value) return;
+        if (value === 'AMAP' && !amapEnabled.value) return;
+        current.value = value;
+        window.TravelMap?.setManualProvider(value === 'AUTO' ? null : value);
+        if (value === 'AUTO') {
+          autoResolved.value = '';
+          refreshAutoProvider();
+        }
+        emit('change');
+      }
+      return { current, select, autoLabel, amapEnabled };
+    },
+    template: `<div class="map-provider-switch" role="group" aria-label="地图 Provider">
+      <button type="button" :class="{active:current==='AUTO'}" @click="select('AUTO')">{{autoLabel}}</button>
+      <button type="button" :class="{active:current==='AMAP'}" :disabled="!amapEnabled" :title="amapEnabled?'':'未配置高德 Web端(JS API) Key'" @click="select('AMAP')">高德</button>
+      <button type="button" :class="{active:current==='OSM'}" @click="select('OSM')">OSM</button>
+    </div>`
+  };
+
   const Home = {
-    components: { JournalCard },
+    components: { JournalCard, MapProviderSwitch },
     setup() {
       const data = ref(null);
       const mapEl = ref(null);
+      let map = null, mapToken = 0;
+      async function renderMap() {
+        if (!data.value) return;
+        const token = ++mapToken;
+        map?.destroy(); map = null;
+        const created = await createMap(mapEl.value, data.value.cityMarkers || [], true);
+        if (token !== mapToken || !mapEl.value?.isConnected) created?.destroy(); else map = created;
+      }
       onMounted(async () => {
         data.value = await api.home();
         await nextTick();
-        createMap(mapEl.value, data.value.cityMarkers || [], true);
+        await renderMap();
       });
-      return { data, mapEl };
+      onBeforeUnmount(() => { mapToken++; map?.destroy(); window.TravelMap?.destroy(mapEl.value); });
+      return { data, mapEl, renderMap };
     },
     template: `
       <main v-if="data" class="home-page-shell">
@@ -230,7 +238,7 @@
             <div v-else class="empty">第一篇旅行日记，正在等待被写下。</div>
           </section>
           <section class="section map-stats">
-            <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">我的足迹地图</h2><div ref="mapEl" class="map-box"></div></div>
+            <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">我的足迹地图</h2><map-provider-switch @change="renderMap"/><div ref="mapEl" class="map-box"></div></div>
             <div class="stats-panel">
               <h2 class="section-title" style="font-size:21px;margin-bottom:18px">旅行数据</h2>
               <div class="stats-grid">
@@ -272,19 +280,27 @@
   };
 
   const TripDetail = {
-    components: { JournalCard },
+    components: { JournalCard, MapProviderSwitch },
     setup() {
       const route = VueRouter.useRoute();
       const data = ref(null);
       const mapEl = ref(null);
+      let map = null, mapToken = 0;
+      async function renderMap() {
+        if (!data.value) return;
+        const token = ++mapToken;
+        map?.destroy(); map = null;
+        const created = await createMap(mapEl.value, data.value.stops, { fit:true, route:true, maxZoom:10 });
+        if (token !== mapToken || !mapEl.value?.isConnected) created?.destroy(); else map = created;
+      }
       onMounted(async () => {
         data.value = await api.trip(route.params.slug);
         setScopedTheme(data.value.theme);
         await nextTick();
-        createMap(mapEl.value, data.value.stops, { fit:true, route:true, maxZoom:10 });
+        await renderMap();
       });
-      onBeforeUnmount(clearScopedTheme);
-      return { data, mapEl };
+      onBeforeUnmount(() => { mapToken++; map?.destroy(); window.TravelMap?.destroy(mapEl.value); clearScopedTheme(); });
+      return { data, mapEl, renderMap };
     },
     template: `
       <main v-if="data" class="page">
@@ -298,7 +314,7 @@
               <small>{{item.occurredOn}} · {{item.cityName || data.trip.title}}</small><h3>{{item.title}}</h3><p>{{item.excerpt}}</p>
             </router-link></div>
           </div>
-          <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">城市足迹</h2><div ref="mapEl" class="map-box"></div></div>
+          <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">城市足迹</h2><map-provider-switch @change="renderMap"/><div ref="mapEl" class="map-box"></div></div>
         </section>
       </main><div v-else class="loading">正在读取旅行记录…</div>`
   };
@@ -401,6 +417,7 @@
     // preview=true 时按令牌取内容，用于草稿预览。除数据来源外与正式详情页完全一致，
     // 这样预览看到的就是发布后的真实样子（同一套主题、外壳和图片版式）。
     props: { preview: { type: Boolean, default: false } },
+    components: { MapProviderSwitch },
     setup(props) {
       const route = VueRouter.useRoute();
       const data = ref(null);
@@ -416,6 +433,7 @@
       function openLightbox(items, index) { lightbox.value = { items, index: Math.max(0, index) }; }
       function openArticleImage(event) {
         if (!(event.target instanceof HTMLImageElement)) return;
+        if (!event.target.matches(window.JournalMedia.MEDIA_SELECTOR)) return;
         const group = window.JournalMedia.groupOf(event.target);
         openLightbox(group.map(image => ({ src: image.src, caption: image.alt || '' })), group.indexOf(event.target));
       }
@@ -439,22 +457,26 @@
        * 行程（计划要去）。两者的可信度不一样，所以下面的说法和线型都跟着变。
        */
       const routeEl=ref(null),replaying=ref(false),replayIndex=ref(-1);
-      let routeMap=null,routeControl=null;
+      let routeMap=null,routeControl=null,routeTornDown=false;
       const routePoints=computed(()=>data.value?.route||[]);
       const routeIsReal=computed(()=>routePoints.value[0]?.source==='moment');
       const routeTitle=computed(()=>routeIsReal.value?'这一天走过的路':'这一天的安排');
       const replayLabel=computed(()=>replaying.value?'停止回放':(routeIsReal.value?'▶ 回放这一天':'▶ 依次看一遍'));
-      function setupRoute(){
+      async function setupRoute(){
         if(!routePoints.value.length||!routeEl.value||routeMap)return;
-        routeMap=createMap(routeEl.value,[],{});
-        if(!routeMap)return;
+        const map=await createMap(routeEl.value,[],{});
+        // 地图还没加载完组件就被卸载了（比如很快切到下一篇），直接销毁掉，不留悬空实例
+        if(routeTornDown||!map){map?.destroy();return;}
+        routeMap=map;
         routeControl=window.DayRoute?.render(routeMap,routePoints.value,{
           source:routePoints.value[0]?.source,
           onState:state=>{replaying.value=state.playing;replayIndex.value=state.index;}
         });
       }
       function toggleReplay(){routeControl?.play();}
-      function teardownRoute(){routeControl?.destroy();routeControl=null;routeMap?.remove();routeMap=null;}
+      function teardownRoute(){routeTornDown=true;routeControl?.destroy();routeControl=null;routeMap?.destroy();routeMap=null;window.TravelMap?.destroy(routeEl.value);}
+      // 手动切换地图 Provider 后，当天路线需要在新 Provider 上重新画一遍
+      function restartRoute(){teardownRoute();routeTornDown=false;setupRoute();}
       /*
        * 阅读字号档位。手机上字号直接决定一屏能读到多少，交给读者自己定最实在。
        * 只改 --reading-scale 这一个变量，正文、图注和标题都跟着走。
@@ -475,7 +497,7 @@
       onBeforeUnmount(() => {window.JournalMedia.teardown(article.value);window.removeEventListener('keydown', onKeydown);window.removeEventListener('scroll',updateProgress);teardownRoute();clearScopedTheme();});
       return { data, article, html, lightbox, current, progress, readingMinutes, preview: props.preview, previewFailed,
                scaleIndex, scaleLabel, scaleMax: SCALES.length - 1, stepScale,
-               routeEl, routePoints, routeTitle, routeIsReal, replaying, replayIndex, replayLabel, toggleReplay,
+               routeEl, routePoints, routeTitle, routeIsReal, replaying, replayIndex, replayLabel, toggleReplay, restartRoute,
                openLightbox, openArticleImage, stepLightbox };
     },
     template: `
@@ -490,6 +512,7 @@
             <p v-if="!routeIsReal" class="day-route-hint">这条线来自当天的行程安排，不是实际走过的轨迹。</p>
             <button type="button" class="day-route-play" :class="{playing:replaying}" @click="toggleReplay">{{replayLabel}}</button>
           </header>
+          <map-provider-switch @change="restartRoute"/>
           <div ref="routeEl" class="day-route-map"></div>
           <ol class="day-route-list">
             <li v-for="(point,index) in routePoints" :key="point.order" :class="{'is-active':replayIndex===index}">
@@ -511,37 +534,179 @@
   };
 
   const FootprintMap = {
+    components: { MapProviderSwitch },
     setup() {
       const mapEl = ref(null),cities=ref([]),country=ref('全部'),year=ref('全部'),trip=ref('全部'),journalOnly=ref(false);
-      let map=null;
+      let map=null,renderToken=0;
       const countries=computed(()=>['全部',...new Set(cities.value.map(x=>x.countryName).filter(Boolean))]);
       const years=computed(()=>['全部',...new Set(cities.value.flatMap(x=>x.visitedYears||[]).map(String))].sort((a,b)=>a==='全部'?-1:Number(b)-Number(a)));
       const trips=computed(()=>{const values=new Map();cities.value.flatMap(x=>x.trips||[]).forEach(x=>values.set(x.slug,x.title));return[{slug:'全部',title:'全部旅行'},...Array.from(values,( [slug,title] )=>({slug,title}))];});
       const filtered=computed(()=>cities.value.filter(item=>(country.value==='全部'||item.countryName===country.value)&&(year.value==='全部'||(item.visitedYears||[]).includes(Number(year.value)))&&(trip.value==='全部'||(item.trips||[]).some(x=>x.slug===trip.value))&&(!journalOnly.value||item.publishedJournalCount>0)));
-      async function render(){await nextTick();if(map){map.remove();map=null;}map=createMap(mapEl.value,filtered.value,{fit:true,maxZoom:7});}
+      async function render(){
+        const token=++renderToken;
+        await nextTick();
+        if(map){map.destroy();map=null;}
+        const instance=await createMap(mapEl.value,filtered.value,{fit:true,maxZoom:7});
+        // 筛选条件在地图加载完成前又变了，这份已经过时，直接丢弃，不要覆盖更新的结果
+        if(token!==renderToken||!mapEl.value?.isConnected){instance?.destroy();return;}
+        map=instance;
+      }
       watch([country,year,trip,journalOnly],render);
       onMounted(async()=>{cities.value=await api.cities();await render();});
-      onBeforeUnmount(()=>map?.remove());
+      onBeforeUnmount(()=>{map?.destroy();window.TravelMap?.destroy(mapEl.value);});
       return {mapEl,cities,country,year,trip,journalOnly,countries,years,trips,filtered};
     },
     template: `<main class="page"><div class="page-title"><span class="eyebrow">MY FOOTPRINTS</span><h1>足迹地图</h1><p>每一个坐标，都连接着一段已经发生的故事。</p></div>
       <div class="map-filter-bar"><select v-model="country" aria-label="按国家筛选"><option v-for="item in countries" :key="item" :value="item">{{item==='全部'?'全部国家':item}}</option></select><select v-model="year" aria-label="按年份筛选"><option v-for="item in years" :key="item" :value="item">{{item==='全部'?'全部年份':item+' 年'}}</option></select><select v-model="trip" aria-label="按旅行筛选"><option v-for="item in trips" :key="item.slug" :value="item.slug">{{item.title}}</option></select><label><input v-model="journalOnly" type="checkbox"> 仅看有日记的城市</label><span>{{filtered.length}} 个地点</span></div>
-      <div class="map-panel"><div ref="mapEl" class="map-box" style="height:620px"></div></div>
+      <div class="map-panel"><map-provider-switch @change="render"/><div ref="mapEl" class="map-box" style="height:620px"></div></div>
       <section class="section"><div class="card-grid"><div v-for="city in filtered" :key="city.countryName+city.cityName" class="journal-card"><div class="card-body"><h3>{{city.cityName}} · {{city.countryName}}</h3><p>{{city.tripCount}} 次旅行，{{city.publishedJournalCount}} 篇日记</p><div class="card-meta"><span>{{city.firstVisitedOn || '日期未记录'}}</span></div></div></div></div><div v-if="!filtered.length" class="empty">当前筛选条件下没有足迹。</div></section>
     </main>`
   };
 
-  const routes = [
-    { path: '/', component: Home },
-    { path: '/trips', component: Trips },
-    { path: '/trips/:slug', component: TripDetail },
-    { path: '/journals', component: Journals },
-    { path: '/journals/:slug', component: JournalDetail },
-    { path: '/preview/:token', component: JournalDetail, props: { preview: true } },
-    { path: '/years', component: YearReview },
-    { path: '/years/:year', component: YearReview },
-    { path: '/map', component: FootprintMap }
+  // ------------------------------------------------------------ 主题设计器：三场景预览
+  // 主题设置分布在首页、日记正文和地图三处，右侧预览用固定的示例数据分别渲染这三个场景，
+  // 不依赖当前数据库里有没有足够内容——这样一个设置改了没生效，还是当前场景本来就没有
+  // 对应元素，用户能立刻分清楚。三个场景已经覆盖绝大多数 Theme Token 的实际落点。
+  const THEME_PREVIEW_IMAGE = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="900" height="600" fill="#d8cbb4"/>' +
+    '<path d="M0 470L230 250l160 150 140-110 370 310H0z" fill="#8da091"/><circle cx="690" cy="150" r="58" fill="#f7e3a1"/></svg>');
+  const THEME_PREVIEW_HOME_JOURNALS = ['京都的第三个清晨', '青城山下的一整天', '冰岛公路上的极光', '清迈夜市的一碗面', '威尼斯的水上巴士', '东京深夜的居酒屋']
+    .map((title, index) => ({
+      id: 'preview-' + index, slug: 'preview', title,
+      excerpt: '风景会远去，文字让当时的心情重新回来。这一段还在等待被慢慢写完。',
+      occurredOn: '2026-0' + (index % 9 + 1) + '-12', cityName: ['京都', '成都', '雷克雅未克', '清迈', '威尼斯', '东京'][index],
+      coverUrl: THEME_PREVIEW_IMAGE
+    }));
+  // 覆盖全部可主题化 Journal Block：开场、章节、标题、正文、引用、提示卡、地点卡、
+  // 时间线、数字亮点、单图、图片组、分隔线、今日小结。目的不是模拟真实内容，
+  // 是把能主题化的区块全部露出来，改一个设置就能立刻在这里看到。
+  const THEME_PREVIEW_JOURNAL_DOCUMENT = {
+    schemaVersion: 1,
+    blocks: [
+      { id: 'preview-day-opener', type: 'day-opener', version: 1, title: '', data: { city: '成都', dayLabel: 'Day 2', date: '2026-08-10', weather: '晴', route: ['成都', '都江堰', '青城山'], metrics: [{ value: '21,430', label: '步' }, { value: '¥ 420', label: '花费' }] }, settings: {} },
+      { id: 'preview-chapter', type: 'chapter', version: 1, title: '', data: { time: '08:30', title: '清晨出发', note: '从成都出发，一路向西' }, settings: {} },
+      { id: 'preview-heading', type: 'heading', version: 1, title: '', data: { text: '都江堰的水声', level: 2 }, settings: {} },
+      { id: 'preview-paragraph', type: 'paragraph', version: 1, title: '', data: { text: '站在鱼嘴分水堤上，能听见很远就传来的水声。两千多年前的工程，到现在还在按原来的方式分水。' }, settings: { style: 'normal', align: 'left' } },
+      { id: 'preview-quote', type: 'quote', version: 1, title: '', data: { text: '有些风景，只有慢下来才看得见。', source: '旅途手记' }, settings: {} },
+      { id: 'preview-callout', type: 'callout', version: 1, title: '', data: { tone: 'tip', icon: '✦', text: '下午三点后人会少很多，适合拍照。' }, settings: {} },
+      { id: 'preview-location', type: 'location-card', version: 1, title: '', data: { name: '青城山', address: '成都市都江堰市青城山镇', hours: '08:00–17:30', cost: '80 元', impression: '树荫很多，山路不算陡，适合慢慢走完一整圈。' }, settings: {} },
+      { id: 'preview-timeline', type: 'timeline', version: 1, title: '', data: { items: [{ time: '09:30', title: '进入山门', description: '买了一份地图，沿着主路上山' }, { time: '11:50', title: '到达上清宫', description: '在这里歇脚吃了午饭' }, { time: '15:20', title: '下山回到街子古镇', description: '喝了一下午的茶' }] }, settings: {} },
+      { id: 'preview-stats', type: 'stats', version: 1, title: '', data: { items: [{ value: '18,642', label: '步' }, { value: '12.8 km', label: '路程' }, { value: '86', label: '张照片' }] }, settings: {} },
+      // 不写区块级 size/layout/columns override，专门展示当前主题的图片与 Gallery 默认值。
+      { id: 'preview-image', type: 'image', version: 1, title: '', data: { previewUrl: THEME_PREVIEW_IMAGE, caption: '山间的一刻' }, settings: {} },
+      { id: 'preview-gallery', type: 'gallery', version: 1, title: '', data: { previewUrls: [THEME_PREVIEW_IMAGE, THEME_PREVIEW_IMAGE, THEME_PREVIEW_IMAGE], caption: '这一天拍的照片' }, settings: {} },
+      { id: 'preview-divider', type: 'divider', version: 1, title: '', data: {}, settings: {} },
+      { id: 'preview-day-summary', type: 'day-summary', version: 1, title: '', data: { items: [{ icon: '🌟', label: '今天最喜欢', value: '都江堰的水声' }, { icon: '💴', label: '今日花费', value: '¥ 420' }] }, settings: {} }
+    ]
+  };
+  // 固定的四点路线：成都 → 都江堰 → 青城山 → 成都。source:'moment' 让它按「实际走过」
+  // 画成实线，视觉上比计划路线的虚线更接近真实回放效果。
+  const THEME_PREVIEW_ROUTE_POINTS = [
+    { order: 1, time: '09:00', title: '成都', note: '从市区出发', latitude: 30.6598, longitude: 104.0633, photos: [] },
+    { order: 2, time: '10:30', title: '都江堰', note: '看鱼嘴分水堤', latitude: 31.0044, longitude: 103.6053, photos: [] },
+    { order: 3, time: '12:00', title: '青城山', note: '爬到上清宫', latitude: 30.9021, longitude: 103.5678, photos: [] },
+    { order: 4, time: '17:00', title: '成都', note: '回到市区', latitude: 30.6598, longitude: 104.0633, photos: [] }
   ];
+
+  const ThemePreviewScene = {
+    components: { JournalCard },
+    setup() {
+      const requestedScene = new URLSearchParams(location.search).get('scene') || 'home';
+      const scene = ['home','journal','map'].includes(requestedScene) ? requestedScene : 'home';
+      const journalArticle = ref(null);
+      const mapEl = ref(null);
+      let routeMap = null, routeControl = null, tornDown = false;
+      function refreshMapTheme() {
+        if (scene !== 'map') return;
+        const theme = window.TravelTheme?.mapTokens?.() || {};
+        routeMap?.setStyle?.(theme.style);
+        routeControl?.refreshTheme?.();
+      }
+      function refreshJournalMedia() {
+        if (scene !== 'journal' || !journalArticle.value) return;
+        window.JournalMedia.teardown(journalArticle.value);
+        window.JournalMedia.enhance(journalArticle.value);
+      }
+      function refreshSceneTheme() { refreshMapTheme(); refreshJournalMedia(); }
+      onMounted(async () => {
+        window.addEventListener('travel-theme-applied', refreshSceneTheme);
+        await nextTick();
+        if (scene === 'journal') window.JournalMedia.enhance(journalArticle.value);
+        if (scene === 'map') {
+          // Studio 的地图是固定 Fixture：使用本地 Leaflet 资源，不依赖访客地区、
+          // localStorage 或高德 Key；真实页面仍按 AUTO / AMAP / OSM 选择。
+          const map = await window.TravelMap.create(mapEl.value, {
+            provider:'OSM', zoom:8, style:window.TravelTheme?.mapTokens?.().style
+          });
+          if (tornDown || !map) { map?.destroy(); return; }
+          routeMap = map;
+          routeControl = window.DayRoute?.render(routeMap, THEME_PREVIEW_ROUTE_POINTS, { source: 'moment' });
+        }
+      });
+      onBeforeUnmount(() => { tornDown = true; window.removeEventListener('travel-theme-applied', refreshSceneTheme); window.JournalMedia.teardown(journalArticle.value); routeControl?.destroy(); routeMap?.destroy(); window.TravelMap?.destroy(mapEl.value); });
+      return {
+        scene, journalArticle, mapEl,
+        homeJournals: THEME_PREVIEW_HOME_JOURNALS,
+        journalHtml: window.JournalBlocks.render(THEME_PREVIEW_JOURNAL_DOCUMENT, [])
+      };
+    },
+    template: `
+      <main v-if="scene==='home'" class="home-page-shell theme-preview-scene" data-theme-preview-fixture="home">
+        <section class="hero">
+          <div class="hero-copy">
+            <span class="hero-kicker">PERSONAL TRAVEL JOURNAL</span>
+            <h1>把走过的路，<br>写成自己的故事</h1>
+            <p>记录城市、光影和旅途中那些不愿忘记的时刻。这里没有攻略排名，只有属于自己的远方。</p>
+            <a class="primary-btn" href="javascript:void(0)">浏览旅行日记</a>
+          </div>
+          <div class="hero-photo home-hero-photo" role="img" aria-label="示例封面"></div>
+        </section>
+        <div class="page home-page">
+          <section class="section">
+            <div class="section-head"><h2 class="section-title">最近的旅行日记</h2><a class="text-link" href="javascript:void(0)">查看全部 ›</a></div>
+            <div class="card-grid"><journal-card v-for="item in homeJournals" :key="item.id" :item="item"/></div>
+          </section>
+          <section class="section map-stats">
+            <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">我的足迹地图</h2><div class="map-box theme-preview-map-placeholder">地图场景请切到「地图」预览</div></div>
+            <div class="stats-panel">
+              <h2 class="section-title" style="font-size:21px;margin-bottom:18px">旅行数据</h2>
+              <div class="stats-grid">
+                <div class="stat"><strong>12</strong><span>去过的旅行</span></div>
+                <div class="stat"><strong>48</strong><span>旅行日记</span></div>
+                <div class="stat"><strong>26</strong><span>打卡城市</span></div>
+                <div class="stat"><strong>1,280</strong><span>旅行照片</span></div>
+              </div>
+              <p class="quote">"世界很大，而你的故事，值得被记录。"</p>
+            </div>
+          </section>
+        </div>
+      </main>
+      <main v-else-if="scene==='journal'" class="page article theme-preview-scene" data-theme-preview-fixture="journal">
+        <header class="article-head"><div class="hero-kicker">示例旅行 · 成都</div><h1>都江堰与青城山的一天</h1><p class="article-excerpt">这是主题设计器的固定示例日记，用来展示日记正文里所有可主题化的内容块。</p><div class="article-meta">2026-08-10 · 约 4 分钟阅读</div></header>
+        <article ref="journalArticle" class="journal-document" v-html="journalHtml"></article>
+      </main>
+      <main v-else class="page theme-preview-scene" data-theme-preview-fixture="map">
+        <div class="page-title"><span class="eyebrow">ROUTE PREVIEW</span><h1>示例路线</h1><p>成都 → 都江堰 → 青城山 → 成都，用来展示地图相关的主题设置。</p></div>
+        <div class="map-panel"><div ref="mapEl" class="map-box" style="height:520px"></div></div>
+      </main>`
+  };
+
+  // 预览模式只注册固定 Fixture 路由。这样旧入口 `/?theme-preview=1`、Studio 当前带 hash
+  // 的入口，以及误带其它 hash 的入口都不可能落到真实 Home/Journal/Trip 组件，也就不会
+  // 请求真实业务数据。普通站点仍使用原来的完整路由表。
+  const routes = isThemePreview
+    ? [{ path: '/:pathMatch(.*)*', component: ThemePreviewScene }]
+    : [
+        { path: '/', component: Home },
+        { path: '/trips', component: Trips },
+        { path: '/trips/:slug', component: TripDetail },
+        { path: '/journals', component: Journals },
+        { path: '/journals/:slug', component: JournalDetail },
+        { path: '/preview/:token', component: JournalDetail, props: { preview: true } },
+        { path: '/years', component: YearReview },
+        { path: '/years/:year', component: YearReview },
+        { path: '/map', component: FootprintMap }
+      ];
   const router = VueRouter.createRouter({
     history: VueRouter.createWebHashHistory(),
     routes,
@@ -553,7 +718,24 @@
       const menu = ref(false);
       const profile = ref({ displayName:'旅行者', avatarUrl:null, themeKey:'travel-classic' });
       watch(() => router.currentRoute.value.fullPath, () => menu.value = false);
-      function previewTheme(event){if(event.origin===location.origin&&event.data?.type==='travel-theme-preview')applyTheme(event.data.theme,{persist:false});}
+      /**
+       * 设计器改了某个设置时，除了推新主题，还会顺带说「大概改的是哪块」（一个 CSS
+       * selector）。找到就短暂加个高亮边框，900ms 后自动摘掉——用户不用来回猜。
+       */
+      function highlightPreviewTarget(selector){
+        if(!selector)return;
+        document.querySelectorAll(selector).forEach(el=>{
+          el.classList.remove('tj-preview-highlight');
+          void el.offsetWidth;
+          el.classList.add('tj-preview-highlight');
+          setTimeout(()=>el.classList.remove('tj-preview-highlight'),900);
+        });
+      }
+      function previewTheme(event){
+        if(event.origin!==location.origin)return;
+        if(event.data?.type==='travel-theme-preview')applyTheme(event.data.theme,{persist:false});
+        else if(event.data?.type==='travel-theme-highlight')highlightPreviewTarget(event.data.selector);
+      }
       // 菜单现在是浮层，点旁边任何地方都该收起来；Esc 同理
       function closeMenuOutside(event){ if(menu.value && !event.target.closest('.public-nav, .mobile-menu')) menu.value = false; }
       function closeMenuOnEsc(event){ if(event.key === 'Escape') menu.value = false; }
@@ -561,9 +743,9 @@
         window.addEventListener('message',previewTheme);
         document.addEventListener('click',closeMenuOutside);
         window.addEventListener('keydown',closeMenuOnEsc);
-        try {
+        if(!isThemePreview)try {
           profile.value = await api.profile();
-          if(!isThemePreview)setSiteTheme(profile.value.theme||profile.value.themeKey);
+          setSiteTheme(profile.value.theme||profile.value.themeKey);
         } catch (_) { }
       });
       onBeforeUnmount(()=>{
@@ -571,17 +753,19 @@
         document.removeEventListener('click',closeMenuOutside);
         window.removeEventListener('keydown',closeMenuOnEsc);
       });
-      return { menu, profile };
+      return { menu, profile, isThemePreview };
     },
     template: `
       <div class="public-shell">
-        <header class="public-header"><div class="header-inner"><router-link class="brand" to="/">远行手记</router-link>
+        <header v-if="!isThemePreview" class="public-header"><div class="header-inner"><router-link class="brand" to="/">远行手记</router-link>
           <button class="mobile-menu" type="button" :aria-expanded="menu" aria-label="打开前台导航" @click="menu=!menu">☰</button>
           <nav class="public-nav" :class="{open:menu}"><router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link><router-link to="/years">年度回顾</router-link></nav>
           <a class="admin-link" href="/admin/" :title="profile.displayName + ' · 管理后台'" aria-label="进入管理后台"><img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="管理员头像"><span v-else>旅</span></a>
         </div></header>
+        <header v-else class="public-header theme-preview-header" aria-label="固定示例站点导航"><div class="header-inner"><span class="brand">远行手记</span><nav class="public-nav"><span>首页</span><span>旅行</span><span>日记</span><span>足迹地图</span><span>年度回顾</span></nav><span class="admin-link" aria-hidden="true"><span>示</span></span></div></header>
+        <span v-if="isThemePreview" class="theme-preview-fixed-badge" aria-hidden="true">固定示例 · 不读取站点内容</span>
         <router-view></router-view>
-        <footer class="public-footer">远行手记 · 把走过的路写成自己的故事</footer>
+        <footer class="public-footer">远行手记 · {{isThemePreview?'固定主题示例':'把走过的路写成自己的故事'}}</footer>
       </div>`
   };
 

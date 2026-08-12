@@ -51,33 +51,40 @@
   /**
    * 在地图上画出一天的路线。
    *
+   * @param map TravelMap 实例（见 common/travel-map.js），由调用方创建并传进来
    * @returns 一个控制器：play() 开始回放，stop() 停下，destroy() 清理
    */
   function render(map, points, options) {
     const settings = options || {};
     const list = safePoints(points);
     if (!map || !list.length) return null;
-    const L = window.L;
     const markers = [];
     const coords = [];
 
     list.forEach(point => {
       const position = [Number(point.latitude), Number(point.longitude)];
       coords.push(position);
-      const icon = L.divIcon({
-        className: 'travel-map-marker day-route-marker',
-        html: '<span class="route-marker">' + point.order + '</span>',
-        iconSize: [28, 28], iconAnchor: [14, 14]
-      });
-      markers.push(L.marker(position, { icon }).addTo(map).bindPopup(popup(point)));
+      markers.push(map.addMarker(position, {
+        html: '<span class="route-marker">' + (point.order ?? (markers.length + 1)) + '</span>',
+        iconAnchor: [14, 14],
+        popup: popup(point)
+      }));
     });
-    // 计划来的那条线用虚线，实际走过的用实线——它们不是同一种事实
-    const line = coords.length > 1
-      ? L.polyline(coords, {
-          color: settings.color || '#c96f4e', weight: 4, opacity: .82,
-          dashArray: settings.source === 'moment' ? null : '8 7'
-        }).addTo(map)
-      : null;
+    // 计划来的那条线用虚线，实际走过的用实线——它们不是同一种事实。
+    // 颜色和粗细优先用调用方明确传入的值，否则跟随当前主题的地图 token。
+    const hasLine = coords.length > 1;
+    function applyRouteTheme() {
+      if (!hasLine) return;
+      const theme = window.TravelTheme?.mapTokens?.() || {};
+      map.setRoute(coords, {
+        color: settings.color || theme.color || '#c96f4e',
+        width: settings.width || theme.width || 4,
+        opacity: .82,
+        dashed: settings.source !== 'moment',
+        animate: !!theme.animateRoute
+      });
+    }
+    applyRouteTheme();
     if (coords.length) map.fitBounds(coords, { padding: [36, 36], maxZoom: 15 });
 
     let timer = null, index = -1;
@@ -85,15 +92,15 @@
       clearTimeout(timer);
       timer = null;
       index = -1;
-      markers.forEach(marker => marker._icon?.classList.remove('is-active'));
+      markers.forEach(marker => marker.setActive(false));
       if (settings.onState) settings.onState({ playing: false, index: -1 });
     }
     function step() {
       index += 1;
       if (index >= markers.length) { stop(); return; }
-      markers.forEach((marker, i) => marker._icon?.classList.toggle('is-active', i === index));
+      markers.forEach((marker, i) => marker.setActive(i === index));
       const marker = markers[index];
-      map.panTo(marker.getLatLng(), { animate: true, duration: .8 });
+      map.panTo(marker.getPosition());
       marker.openPopup();
       if (settings.onState) settings.onState({ playing: true, index: index, point: list[index] });
       timer = setTimeout(step, STEP_MS);
@@ -104,36 +111,40 @@
       step();
     }
     // 回放时随便点一下地图就停：正在看的人想自己操作，不该跟它抢镜头
-    map.on('mousedown dragstart', () => { if (timer) stop(); });
+    map.onInteractionStart(() => { if (timer) stop(); });
 
     return {
       play, stop,
+      refreshTheme() { applyRouteTheme(); },
       get playing() { return !!timer; },
       destroy() {
         stop();
-        markers.forEach(marker => map.removeLayer(marker));
-        if (line) map.removeLayer(line);
+        markers.forEach(marker => marker.remove());
+        if (hasLine) map.removeRoute();
       }
     };
   }
 
   /*
-   * 一个够用就好的地图底图，给后台自己看的那些页面用。
+   * 一个够用就好的地图底图，给后台自己看的那些页面用（随手记回放等）。
    *
-   * 公开端的 createMap 做了瓦片源自动回退、图层切换、Ctrl+滚轮缩放提示这些事，
-   * 因为它面向的是不特定的读者和网络。后台只有站主一个人在用，他知道自己的网络
-   * 什么样，也不需要在两种瓦片之间选——所以这里不共用那一套，只留最小的一份。
+   * 公开端的 createMap 额外做了 provider 加载失败提示、Ctrl+滚轮缩放这些事，
+   * 因为它面向的是不特定的读者和网络。后台只有站主一个人在用，这里走同一套
+   * TravelMap（AUTO/AMAP/OSM），但不需要那一层失败提示 UI，失败就返回 null。
    */
-  function simpleMap(element, options) {
-    if (!element || !window.L) return null;
+  async function simpleMap(element, options) {
+    if (!element || !window.TravelMap) return null;
     const settings = options || {};
-    const map = window.L.map(element, { scrollWheelZoom: true, zoomControl: true })
-      .setView(settings.center || [30, 110], settings.zoom || 4);
-    window.L.tileLayer(
-      'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
-      { subdomains: '1234', attribution: '© 高德地图', maxZoom: 18 }).addTo(map);
-    requestAnimationFrame(() => map.invalidateSize(false));
-    return map;
+    try {
+      const map = await window.TravelMap.create(element, {
+        center: settings.center || [30, 110], zoom: settings.zoom || 4, scrollWheelZoom: true,
+        provider: settings.provider, style: window.TravelTheme?.mapTokens?.().style
+      });
+      requestAnimationFrame(() => map.invalidateSize());
+      return map;
+    } catch (_) {
+      return null;
+    }
   }
 
   window.DayRoute = { render, simpleMap, STEP_MS };

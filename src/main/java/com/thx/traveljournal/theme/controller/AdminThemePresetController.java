@@ -14,7 +14,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
-/** 后台主题接口：个人主题的增删改和复制。系统预设只能复制，不能直接改或删。 */
+/**
+ * 后台主题接口：主题的增删改和复制。
+ *
+ * <p>系统预设可以直接设计，但官方 definitionJson 不会被写回——改动存成 overrideJson，
+ * 随时可以用 {@link #reset} 清空、回到官方默认；系统预设不能删除。</p>
+ */
 @RestController
 @RequestMapping("/api/admin/themes")
 @RequiredArgsConstructor
@@ -27,7 +32,9 @@ public class AdminThemePresetController {
                                @Size(max = 64) String baseThemeKey,
                                @Size(max = 500) String previewImageUrl,
                                @NotNull JsonNode definitionJson,
-                               Boolean enabled) {}
+                               Boolean enabled,
+                               @Size(max = 256) List<@jakarta.validation.constraints.Pattern(
+                                       regexp = "^[A-Za-z][A-Za-z0-9]*\\.[A-Za-z][A-Za-z0-9]*$") String> changedPaths) {}
 
     @GetMapping
     public ApiResponse<List<ThemePresetService.ThemeView>> list(
@@ -54,7 +61,7 @@ public class AdminThemePresetController {
     public ApiResponse<ThemePresetService.ThemeView> update(@PathVariable Long id,
                                                              @Valid @RequestBody ThemeRequest request) {
         return ApiResponse.ok(service.update(id, request.name(), request.description(), request.baseThemeKey(),
-                request.previewImageUrl(), request.definitionJson(), request.enabled()));
+                request.previewImageUrl(), request.definitionJson(), request.enabled(), request.changedPaths()));
     }
 
     /**
@@ -69,6 +76,12 @@ public class AdminThemePresetController {
     @PostMapping("/{id}/duplicate")
     public ApiResponse<ThemePresetService.ThemeView> duplicate(@PathVariable Long id) {
         return ApiResponse.ok(service.duplicate(id));
+    }
+
+    /** 还原系统主题的官方默认：清空用户覆盖，effective 回到官方 definitionJson。 */
+    @PostMapping("/{id}/reset")
+    public ApiResponse<ThemePresetService.ThemeView> reset(@PathVariable Long id) {
+        return ApiResponse.ok(service.resetOverride(id));
     }
 
     @DeleteMapping("/{id}")

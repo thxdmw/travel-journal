@@ -65,11 +65,30 @@ button, input, textarea { font: inherit; }
 .map-box .leaflet-control-layers-toggle::before { content:""; position:absolute; inset:10px; background:var(--tj-primary); -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m12 3 9 5-9 5-9-5 9-5Zm-7.5 9L12 16l7.5-4M4.5 16 12 20l7.5-4' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m12 3 9 5-9 5-9-5 9-5Zm-7.5 9L12 16l7.5-4M4.5 16 12 20l7.5-4' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat; }
 .map-box .leaflet-control-layers-toggle:hover { background-color:#fff; }
 .map-box .leaflet-control-layers-expanded { padding:12px 14px; color:var(--tj-text); background:var(--tj-surface); }
-.map-load-message { position:absolute; inset:0; z-index:900; display:none; place-items:center; padding:24px; color:var(--tj-muted); text-align:center; background:rgba(247,242,232,.94); }
+.map-load-message { position:absolute; inset:0; z-index:900; display:none; place-items:center; gap:10px; padding:24px; color:var(--tj-muted); text-align:center; background:rgba(247,242,232,.94); }
 .map-load-failed .map-load-message { display:grid; }
+/* 地图 Provider 加载失败时的提示：不静默换成另一个，让用户自己决定要不要试试看 */
+.map-retry-btn { padding:7px 16px; border:1px solid var(--tj-primary); border-radius:99px; color:var(--tj-primary); background:transparent; cursor:pointer; }
+.map-retry-btn:hover { color:#fff; background:var(--tj-primary); }
 .travel-map-marker { background:transparent!important; border:0!important; }
 .city-marker { display:block; width:20px; height:20px; border:4px solid #fff; border-radius:50%; background:var(--tj-accent); box-shadow:0 2px 9px rgba(70,43,31,.42); }
 .route-marker { display:grid; width:28px; height:28px; place-items:center; border:3px solid #fff; border-radius:50%; color:#fff; background:var(--tj-accent); box-shadow:0 2px 9px rgba(70,43,31,.42); font:700 12px var(--tj-sans); }
+/* 主题 Studio 的内容只负责展示，不允许卡片或伪导航跳进真实业务路由。 */
+.theme-preview-scene a,.theme-preview-header span { cursor:default; }
+.theme-preview-scene .journal-card { pointer-events:none; }
+.theme-preview-scene .home-hero-photo { background-image:var(--tj-hero-image,linear-gradient(145deg,#d8cbb4 0 38%,#8da091 38% 64%,#f7e3a1 64% 72%,#688579 72%)); }
+.theme-preview-header .public-nav span { color:#4e504d; font-size:15px; }
+.theme-preview-fixed-badge { position:fixed; right:16px; bottom:16px; z-index:1190; padding:7px 12px; border:1px solid color-mix(in srgb,var(--tj-accent) 38%,transparent); border-radius:99px; color:var(--tj-primary); background:color-mix(in srgb,var(--tj-surface) 92%,transparent); box-shadow:var(--tj-shadow-soft); font-size:12px; pointer-events:none; backdrop-filter:blur(8px); }
+/*
+ * 主题设计器改了某个设置后，让预览里对应的元素短暂闪一下边框，
+ * 用户不用来回猜「这个设置到底改了哪里」。只在设计器的预览 iframe 里触发。
+ */
+.tj-preview-highlight { outline:3px solid var(--tj-accent); outline-offset:2px; border-radius:6px; transition:outline-color .2s; }
+/* 手动切换地图 Provider：自动 / 高德 / OSM */
+.map-provider-switch { display:flex; gap:6px; margin-bottom:10px; }
+.map-provider-switch button { padding:4px 12px; border:1px solid var(--tj-border); border-radius:99px; color:var(--tj-muted); background:var(--tj-surface); font-size:12px; cursor:pointer; }
+.map-provider-switch button.active { color:#fff; border-color:var(--tj-primary); background:var(--tj-primary); }
+.map-provider-switch button:disabled { opacity:.42; cursor:not-allowed; }
 .travel-map-popup { min-width:170px; color:var(--tj-text); font-family:var(--tj-sans); }
 .travel-map-popup strong { display:block; margin-bottom:5px; color:var(--tj-primary); font-size:14px; }
 .travel-map-popup p { margin:5px 0; color:var(--tj-muted); font-size:12px; line-height:1.5; }
@@ -284,8 +303,8 @@ button, input, textarea { font: inherit; }
 .day-route-play.playing { color:#fff; background:var(--tj-accent); }
 .day-route-map { height:min(58vh,420px); border:1px solid var(--tj-border); border-radius:var(--tj-radius); overflow:hidden; }
 /* 回放时当前那个点放大并亮起来，视线跟着走 */
-.day-route-marker .route-marker { transition:transform .25s ease, box-shadow .25s ease; }
-.day-route-marker.is-active .route-marker { transform:scale(1.35); box-shadow:0 0 0 6px color-mix(in srgb,var(--tj-accent) 30%,transparent); }
+.travel-map-marker .route-marker { transition:transform .25s ease, box-shadow .25s ease; }
+.travel-map-marker.is-active .route-marker,.route-marker.is-active { transform:scale(1.35); box-shadow:0 0 0 6px color-mix(in srgb,var(--tj-accent) 30%,transparent); }
 .day-route-popup .day-route-shots { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
 .day-route-popup .day-route-shots img { width:52px; height:52px; object-fit:cover; border-radius:6px; }
 .day-route-list { margin:16px 0 0; padding:0; list-style:none; display:grid; gap:2px; counter-reset:route; }

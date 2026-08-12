@@ -9,6 +9,7 @@ import com.thx.traveljournal.budget.mapper.ExpenseMapper;
 import com.thx.traveljournal.common.api.PageResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.common.util.SlugUtils;
+import com.thx.traveljournal.common.util.CoordinateConverter;
 import com.thx.traveljournal.itinerary.mapper.ItineraryMapper;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
@@ -129,7 +130,8 @@ public class TripService {
     public List<TripStop> stops(Long tripId) {
         get(tripId);
         return stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
-                .eq(TripStop::getTripId, tripId).orderByAsc(TripStop::getSortOrder, TripStop::getId));
+                .eq(TripStop::getTripId, tripId).orderByAsc(TripStop::getSortOrder, TripStop::getId))
+                .stream().map(this::canonicalReadView).toList();
     }
 
     public TripStop getStop(Long id) {
@@ -147,7 +149,7 @@ public class TripService {
             stop.setSortOrder(count.intValue());
         }
         stopMapper.insert(stop);
-        return stop;
+        return canonicalReadView(stop);
     }
 
     public TripStop updateStop(Long id, TripStop input) {
@@ -169,7 +171,7 @@ public class TripService {
         stop.setNote(input.getNote());
         validateStop(stop);
         stopMapper.updateById(stop);
-        return stop;
+        return canonicalReadView(stop);
     }
 
     public void deleteStop(Long id) {
@@ -220,15 +222,32 @@ public class TripService {
         if (stop.getArrivalDate() != null && stop.getDepartureDate() != null && stop.getDepartureDate().isBefore(stop.getArrivalDate()))
             throw BusinessException.badRequest("离开日期不能早于到达日期");
         if (StringUtils.hasText(stop.getCountryCode())) stop.setCountryCode(stop.getCountryCode().trim().toUpperCase());
+        // 数据库长期标准坐标是 WGS84（见 CoordinateConverter）；没传坐标系时默认按新标准算，
+        // 不再默认成 GCJ02——旧的高德搜索/选点入口已经在服务端转换成 WGS84 再传过来了。
         String coordinateSystem = StringUtils.hasText(stop.getCoordinateSystem())
-                ? stop.getCoordinateSystem().trim().toUpperCase() : "GCJ02";
+                ? stop.getCoordinateSystem().trim().toUpperCase() : "WGS84";
         if (!Set.of("GCJ02", "WGS84").contains(coordinateSystem))
             throw BusinessException.badRequest("坐标系仅支持 GCJ02 或 WGS84");
-        stop.setCoordinateSystem(coordinateSystem);
+        // 新写入一律规范成 WGS84。GCJ02 只作为历史/外部输入格式存在，转换依赖明确元数据，
+        // 不根据国内坐标范围猜测，所以不会误转换来源不明的生产数据。
+        BigDecimal[] wgs84 = CoordinateConverter.toWgs84(stop.getLatitude(), stop.getLongitude(), coordinateSystem);
+        stop.setLatitude(wgs84[0]);
+        stop.setLongitude(wgs84[1]);
+        stop.setCoordinateSystem("WGS84");
         String source = StringUtils.hasText(stop.getLocationSource())
                 ? stop.getLocationSource().trim().toUpperCase() : "MANUAL";
         if (!Set.of("AMAP_SEARCH", "AMAP_REVERSE", "MAP_PICK", "MANUAL").contains(source))
             throw BusinessException.badRequest("无效的地点来源");
         stop.setLocationSource(source);
+    }
+
+    /** 后台读取历史停靠点时也统一给 WGS84，但只改本次响应对象，不批量写回数据库。 */
+    private TripStop canonicalReadView(TripStop stop) {
+        BigDecimal[] wgs84 = CoordinateConverter.toWgs84(
+                stop.getLatitude(), stop.getLongitude(), stop.getCoordinateSystem());
+        stop.setLatitude(wgs84[0]);
+        stop.setLongitude(wgs84[1]);
+        stop.setCoordinateSystem("WGS84");
+        return stop;
     }
 }

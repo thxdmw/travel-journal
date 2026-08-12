@@ -62,7 +62,19 @@ class FlywayMigrationTest {
                 assertThat(value(connection, """
                         select version from flyway_schema_history
                         where success = true order by installed_rank desc limit 1
-                        """)).isEqualTo("18");
+                        """)).isEqualTo("21");
+                assertThat(count(connection, """
+                        select count(*) from information_schema.columns
+                        where table_schema='public' and table_name='theme_preset' and column_name='override_json'
+                        """)).isEqualTo(1);
+                assertThat(value(connection, """
+                        select column_default from information_schema.columns
+                        where table_schema='public' and table_name='trip_stop' and column_name='coordinate_system'
+                        """)).contains("WGS84");
+                assertThat(count(connection, """
+                        select count(*) from information_schema.columns
+                        where table_schema='public' and table_name='moment' and column_name='coordinate_system'
+                        """)).isEqualTo(1);
             }
         } finally {
             if (postgres != null) {

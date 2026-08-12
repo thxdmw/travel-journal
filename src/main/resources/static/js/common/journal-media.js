@@ -278,20 +278,29 @@
   function enhance(root) {
     if (!root) return;
     applyResponsiveImages(root);
-    root.querySelectorAll('.journal-gallery--carousel, .journal-gallery--filmstrip, .journal-gallery--compare')
-      .forEach(block => {
+    root.querySelectorAll('.journal-gallery').forEach(block => {
         if (block[ENHANCED]) return;
+        const hasExplicitLayout = Array.from(block.classList).some(name => name.startsWith('journal-gallery--'));
+        const themeLayout = hasExplicitLayout ? '' : document.documentElement.dataset.galleryLayout;
         if (block.classList.contains('journal-gallery--compare')) buildCompare(block);
-        else buildCarousel(block, block.classList.contains('journal-gallery--filmstrip'));
+        else if (block.classList.contains('journal-gallery--carousel') || themeLayout === 'carousel') buildCarousel(block, false);
+        else if (block.classList.contains('journal-gallery--filmstrip') || themeLayout === 'filmstrip') buildCarousel(block, true);
       });
   }
 
   /** 还原 enhance 的改动，组件卸载或正文重渲染前调用。 */
   function teardown(root) {
     if (!root) return;
-    root.querySelectorAll('.journal-gallery--carousel, .journal-gallery--filmstrip, .journal-gallery--compare')
+    root.querySelectorAll('.journal-gallery--carousel, .journal-gallery--filmstrip, .journal-gallery--compare, .journal-gallery')
       .forEach(restore);
   }
+
+  /**
+   * 真正的正文媒体图片选择器：单图、图片组、明信片。主题贴纸、头像、Logo、地图图标
+   * 这些非正文图片一律不在此列——灯箱和图片分组只认这三种容器下的 <img>，
+   * 不管它们在 DOM 里离得多近。
+   */
+  const MEDIA_SELECTOR = '.journal-figure img, .journal-gallery img, .journal-postcard img';
 
   /**
    * 取某张图片所属的一组，供灯箱翻页用。
@@ -300,10 +309,11 @@
    */
   function groupOf(image) {
     if (!(image instanceof HTMLImageElement)) return [];
+    if (!image.matches(MEDIA_SELECTOR)) return [];
     const block = image.closest('.journal-gallery');
     const scope = block || image.closest('.journal-document');
     if (!scope) return [image];
-    return Array.from(scope.querySelectorAll('img'));
+    return Array.from(scope.querySelectorAll(MEDIA_SELECTOR));
   }
 
   // ------------------------------------------------------------ 正文标记
@@ -316,5 +326,5 @@
    * 约定：每个轴的默认值一律不输出 class，沿用主题的 data-image-* 设置。
    * 这样改动之前写的日记一个字都不用动。
    */
-  window.JournalMedia = { applyResponsiveImages, enhance, teardown, groupOf };
+  window.JournalMedia = { applyResponsiveImages, enhance, teardown, groupOf, MEDIA_SELECTOR };
 })();

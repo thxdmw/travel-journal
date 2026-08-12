@@ -87,7 +87,14 @@ cp .env.example .env
 
 `APP_SITE_TIMEZONE` 决定季节主题按哪个时区判断当前是春夏秋冬，填站点主人常驻的地方。这里刻意不用访客设备的时区——这是一个人的旅行站，东京和悉尼的访客应该在同一天看到同一套视觉。
 
-地图搜索是可选能力。需要使用时，在高德开放平台创建“Web 服务”Key，并配置 `AMAP_WEB_SERVICE_KEY`。Key 仅由后端请求高德接口，不会发送到浏览器；未配置时仍可通过地图点选和手工坐标保存地点。
+地图的“地点搜索”和“底图展示”是两套独立配置：
+
+- 地点搜索仍使用高德 Web 服务 API。需要时配置 `AMAP_WEB_SERVICE_KEY`；它只由后端调用，不会发送到浏览器。未配置时仍可地图选点或手工录入坐标。
+- 底图展示支持 `AUTO` / `AMAP` / `OSM`。`AUTO` 根据可信代理注入到 `APP_MAP_GEO_HEADER` 指定 header 的访客国家码选择：中国大陆用高德，其他地区用 OSM；判断不到时使用 `APP_MAP_DISPLAY_FALLBACK`。
+- 高德展示使用官方 JS API 2.0，需要单独的 `AMAP_JS_KEY` 与 `AMAP_SECURITY_CODE`。安全密钥只留在服务端，由 `/api/public/_AMapService` 同源代理追加，不能写进前端或仓库。
+- OSM 继续由本地 Leaflet 加载，瓦片模板和署名可通过 `OSM_TILE_URL`、`OSM_ATTRIBUTION` 替换。瓦片不会经过 Spring Boot，也不会存入 MinIO。
+
+如果没有配置 `AMAP_JS_KEY`，`AUTO` 会使用 OSM，界面中的手动“高德”选项会禁用。具体变量与默认值见 `.env.example`。
 
 AI 整理也是可选能力。配置 `ANTHROPIC_API_KEY` 即启用，不配就不显示那个按钮，随手记照常可以整理成日记，只是不润色文字。
 

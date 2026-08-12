@@ -155,6 +155,8 @@
       updateTheme: (id, body) => http.put('/admin/themes/' + id, body),
       deleteTheme: id => http.delete('/admin/themes/' + id),
       duplicateTheme: id => http.post('/admin/themes/' + id + '/duplicate'),
+      // 还原系统主题的官方默认：清空用户覆盖，effective 回到官方 definitionJson
+      resetTheme: id => http.post('/admin/themes/' + id + '/reset'),
       // 备份走浏览器直接下载：文件可能很大，用 axios 收进内存再存盘没必要
       backupUrl: (includePhotos = true) => '/api/admin/backup?includePhotos=' + includePhotos,
       // 上传主题首页封面图。不绑定具体主题，返回的 id 由前端填进 definitionJson.hero.mediaId

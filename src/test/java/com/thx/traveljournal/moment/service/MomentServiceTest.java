@@ -80,6 +80,20 @@ class MomentServiceTest {
     }
 
     @Test
+    void locatedMomentAlwaysStoresWgs84Metadata() {
+        when(mapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        Moment input = new Moment();
+        input.setTripId(7L);
+        input.setOccurredAt(OffsetDateTime.parse("2026-08-11T15:30:00Z"));
+        input.setLatitude(java.math.BigDecimal.valueOf(30.6598));
+        input.setLongitude(java.math.BigDecimal.valueOf(104.0633));
+
+        Moment created = service.create(input);
+
+        assertThat(created.getCoordinateSystem()).isEqualTo("WGS84");
+    }
+
+    @Test
     void composeSelectionShouldExcludeMomentsOwnedByAnotherJournal() {
         when(mapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 

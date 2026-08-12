@@ -2,6 +2,7 @@ package com.thx.traveljournal.moment.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.thx.traveljournal.common.util.SiteClock;
+import com.thx.traveljournal.common.util.CoordinateConverter;
 import com.thx.traveljournal.itinerary.entity.ItineraryItem;
 import com.thx.traveljournal.itinerary.mapper.ItineraryMapper;
 import com.thx.traveljournal.journal.entity.JournalEntry;
@@ -55,8 +56,8 @@ public class DayRouteService {
      * @param source moment 表示来自随手记（实际去过），plan 表示来自行程与城市（计划要去）
      */
     public record RoutePoint(int order, String time, String title, String note,
-                             BigDecimal latitude, BigDecimal longitude,
-                             List<Photo> photos, String source) {}
+                              BigDecimal latitude, BigDecimal longitude,
+                              String coordinateSystem, List<Photo> photos, String source) {}
 
     /** 路线点上的照片。只给展示地址，不暴露原图。 */
     public record Photo(Long id, String thumbnailUrl, String displayUrl) {}
@@ -101,10 +102,12 @@ public class DayRouteService {
         List<RoutePoint> points = new ArrayList<>();
         int order = 1;
         for (Moment moment : moments) {
+            BigDecimal[] wgs84 = CoordinateConverter.toWgs84(
+                    moment.getLatitude(), moment.getLongitude(), moment.getCoordinateSystem());
             points.add(new RoutePoint(order++,
                     moment.getOccurredAt().atZoneSameInstant(occurrenceZone(moment)).format(HOUR_MINUTE),
                     StringUtils.hasText(moment.getPlaceName()) ? moment.getPlaceName() : "这里",
-                    moment.getContent(), moment.getLatitude(), moment.getLongitude(),
+                    moment.getContent(), wgs84[0], wgs84[1], "WGS84",
                     photos.getOrDefault(moment.getId(), List.of()).stream()
                             .map(relation -> photo(relation.getMediaAssetId())).toList(),
                     "moment"));
@@ -145,9 +148,10 @@ public class DayRouteService {
             LocalTime start = items.isEmpty() ? null : items.get(0).getStartTime();
             String note = items.stream().map(ItineraryItem::getTitle)
                     .filter(StringUtils::hasText).collect(Collectors.joining(" · "));
+            BigDecimal[] wgs84 = CoordinateConverter.toWgs84(
+                    stop.getLatitude(), stop.getLongitude(), stop.getCoordinateSystem());
             points.add(new RoutePoint(order++, start == null ? "" : start.format(HOUR_MINUTE),
-                    stop.getCityName(), note, stop.getLatitude(), stop.getLongitude(),
-                    List.of(), "plan"));
+                    stop.getCityName(), note, wgs84[0], wgs84[1], "WGS84", List.of(), "plan"));
         }
         return points;
     }

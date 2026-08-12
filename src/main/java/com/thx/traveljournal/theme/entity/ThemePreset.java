@@ -2,6 +2,7 @@ package com.thx.traveljournal.theme.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.thx.traveljournal.common.entity.BaseEntity;
 import com.thx.traveljournal.common.mybatis.JsonNodeTypeHandler;
@@ -35,7 +36,14 @@ public class ThemePreset extends BaseEntity {
      */
     @TableField(typeHandler = JsonNodeTypeHandler.class)
     private JsonNode definitionJson;
-    /** 是否为系统预设；系统预设不可直接修改或删除，需先复制 */
+    /**
+     * 系统预设的用户覆盖：稀疏 JSON，只含相对 {@link #definitionJson} 改动过的字段。
+     * 只对 {@code builtin=true} 的行有意义，个人主题恒为 null。
+     * 生效值 = deepMerge(definitionJson, overrideJson)，见 ThemePresetService。
+     */
+    @TableField(typeHandler = JsonNodeTypeHandler.class, updateStrategy = FieldStrategy.ALWAYS)
+    private JsonNode overrideJson;
+    /** 是否为系统预设；系统预设的官方 definitionJson 不可直接改写，修改会存进 overrideJson */
     private Boolean builtin;
     /** 是否启用，停用后不能被选用 */
     private Boolean enabled;

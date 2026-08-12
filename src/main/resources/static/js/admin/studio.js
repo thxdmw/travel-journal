@@ -72,7 +72,7 @@
       const themes=ref([]),changing=ref(''),saving=ref(false),editor=ref(false),editing=ref(null),previewFrame=ref(null),previewMode=ref('desktop'),importInput=ref(null);
       const siteState=ref(null);
       const history=ref([]),historyIndex=ref(-1);
-      let historyTimer=null,restoring=false,originalSnapshot='';
+      let historyTimer=null,restoring=false,originalSnapshot='',pendingHighlight=null;
       // 预览 iframe 的模拟视口宽度。前台 public.css 的断点是按视口宽度判断的，
       // 而 iframe 内部的视口就是它自身宽度——面板只有 800 出头，会直接落进
       // max-width:900px 的移动端断点，于是「桌面」预览显示的其实是手机布局。
@@ -80,6 +80,10 @@
       // 桌面不给高度：浏览器窗口高度本来就不固定，让它填满面板能多看到些内容。
       // 手机必须给高度：机身比例是固定的，只按宽度缩放会把 390×844 压成 390×610。
       const PREVIEW_VIEWPORTS={desktop:{width:1280,height:null},mobile:{width:390,height:844}};
+      // 三个固定预览场景：首页、日记、地图。三者已经覆盖绝大多数 Theme Token 的
+      // 实际落点，不需要更多页面；场景数据在 public-app.js 里写死，不依赖真实数据库内容。
+      const previewScene=ref('home');
+      const previewSrc=computed(()=>'/?theme-preview=1&scene='+previewScene.value+'#/theme-preview-scene');
       const previewWrap=ref(null);
       const previewBox=reactive({scale:1,frameWidth:PREVIEW_VIEWPORTS.desktop.width,frameHeight:800,stageWidth:PREVIEW_VIEWPORTS.desktop.width,stageHeight:800});
       const stageStyle=computed(()=>({width:previewBox.stageWidth+'px',height:previewBox.stageHeight+'px'}));
@@ -134,8 +138,13 @@
        * 高级自定义的控件表。一个 token 一行，模板用 v-for 渲染，
        * 新增可调项时后端 SCHEMA 加一行、这里加一行即可，不用改模板结构。
        */
+      /**
+       * preview 场景标签：控件表用它自动切换右侧预览、给字段贴「首页/日记/地图」的作用范围徽标。
+       * tier 决定分在「基础设计」还是「高级效果」，高级默认折叠——参见模板里的 basicGroups/advancedGroups。
+       */
+      const SCENE_LABEL={home:'首页',journal:'日记',map:'地图'};
       const settingGroups=[
-        {key:'typography',label:'字体与排版',fields:[
+        {key:'typography',label:'字体与排版',preview:'journal',tier:'basic',fields:[
           {key:'headingFamily',label:'标题字体',type:'select',options:[['serif','杂志衬线'],['sans','现代无衬线'],['rounded','圆润黑体'],['mono','等宽字体']]},
           {key:'bodyFamily',label:'正文字体',type:'select',options:[['sans','清晰无衬线'],['serif','沉浸衬线'],['rounded','圆润黑体'],['mono','等宽字体']]},
           {key:'headingStyle',label:'标题装饰',type:'select',options:[['plain','无装饰'],['underline','下划线'],['bar','左侧竖条'],['serif-caps','小型大写'],['outline','描边空心']]},
@@ -145,99 +154,136 @@
           {key:'headingWeight',label:'标题字重',type:'number',min:400,max:900,step:50},
           {key:'paragraphSpacing',label:'段间距 (em)',type:'number',min:0.6,max:2.4,step:0.05}
         ]},
-        {key:'shape',label:'圆角与描边',fields:[
+        {key:'shape',label:'圆角与描边',preview:'home',tier:'basic',fields:[
           {key:'cardRadius',label:'卡片圆角',type:'number',min:0,max:32,step:1},
           {key:'imageRadius',label:'图片圆角',type:'number',min:0,max:32,step:1},
           {key:'buttonRadius',label:'按钮圆角',type:'number',min:0,max:32,step:1},
           {key:'borderWidth',label:'描边粗细',type:'number',min:0,max:4,step:1}
         ]},
-        {key:'layout',label:'页面布局',fields:[
-          {key:'homeLayout',label:'首页布局',type:'select',options:[['editorial','旅行杂志'],['classic','整齐卡片'],['bento','Bento 格'],['magazine','杂志栅格'],['timeline','时间轴'],['masonry','瀑布流']]},
-          {key:'journalLayout',label:'日记布局',type:'select',options:[['single','标准单栏'],['wide','宽栏'],['immersive','沉浸式'],['scrapbook','手账式']]},
+        {key:'layout',label:'页面布局',preview:'home',tier:'basic',fields:[
+          {key:'homeLayout',label:'首页布局',type:'select',target:'首页整体版式',options:[['editorial','旅行杂志'],['classic','整齐卡片'],['bento','Bento 格'],['magazine','杂志栅格'],['timeline','时间轴'],['masonry','瀑布流']]},
+          {key:'journalLayout',label:'日记布局',type:'select',preview:'journal',target:'日记正文版式',options:[['single','标准单栏'],['wide','宽栏'],['immersive','沉浸式'],['scrapbook','手账式']]},
           {key:'density',label:'内容密度',type:'select',options:[['compact','紧凑'],['comfortable','舒适'],['relaxed','宽松']]},
           {key:'contentWidth',label:'内容宽度',type:'number',min:960,max:1600,step:20},
-          {key:'articleWidth',label:'文章宽度',type:'number',min:600,max:1000,step:20},
+          {key:'articleWidth',label:'文章宽度',type:'number',min:600,max:1000,step:20,preview:'journal',target:'正文阅读区',help:'控制日记正文的最大阅读宽度'},
           {key:'sectionGap',label:'区块间距倍数',type:'number',min:0.6,max:2.2,step:0.05}
         ]},
-        {key:'card',label:'卡片风格',fields:[
-          {key:'style',label:'卡片外观',type:'select',options:[['flat','无边无影'],['border','描边'],['shadow','投影'],['glass','玻璃拟态'],['paper','纸片'],['polaroid','拍立得'],['film','胶片']]},
+        {key:'card',label:'卡片风格',preview:'home',tier:'basic',fields:[
+          {key:'style',label:'卡片外观',type:'select',target:'日记卡片 / 地点卡片',options:[['flat','无边无影'],['border','描边'],['shadow','投影'],['glass','玻璃拟态'],['paper','纸片'],['polaroid','拍立得'],['film','胶片']]},
           {key:'opacity',label:'卡片不透明度',type:'number',min:0.4,max:1,step:0.02},
-          {key:'blur',label:'毛玻璃模糊',type:'number',min:0,max:24,step:1}
+          {key:'blur',label:'毛玻璃模糊',type:'number',min:0,max:24,step:1,condition:d=>d.card.style==='glass',help:'选择「玻璃拟态」后可调整'}
         ]},
-        {key:'background',label:'页面背景',fields:[
+        {key:'background',label:'页面背景',preview:'home',tier:'basic',fields:[
           {key:'style',label:'背景类型',type:'select',options:[['solid','纯色'],['gradient','渐变'],['image','图片']]},
           {key:'texture',label:'叠加纹理',type:'select',options:[['none','无'],['paper','纸纹'],['grain','胶片颗粒'],['noise','噪点'],['dots','圆点'],['grid','网格'],['topo','等高线']]},
-          {key:'intensity',label:'纹理强度',type:'number',min:0,max:1,step:0.05}
+          {key:'intensity',label:'纹理强度',type:'number',min:0,max:1,step:0.05,condition:d=>d.background.texture!=='none'||d.background.style==='image',help:'叠加纹理不为「无」，或背景类型选择「图片」后可调整'}
         ]},
-        {key:'image',label:'图片默认版式',hint:'日记里逐张选过的版式优先，这里只影响没单独设置过的图片',fields:[
+        {key:'image',label:'图片默认版式',preview:'journal',tier:'basic',hint:'日记里逐张选过的版式优先，这里只影响没单独设置过的图片',fields:[
           {key:'width',label:'默认宽度',type:'select',options:[['small','小图 42%'],['medium','中图 68%'],['large','大图 90%'],['full','通栏 100%']]},
           {key:'maxHeight',label:'最大高度 (vh)',type:'number',min:30,max:100,step:5},
           {key:'defaultRatio',label:'默认比例',type:'select',options:[['natural','原始比例'],['16:9','16:9'],['4:3','4:3'],['1:1','1:1'],['3:4','3:4']]},
-          {key:'frame',label:'相框风格',type:'select',options:[['none','无'],['line','细线'],['paper','相纸'],['float','悬浮'],['polaroid','拍立得'],['film','胶片'],['postcard','明信片']]},
+          {key:'frame',label:'相框风格',type:'select',target:'正文单图 / 图片组',options:[['none','无'],['line','细线'],['paper','相纸'],['float','悬浮'],['polaroid','拍立得'],['film','胶片'],['postcard','明信片'],['tape','胶带']]},
           {key:'tone',label:'滤镜',type:'select',options:[['none','原色'],['warm','暖调'],['vintage','复古'],['mono','黑白']]},
           {key:'shadow',label:'图片阴影',type:'select',options:[['none','无'],['soft','轻柔'],['floating','悬浮']]},
           {key:'style',label:'图片风格',type:'select',options:[['natural','自然'],['rounded','柔和圆角'],['paper','相纸']]}
         ]},
-        {key:'gallery',label:'多图布局',fields:[
+        {key:'gallery',label:'多图布局',preview:'journal',tier:'advanced',target:'图片组',fields:[
           {key:'layout',label:'默认排布',type:'select',options:[['grid','网格'],['masonry','瀑布流'],['row','等高一行'],['mosaic','马赛克'],['magazine','杂志'],['carousel','轮播'],['filmstrip','胶片条']]},
-          {key:'columns',label:'列数',type:'number',min:2,max:4,step:1},
+          {key:'columns',label:'列数',type:'number',min:2,max:4,step:1,condition:d=>['grid','masonry'].includes(d.gallery.layout),help:'默认排布选择「网格」或「瀑布流」后可调整'},
           {key:'gap',label:'图片间距',type:'number',min:0,max:32,step:2}
         ]},
-        {key:'motion',label:'动效',fields:[
+        {key:'motion',label:'动效',preview:'home',tier:'advanced',fields:[
           {key:'level',label:'动效强度',type:'select',options:[['none','关闭'],['subtle','轻微'],['standard','标准'],['strong','强烈']]},
-          {key:'hover',label:'悬停反馈',type:'select',options:[['none','无'],['lift','浮起'],['zoom','放大'],['tilt','倾斜']]},
+          {key:'hover',label:'悬停反馈',type:'select',target:'日记卡片',options:[['none','无'],['lift','浮起'],['zoom','放大'],['tilt','倾斜']]},
           {key:'entrance',label:'进入动画',type:'switch'},
           {key:'scrollReveal',label:'滚动揭示',type:'switch'}
         ]},
-        {key:'effects',label:'页面特效',hint:'默认全关，开启后会常驻运行；系统开启「减少动态效果」时自动失效',fields:[
-          {key:'particles',label:'粒子效果',type:'select',options:[['none','关闭'],['snow','雪'],['sakura','樱花'],['leaves','落叶'],['stars','星空'],['dust','浮尘']]},
+        {key:'effects',label:'页面特效',preview:'home',tier:'advanced',hint:'默认全关，开启后会常驻运行；系统开启「减少动态效果」时自动失效',fields:[
+          {key:'particles',label:'粒子效果',type:'select',target:'全站浮层',options:[['none','关闭'],['snow','雪'],['sakura','樱花'],['leaves','落叶'],['stars','星空'],['dust','浮尘']]},
           {key:'grain',label:'胶片颗粒',type:'switch'},
           {key:'lightLeak',label:'漏光',type:'switch'},
           {key:'vignette',label:'暗角',type:'switch'}
         ]},
-        {key:'map',label:'地图视觉',fields:[
+        {key:'map',label:'地图视觉',preview:'map',tier:'advanced',fields:[
           {key:'style',label:'地图色调',type:'select',options:[['auto','跟随明暗'],['light','明亮'],['dark','暗色'],['vintage','复古'],['terrain','地形增强']]},
-          {key:'markerStyle',label:'标记样式',type:'select',options:[['dot','圆点'],['pin','水滴'],['ring','圆环'],['photo','大圆点']]},
-          {key:'routeColor',label:'路线颜色',type:'color'},
-          {key:'routeWidth',label:'路线粗细',type:'number',min:1,max:8,step:1},
-          {key:'animateRoute',label:'路线绘制动画',type:'switch'}
+          {key:'markerStyle',label:'标记样式',type:'select',target:'地图 · 标记',options:[['dot','圆点'],['pin','水滴'],['ring','圆环'],['photo','大圆点']]},
+          {key:'routeColor',label:'路线颜色',type:'color',target:'地图 · 路线',help:'只在页面存在路线时才看得到效果，例如日记的「今日路线」'},
+          {key:'routeWidth',label:'路线粗细',type:'number',min:1,max:8,step:1,target:'地图 · 路线',help:'只在页面存在路线时才看得到效果，例如日记的「今日路线」'},
+          {key:'animateRoute',label:'路线绘制动画',type:'switch',target:'地图 · 路线',help:'只在页面存在路线时才看得到效果，例如日记的「今日路线」'}
         ]},
-        {key:'decorations',label:'页面装饰',hint:'用来填补页面的空旷，不是用来填满页面；透明度默认压得很低',fields:[
+        {key:'decorations',label:'页面装饰',preview:'home',tier:'basic',hint:'用来填补页面的空旷，不是用来填满页面；透明度默认压得很低',fields:[
           {key:'corner',label:'页面角落',type:'select',options:[['none','无'],['vine','藤蔓'],['wave','海浪'],['leaf','落叶'],['frost','霜花'],['stamp','邮戳'],['compass','指南针']]},
-          {key:'pageEdge',label:'页边点缀',type:'select',options:[['none','无'],['petal','花瓣'],['sun','太阳'],['leaf','落叶'],['snow','雪花'],['star','星星']]},
+          {key:'pageEdge',label:'页边点缀',type:'select',preview:'journal',target:'日记正文两侧',options:[['none','无'],['petal','花瓣'],['sun','太阳'],['leaf','落叶'],['snow','雪花'],['star','星星']]},
           {key:'headerOrnament',label:'标题纹样',type:'select',options:[['none','无'],['line','短线'],['compass','指南针'],['ticket','车票'],['arch','拱形'],['wave','波浪']]},
-          {key:'opacity',label:'装饰浓度',type:'number',min:0.05,max:1,step:0.05}
+          {key:'opacity',label:'装饰浓度',type:'number',min:0.05,max:1,step:0.05,condition:d=>d.decorations.corner!=='none'||d.decorations.pageEdge!=='none'||d.decorations.headerOrnament!=='none',help:'至少开启一项页面装饰后可调整'}
         ]},
-        {key:'stickers',label:'主题贴纸',hint:'位置只能从固定的几个区域里选，这样手机上不会错位；贴纸列表在下面单独编辑',fields:[
+        {key:'stickers',label:'主题贴纸',preview:'journal',tier:'advanced',hint:'位置只能从固定的几个区域里选，这样手机上不会错位；贴纸列表在下面单独编辑',fields:[
           {key:'density',label:'贴纸密度',type:'select',options:[['none','不显示'],['low','少量'],['medium','适中']]}
         ]},
-        {key:'dividers',label:'章节分隔线',fields:[
+        {key:'dividers',label:'章节分隔线',preview:'journal',tier:'advanced',target:'章节之间的分隔线',fields:[
           {key:'style',label:'线条样式',type:'select',options:[['line','细线'],['dashed','虚线'],['dotted','点线'],['ornament','两端渐隐'],['wave','波浪'],['torn','撕纸边']]},
           {key:'glyph',label:'中间符号',type:'select',options:[['none','无'],['sakura','🌸 樱花'],['sun','☀ 太阳'],['leaf','🍂 落叶'],['snow','❄ 雪花'],['compass','✧ 指南针'],['plane','✈ 飞机'],['stamp','❖ 邮戳'],['wave','〜 波浪'],['star','✦ 星星']]}
         ]},
-        {key:'ambient',label:'环境氛围',hint:'比粒子更安静的一层：一片很淡的光，或者一分钟才移动一点点的云',fields:[
+        {key:'ambient',label:'环境氛围',preview:'home',tier:'advanced',hint:'比粒子更安静的一层：一片很淡的光，或者一分钟才移动一点点的云',fields:[
           {key:'glow',label:'光晕',type:'select',options:[['none','无'],['sun','阳光'],['moon','月光'],['lantern','灯光'],['dawn','晨曦']]},
           {key:'drift',label:'缓慢移动层',type:'select',options:[['none','无'],['clouds','云'],['mist','薄雾'],['fireflies','萤火']]},
-          {key:'intensity',label:'氛围强度',type:'number',min:0,max:1,step:0.05}
+          {key:'intensity',label:'氛围强度',type:'number',min:0,max:1,step:0.05,condition:d=>d.ambient.glow!=='none'||d.ambient.drift!=='none',help:'开启光晕或缓慢移动层后可调整'}
         ]},
-        {key:'blockStyles',label:'内容块皮肤',hint:'同一种内容块在不同主题里可以长得不一样',fields:[
+        {key:'blockStyles',label:'内容块皮肤',preview:'journal',tier:'advanced',hint:'同一种内容块在不同主题里可以长得不一样',fields:[
           {key:'callout',label:'提示卡片',type:'select',options:[['plain','默认'],['paper','纸片'],['tape','胶带'],['ticket','票根'],['frame','双线框']]},
           {key:'quote',label:'引用',type:'select',options:[['plain','默认'],['mark','大引号'],['card','卡片'],['handwritten','手写感']]},
           {key:'timeline',label:'时间线',type:'select',options:[['line','竖线'],['dots','圆点'],['stamps','邮戳时间'],['tickets','车票时间']]},
           {key:'stats',label:'数字亮点',type:'select',options:[['plain','默认'],['badge','药丸'],['ticket','票根']]},
           {key:'locationCard',label:'地点卡片',type:'select',options:[['plain','默认'],['postcard','明信片'],['label','标签条'],['passport','护照页']]},
-          {key:'journalMoment',label:'开场/章节/小结',type:'select',options:[['classic','经典'],['spring','春日花枝'],['summer','夏日阳光'],['autumn','秋日车票'],['winter','冬日霜花'],['retro','复古邮戳']]}
+          {key:'journalMoment',label:'开场/章节/小结',type:'select',target:'今日开场 / 章节节点 / 今日小结',options:[['classic','经典'],['spring','春日花枝'],['summer','夏日阳光'],['autumn','秋日车票'],['winter','冬日霜花'],['retro','复古邮戳']]}
         ]},
-        {key:'interactions',label:'互动',hint:'只能从预先写好的这几种里选，主题配置里永远不会出现脚本',fields:[
-          {key:'stickerClick',label:'点击贴纸',type:'select',options:[['none','无反应'],['pop','弹一下'],['wiggle','摇一摇'],['drift','飘走'],['heart-pop','心跳']]},
+        {key:'interactions',label:'互动',preview:'journal',tier:'advanced',hint:'只能从预先写好的这几种里选，主题配置里永远不会出现脚本',fields:[
+          {key:'stickerClick',label:'点击贴纸',type:'select',condition:d=>(d.stickers?.items||[]).length>0,help:'先在「主题贴纸」里添加至少一张贴纸后可调整',options:[['none','无反应'],['pop','弹一下'],['wiggle','摇一摇'],['drift','飘走'],['heart-pop','心跳']]},
           {key:'imageHover',label:'鼠标经过照片',type:'select',options:[['none','无'],['tilt','轻微倾斜'],['zoom','轻微放大'],['lift','浮起'],['stamp','按下去']]},
-          {key:'heroEntrance',label:'封面入场',type:'select',options:[['none','无'],['float','上浮'],['fade','淡入'],['drift','横向滑入']]}
+          {key:'heroEntrance',label:'封面入场',type:'select',preview:'home',target:'首页封面',options:[['none','无'],['float','上浮'],['fade','淡入'],['drift','横向滑入']]}
         ]},
-        {key:'hero',label:'首页封面',fields:[
+        {key:'hero',label:'首页封面',preview:'home',tier:'basic',fields:[
           {key:'shape',label:'底边形状',type:'select',options:[['none','平直'],['wave','波浪'],['arch','拱形'],['torn','撕纸'],['tape','胶带']]},
           {key:'overlay',label:'叠加光',type:'select',options:[['none','无'],['sun','阳光'],['frost','霜白'],['paper','纸感'],['dusk','暮色']]}
         ]}
       ];
+      const basicGroups=computed(()=>settingGroups.filter(g=>g.tier!=='advanced'));
+      const advancedGroups=computed(()=>settingGroups.filter(g=>g.tier==='advanced'));
+      /** 字段实际生效场景：字段自己声明的 preview 优先，否则沿用所属分组的。 */
+      function fieldScene(group,field){return field.preview||group.preview||'home';}
+      function fieldDisabled(field){return typeof field.condition==='function'&&!field.condition(form.definitionJson);}
+      /**
+       * 用户碰了某个设置：自动把预览切到对应场景，并让 iframe 里的目标元素短暂高亮，
+       * 这样不用来回猜「这个设置到底改了哪里」。高亮只按分组给一个代表性 selector，
+       * 不追求每个字段各自精确，够用且维护成本低。
+       */
+      const GROUP_HIGHLIGHT_SELECTOR={
+        colors:'body, .hero', typography:'.journal-paragraph, .article-head h1', shape:'.journal-card, .stat',
+        layout:'.home-page, .article', card:'.journal-card', background:'.home-page-shell, .page',
+        image:'.journal-figure', gallery:'.journal-gallery', motion:'.journal-card', effects:'body',
+        map:'.map-box', decorations:'.journal-block', stickers:'.tj-sticker',
+        dividers:'.journal-block--divider', ambient:'body',
+        blockStyles:'.journal-block--quote, .journal-block--callout, .journal-block--timeline, .journal-block--stats, .journal-block--location-card',
+        interactions:'.tj-sticker, .journal-figure', hero:'.hero, .hero-photo'
+      };
+      function onFieldTouched(group,field){
+        const scene=fieldScene(group,field);
+        const selector=GROUP_HIGHLIGHT_SELECTOR[group.key]||null;
+        pendingHighlight=selector;
+        if(previewScene.value!==scene){previewScene.value=scene;return;}
+        pendingHighlight=null;
+        sendPreviewHighlight(selector);
+      }
+      function sendPreviewHighlight(selector){nextTick(()=>{
+          const frame=previewFrame.value?.contentWindow;
+          if(!frame)return;
+          try{frame.postMessage({type:'travel-theme-highlight',selector},location.origin);}
+          catch(_){}
+        });}
+      function previewLoaded(){
+        postPreview();
+        if(pendingHighlight){const selector=pendingHighlight;pendingHighlight=null;setTimeout(()=>sendPreviewHighlight(selector),80);}
+      }
       /*
        * 贴纸列表单独编辑。
        *
@@ -263,14 +309,26 @@
         if(stickers.items.length>=MAX_STICKERS)return;
         stickers.items.push({asset:'classic-compass',area:'section-gap'});
         if(stickers.density==='none')stickers.density='low';
+        onFieldTouched(settingGroups.find(g=>g.key==='stickers'),{preview:'journal'});
       }
-      function removeSticker(index){form.definitionJson.stickers.items.splice(index,1);}
+      function removeSticker(index){form.definitionJson.stickers.items.splice(index,1);onFieldTouched(settingGroups.find(g=>g.key==='stickers'),{preview:'journal'});}
       function stickerPreview(asset){return '/assets/themes/stickers/'+asset+'.svg';}
       const form=reactive({name:'',description:'',baseThemeKey:'travel-classic',previewImageUrl:'',enabled:true,definitionJson:JSON.parse(JSON.stringify(defaultDefinition))});
       const contrast=computed(()=>{const ratio=contrastRatio(form.definitionJson.colors.text,form.definitionJson.colors.background);return{ratio:ratio.toFixed(2),ok:ratio>=4.5};});
       const canUndo=computed(()=>historyIndex.value>0),canRedo=computed(()=>historyIndex.value<history.value.length-1);
       function deep(value){return JSON.parse(JSON.stringify(value));}
       function completeDefinition(input){const result=deep(defaultDefinition);Object.keys(result).forEach(section=>Object.assign(result[section],input?.[section]||{}));return result;}
+      function changedPaths(){
+        if(!originalSnapshot)return [];
+        const before=JSON.parse(originalSnapshot).definitionJson||{};
+        const after=form.definitionJson||{};
+        const paths=[];
+        Object.keys(defaultDefinition).forEach(section=>{
+          const keys=new Set([...Object.keys(before[section]||{}),...Object.keys(after[section]||{})]);
+          keys.forEach(key=>{if(JSON.stringify(before[section]?.[key])!==JSON.stringify(after[section]?.[key]))paths.push(section+'.'+key);});
+        });
+        return paths;
+      }
       async function load(){
         try{
           const result=await Promise.all([A.themes(false),A.siteThemeState()]);
@@ -326,10 +384,83 @@
       function undo(){if(!canUndo.value)return;historyIndex.value--;assignSnapshot(history.value[historyIndex.value]);}
       function redo(){if(!canRedo.value)return;historyIndex.value++;assignSnapshot(history.value[historyIndex.value]);}
       function resetEditor(){assignSnapshot(originalSnapshot);history.value=[originalSnapshot];historyIndex.value=0;}
-      function openEditor(item,forceNew=false){const source=item||themes.value.find(x=>x.themeKey===activeThemeKey.value)||themes.value[0];editing.value=forceNew||source?.builtin?null:source?.id||null;assignSnapshot({name:forceNew?'我的旅行主题':source?.name||'我的旅行主题',description:source?.description||'',baseThemeKey:source?.baseThemeKey||'travel-classic',previewImageUrl:source?.previewImageUrl||'',enabled:true,definitionJson:source?.definitionJson||defaultDefinition});editor.value=true;nextTick(()=>{seedHistory();postPreview();});}
+      // 系统主题现在也能直接进设计器改：不再要求先复制一份。editingBuiltin 标记
+      // 这次编辑的是不是系统主题——名称、说明这些官方身份信息在这种情况下禁止修改，
+      // 只有视觉配置会被后端收进 overrideJson。
+      const editingBuiltin=ref(false),editingSource=ref(null);
+      function openEditor(item,forceNew=false){
+        const source=item||themes.value.find(x=>x.themeKey===activeThemeKey.value)||themes.value[0];
+        editing.value=forceNew?null:(source?.id||null);
+        editingBuiltin.value=!forceNew&&!!source?.builtin;
+        editingSource.value=forceNew?null:source||null;
+        assignSnapshot({name:forceNew?'我的旅行主题':source?.name||'我的旅行主题',description:source?.description||'',baseThemeKey:source?.baseThemeKey||'travel-classic',previewImageUrl:source?.previewImageUrl||'',enabled:true,definitionJson:source?.definitionJson||defaultDefinition});
+        editor.value=true;nextTick(()=>{seedHistory();postPreview();});
+      }
       async function duplicateTheme(item){try{const created=await A.duplicateTheme(item.id);await load();openEditor(created,false);message('已复制主题，可以开始设计');}catch(e){fail(e);}}
-      async function saveTheme(){saving.value=true;try{const body={name:form.name,description:form.description,baseThemeKey:form.baseThemeKey,previewImageUrl:form.previewImageUrl||null,enabled:form.enabled,definitionJson:form.definitionJson};const saved=editing.value?await A.updateTheme(editing.value,body):await A.createTheme(body);if(activeThemeKey.value===saved.themeKey)applyTheme(saved);editor.value=false;await load();message('主题已保存');}catch(e){fail(e);}finally{saving.value=false;}}
+      async function saveTheme(){saving.value=true;try{const body={name:form.name,description:form.description,baseThemeKey:form.baseThemeKey,previewImageUrl:form.previewImageUrl||null,enabled:form.enabled,definitionJson:form.definitionJson};if(editingBuiltin.value)body.changedPaths=changedPaths();const saved=editing.value?await A.updateTheme(editing.value,body):await A.createTheme(body);if(activeThemeKey.value===saved.themeKey)applyTheme(saved);editor.value=false;await load();message('主题已保存');}catch(e){fail(e);}finally{saving.value=false;}}
       async function removeTheme(item){try{await confirm('确定删除主题“'+item.name+'”吗？');await A.deleteTheme(item.id);await load();message('主题已删除');}catch(e){if(e!=='cancel'&&e!=='close')fail(e);}}
+      /**
+       * 还原系统主题的官方默认：清空服务端的 overrideJson。如果正好在设计器里编辑
+       * 这一套主题，顺带把表单也刷新成官方值，不用关掉弹窗重开。
+       */
+      async function restoreOfficial(item){
+        if(!item)return;
+        try{
+          await confirm('确定要把「'+item.name+'」还原为官方默认吗？你在它上面做的修改会被清空，且不能撤销。');
+          const updated=await A.resetTheme(item.id);
+          if(activeThemeKey.value===updated.themeKey)applyTheme(updated);
+          await load();
+          if(editor.value&&editing.value===item.id){
+            assignSnapshot({name:updated.name,description:updated.description||'',baseThemeKey:updated.baseThemeKey,previewImageUrl:updated.previewImageUrl||'',enabled:updated.enabled,definitionJson:updated.definitionJson});
+            editingSource.value=updated;
+            seedHistory();
+          }
+          message('已还原为官方默认');
+        }catch(e){if(e!=='cancel'&&e!=='close')fail(e);}
+      }
+      async function restoreEditingOfficial(){
+        if(!editingSource.value)return;
+        await restoreOfficial(editingSource.value);
+      }
+      // ——— 查看已修改项 ———
+      // overrideJson 本身就是稀疏的，它的叶子键就是「改过什么」，不需要额外做 diff 计算；
+      // 这里只负责把 section.key 映射回 settingGroups 里已经写好的中文 label。
+      const diffDialog=ref(false),diffTarget=ref(null);
+      function viewDiff(item){diffTarget.value=item;diffDialog.value=true;}
+      function fieldLabel(section,key){
+        if(section==='colors'){const hit=colorFields.find(c=>c[0]===key);return '色彩 · '+(hit?hit[1]:key);}
+        const group=settingGroups.find(g=>g.key===section);
+        const field=group?.fields.find(f=>f.key===key);
+        if(group&&field)return group.label+' · '+field.label;
+        if(section==='stickers'&&key==='items')return '主题贴纸 · 贴纸列表';
+        if(section==='hero')return '首页封面 · '+key;
+        return section+'.'+key;
+      }
+      function formatValue(value){
+        if(value===undefined||value===null)return '（未设置）';
+        if(Array.isArray(value))return value.length+' 项';
+        if(typeof value==='object')return JSON.stringify(value);
+        return String(value);
+      }
+      const diffEntries=computed(()=>{
+        const item=diffTarget.value;
+        const rows=[];
+        if(!item?.overrideJson)return rows;
+        Object.keys(item.overrideJson).forEach(section=>{
+          const overrideSection=item.overrideJson[section];
+          const officialSection=item.officialDefinitionJson?.[section];
+          if(overrideSection&&typeof overrideSection==='object'&&!Array.isArray(overrideSection)){
+            Object.keys(overrideSection).forEach(key=>rows.push({
+              label:fieldLabel(section,key),
+              oldValue:officialSection?.[key],
+              newValue:overrideSection[key]
+            }));
+          }else{
+            rows.push({label:fieldLabel(section,section),oldValue:officialSection,newValue:overrideSection});
+          }
+        });
+        return rows;
+      });
       // 把当前设计推给预览 iframe。改一个颜色就会触发一次，所以预览页没能正常加载时
       // （contentWindow 的 origin 变成 null，postMessage 直接抛错）要吞掉异常，
       // 否则控制台会被同一条报错刷屏——真正的原因浏览器自己已经报出来了。
@@ -354,6 +485,7 @@
       const builtinThemes=computed(()=>themes.value.filter(item=>item.builtin));
       function applyPreset(item){
         form.definitionJson=completeDefinition(item.definitionJson);
+        onFieldTouched({key:'background',preview:'home'},{preview:'home'});
         message('已套用「'+item.name+'」，可以继续微调');
       }
       /** 预设色卡：用背景 / 主色 / 强调色三段拼一个小色条 */
@@ -382,11 +514,12 @@
           const asset=await A.uploadThemeHero(body);
           if(!form.definitionJson.hero)form.definitionJson.hero={mediaId:null};
           form.definitionJson.hero.mediaId=asset.id;
+          onFieldTouched(settingGroups.find(g=>g.key==='hero'),{preview:'home'});
           message('封面已上传，保存主题后生效');
         }catch(e){fail(e);}
         finally{heroUploading.value=false;}
       }
-      function clearHero(){if(form.definitionJson.hero)form.definitionJson.hero.mediaId=null;}
+      function clearHero(){if(form.definitionJson.hero)form.definitionJson.hero.mediaId=null;onFieldTouched(settingGroups.find(g=>g.key==='hero'),{preview:'home'});}
       function luminance(hex){const values=String(hex).replace('#','').match(/.{2}/g)?.map(x=>parseInt(x,16)/255)||[0,0,0];return values.map(x=>x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4)).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);}
       function contrastRatio(a,b){const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
       watch(form,()=>{postPreview();if(restoring||!editor.value)return;clearTimeout(historyTimer);historyTimer=setTimeout(pushHistory,280);},{deep:true});
@@ -401,8 +534,9 @@
       watch(previewMode,()=>nextTick(measurePreview));
       onMounted(load);
       onBeforeUnmount(()=>{clearTimeout(historyTimer);previewObserver?.disconnect();});
-      return {session,themes,changing,editor,editing,previewFrame,previewMode,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,postCardPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor,
+      return {session,themes,changing,editor,editing,editingBuiltin,editingSource,previewFrame,previewMode,previewScene,previewSrc,previewWrap,stageStyle,frameStyle,importInput,form,colorFields,settingGroups,basicGroups,advancedGroups,SCENE_LABEL,fieldScene,fieldDisabled,onFieldTouched,builtinThemes,applyPreset,presetSwatch,contrast,canUndo,canRedo,heroInput,heroUploading,heroUrl,chooseHero,heroPicked,clearHero,selectTheme,openEditor,duplicateTheme,saveTheme,removeTheme,postPreview,previewLoaded,postCardPreview,exportTheme,chooseImport,imported,undo,redo,resetEditor,restoreOfficial,restoreEditingOfficial,
         siteState,isAuto,isActive,seasonHint,followSeason,
+        diffDialog,diffTarget,viewDiff,diffEntries,formatValue,
         stickerItems,stickerAreas:STICKER_AREAS,stickerAssets:STICKER_ASSETS,addSticker,removeSticker,stickerPreview};
     },
     template: `<div><div class="page-head"><div><h2>主题外观</h2><p>让网站跟着四季自己变，或者固定选一套；也可以复制后设计自己的色彩、字体、布局与图片风格。</p></div><div class="theme-page-actions"><input ref="importInput" type="file" accept="application/json" hidden @change="imported"><el-button @click="chooseImport">导入 JSON</el-button><el-button type="primary" @click="openEditor(null,true)">新建设计</el-button></div></div>
@@ -417,12 +551,20 @@
         </div>
       </article>
       <div class="theme-grid"><article v-for="item in themes" :key="item.themeKey+'-'+item.version" class="panel theme-preview" :class="{selected:isActive(item)}">
-        <div class="theme-card-live"><iframe loading="lazy" src="/theme-card-preview.html" :title="item.name+'实时预览'" @load="postCardPreview($event,item)"></iframe></div><div class="theme-info"><div><div class="theme-card-title"><h3>{{item.name}}</h3><small>{{item.builtin?'系统预设':'我的主题'}} · v{{item.version}}</small></div><p>{{item.description}}</p></div><span v-if="isActive(item)" class="theme-badge">当前主题</span><span v-else-if="isAuto&&item.themeKey===siteState?.seasonThemeKey" class="theme-badge theme-badge--season">本季正在使用</span></div>
-        <footer class="theme-card-actions"><el-button v-if="!isActive(item)" type="primary" :loading="changing===item.themeKey" @click="selectTheme(item)">固定使用</el-button><el-button v-if="!item.builtin" @click="openEditor(item)">设计</el-button><el-button @click="duplicateTheme(item)">复制</el-button><el-button @click="exportTheme(item)">导出</el-button><el-button v-if="!item.builtin" type="danger" link @click="removeTheme(item)">删除</el-button></footer>
+        <div class="theme-card-live"><iframe loading="lazy" src="/theme-card-preview.html" :title="item.name+'实时预览'" @load="postCardPreview($event,item)"></iframe></div><div class="theme-info"><div><div class="theme-card-title"><h3>{{item.name}}</h3><small>{{item.builtin?(item.customizedCount?('系统主题 · 已自定义 '+item.customizedCount+' 项'):'系统主题 · 官方默认'):'我的主题'}} · v{{item.version}}</small></div><p>{{item.description}}</p></div><span v-if="isActive(item)" class="theme-badge">当前主题</span><span v-else-if="isAuto&&item.themeKey===siteState?.seasonThemeKey" class="theme-badge theme-badge--season">本季正在使用</span></div>
+        <footer class="theme-card-actions"><el-button v-if="!isActive(item)" type="primary" :loading="changing===item.themeKey" @click="selectTheme(item)">使用</el-button><el-button @click="openEditor(item)">设计</el-button><el-button v-if="item.builtin&&item.customizedCount" @click="viewDiff(item)">查看修改</el-button><el-button v-if="item.builtin" :disabled="!item.customizedCount" @click="restoreOfficial(item)">还原默认</el-button><el-button v-if="!item.builtin" @click="duplicateTheme(item)">复制</el-button><el-button @click="exportTheme(item)">导出</el-button><el-button v-if="!item.builtin" type="danger" link @click="removeTheme(item)">删除</el-button></footer>
       </article></div>
-      <el-dialog v-model="editor" class="theme-designer-dialog" :title="editing?'设计主题':'新建主题'" width="min(1240px,97vw)" destroy-on-close>
-        <div class="theme-designer"><section class="theme-controls"><div class="theme-history"><el-button size="small" :disabled="!canUndo" @click="undo">撤销</el-button><el-button size="small" :disabled="!canRedo" @click="redo">重做</el-button><el-button size="small" @click="resetEditor">恢复打开时状态</el-button></div>
-          <div class="theme-basic"><label>主题名称<el-input v-model="form.name" maxlength="100"/></label><label>主题说明<el-input v-model="form.description" type="textarea" :rows="2" maxlength="500"/></label>
+      <el-dialog v-model="diffDialog" title="已修改的设置" width="min(640px,92vw)">
+        <p v-if="!diffEntries.length" class="group-hint">还没有修改过任何设置——现在用的就是官方默认值。</p>
+        <table v-else class="theme-diff-table"><tbody>
+          <tr v-for="row in diffEntries" :key="row.label"><td>{{row.label}}</td><td><code>{{formatValue(row.oldValue)}}</code> → <code>{{formatValue(row.newValue)}}</code></td></tr>
+        </tbody></table>
+        <template #footer><el-button @click="diffDialog=false">关闭</el-button></template>
+      </el-dialog>
+      <el-dialog v-model="editor" class="theme-designer-dialog" :title="editingBuiltin?'设计系统主题 · '+form.name:(editing?'设计主题':'新建主题')" width="min(1240px,97vw)" destroy-on-close>
+        <div class="theme-designer"><section class="theme-controls"><div class="theme-history"><el-button size="small" :disabled="!canUndo" @click="undo">撤销</el-button><el-button size="small" :disabled="!canRedo" @click="redo">重做</el-button><el-button size="small" @click="resetEditor">恢复打开时状态</el-button><el-button v-if="editingBuiltin" size="small" @click="restoreEditingOfficial">还原官方默认</el-button></div>
+          <p v-if="editingBuiltin" class="group-hint">这是系统主题「{{form.name}}」，改动会叠加在官方默认值之上单独保存；名称和说明保持官方原样，随时可以「还原官方默认」清空你的修改。</p>
+          <div class="theme-basic"><label>主题名称<el-input v-model="form.name" maxlength="100" :disabled="editingBuiltin"/></label><label>主题说明<el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" :disabled="editingBuiltin"/></label>
             <label>首页封面图
               <div class="hero-picker">
                 <div class="hero-preview" :class="{empty:!heroUrl}" :style="heroUrl?{backgroundImage:'url('+heroUrl+')'}:null"><span v-if="!heroUrl">使用默认封面</span></div>
@@ -434,36 +576,59 @@
           </div>
           <div class="preset-row"><span class="preset-row-label">从预设开始</span><div class="preset-chips"><button v-for="item in builtinThemes" :key="item.themeKey" type="button" class="preset-chip" @click="applyPreset(item)"><i :style="presetSwatch(item)"></i><span>{{item.name}}</span></button></div></div>
           <details open><summary>色彩</summary>
-            <label class="scheme-toggle">明暗基调<el-radio-group v-model="form.definitionJson.colors.scheme" size="small"><el-radio-button value="light">亮色</el-radio-button><el-radio-button value="dark">暗色</el-radio-button></el-radio-group></label>
-            <div class="theme-color-grid"><label v-for="item in colorFields" :key="item[0]"><span>{{item[1]}}</span><el-color-picker v-model="form.definitionJson.colors[item[0]]"/><code>{{form.definitionJson.colors[item[0]]}}</code></label></div>
+            <label class="scheme-toggle">明暗基调<el-radio-group v-model="form.definitionJson.colors.scheme" size="small" @change="onFieldTouched({key:'colors',preview:'home'},{preview:'home'})"><el-radio-button value="light">亮色</el-radio-button><el-radio-button value="dark">暗色</el-radio-button></el-radio-group></label>
+            <div class="theme-color-grid"><label v-for="item in colorFields" :key="item[0]"><span>{{item[1]}}</span><el-color-picker v-model="form.definitionJson.colors[item[0]]" @change="onFieldTouched({key:'colors',preview:'home'},{preview:'home'})"/><code>{{form.definitionJson.colors[item[0]]}}</code></label></div>
             <div class="contrast-note" :class="{warn:!contrast.ok}">正文与背景对比度 {{contrast.ratio}}:1 · {{contrast.ok?'阅读对比度良好':'建议达到 4.5:1 以上'}}</div>
           </details>
-          <details v-for="group in settingGroups" :key="group.key"><summary>{{group.label}}</summary>
+          <details v-for="group in basicGroups" :key="group.key"><summary>{{group.label}}</summary>
             <p v-if="group.hint" class="group-hint">{{group.hint}}</p>
             <div class="theme-setting-grid">
-              <label v-for="field in group.fields" :key="field.key">{{field.label}}
-                <el-select v-if="field.type==='select'" v-model="form.definitionJson[group.key][field.key]"><el-option v-for="opt in field.options" :key="opt[0]" :label="opt[1]" :value="opt[0]"/></el-select>
-                <el-input-number v-else-if="field.type==='number'" v-model="form.definitionJson[group.key][field.key]" :min="field.min" :max="field.max" :step="field.step" controls-position="right"/>
-                <el-switch v-else-if="field.type==='switch'" v-model="form.definitionJson[group.key][field.key]"/>
-                <el-color-picker v-else-if="field.type==='color'" v-model="form.definitionJson[group.key][field.key]"/>
+              <label v-for="field in group.fields" :key="field.key" class="setting-field" :class="{'is-disabled':fieldDisabled(field)}">
+                <span class="setting-field-head"><span>{{field.label}}</span><small class="scene-badge">{{SCENE_LABEL[fieldScene(group,field)]}}<template v-if="field.target"> · {{field.target}}</template></small></span>
+                <small v-if="field.help" class="field-help">{{field.help}}</small><small v-else aria-hidden="true" class="field-help field-help-placeholder">占位</small>
+                <el-select v-if="field.type==='select'" v-model="form.definitionJson[group.key][field.key]" :disabled="fieldDisabled(field)" @change="onFieldTouched(group,field)"><el-option v-for="opt in field.options" :key="opt[0]" :label="opt[1]" :value="opt[0]"/></el-select>
+                <el-input-number v-else-if="field.type==='number'" v-model="form.definitionJson[group.key][field.key]" :min="field.min" :max="field.max" :step="field.step" :disabled="fieldDisabled(field)" controls-position="right" @change="onFieldTouched(group,field)"/>
+                <el-switch v-else-if="field.type==='switch'" v-model="form.definitionJson[group.key][field.key]" :disabled="fieldDisabled(field)" @change="onFieldTouched(group,field)"/>
+                <el-color-picker v-else-if="field.type==='color'" v-model="form.definitionJson[group.key][field.key]" :disabled="fieldDisabled(field)" @change="onFieldTouched(group,field)"/>
               </label>
             </div>
-            <div v-if="group.key==='stickers'" class="sticker-editor">
-              <article v-for="(item,index) in stickerItems" :key="index" class="sticker-row">
-                <img :src="stickerPreview(item.asset)" alt="">
-                <el-select v-model="item.asset" filterable>
-                  <el-option-group v-for="pack in stickerAssets" :key="pack.group" :label="pack.group">
-                    <el-option v-for="asset in pack.items" :key="asset[0]" :label="asset[1]" :value="asset[0]"/>
-                  </el-option-group>
-                </el-select>
-                <el-select v-model="item.area"><el-option v-for="area in stickerAreas" :key="area[0]" :label="area[1]" :value="area[0]"/></el-select>
-                <button type="button" class="danger" @click="removeSticker(index)">×</button>
-              </article>
-              <p v-if="!stickerItems.length" class="group-hint">还没有贴纸。加两三张就够了，页面留白本身也是内容。</p>
-              <el-button plain size="small" :disabled="stickerItems.length>=10" @click="addSticker">＋ 添加贴纸</el-button>
-            </div>
           </details>
-        </section><section class="theme-live"><header><strong>网站实时预览</strong><div><button type="button" :class="{active:previewMode==='desktop'}" @click="previewMode='desktop'">桌面</button><button type="button" :class="{active:previewMode==='mobile'}" @click="previewMode='mobile'">手机</button></div></header><div ref="previewWrap" class="theme-frame-wrap" :class="previewMode"><div class="preview-stage" :style="stageStyle"><iframe ref="previewFrame" :style="frameStyle" src="/?theme-preview=1" title="主题实时预览" @load="postPreview"></iframe></div></div></section></div>
+          <details class="advanced-toggle"><summary>高级效果</summary>
+            <details v-for="group in advancedGroups" :key="group.key" class="advanced-group"><summary>{{group.label}}</summary>
+              <p v-if="group.hint" class="group-hint">{{group.hint}}</p>
+              <div class="theme-setting-grid">
+                <label v-for="field in group.fields" :key="field.key" class="setting-field" :class="{'is-disabled':fieldDisabled(field)}">
+                  <span class="setting-field-head"><span>{{field.label}}</span><small class="scene-badge">{{SCENE_LABEL[fieldScene(group,field)]}}<template v-if="field.target"> · {{field.target}}</template></small></span>
+                  <small v-if="field.help" class="field-help">{{field.help}}</small><small v-else aria-hidden="true" class="field-help field-help-placeholder">占位</small>
+                  <el-select v-if="field.type==='select'" v-model="form.definitionJson[group.key][field.key]" :disabled="fieldDisabled(field)" @change="onFieldTouched(group,field)"><el-option v-for="opt in field.options" :key="opt[0]" :label="opt[1]" :value="opt[0]"/></el-select>
+                  <el-input-number v-else-if="field.type==='number'" v-model="form.definitionJson[group.key][field.key]" :min="field.min" :max="field.max" :step="field.step" :disabled="fieldDisabled(field)" controls-position="right" @change="onFieldTouched(group,field)"/>
+                  <el-switch v-else-if="field.type==='switch'" v-model="form.definitionJson[group.key][field.key]" :disabled="fieldDisabled(field)" @change="onFieldTouched(group,field)"/>
+                  <el-color-picker v-else-if="field.type==='color'" v-model="form.definitionJson[group.key][field.key]" :disabled="fieldDisabled(field)" @change="onFieldTouched(group,field)"/>
+                </label>
+              </div>
+              <div v-if="group.key==='stickers'" class="sticker-editor">
+                <article v-for="(item,index) in stickerItems" :key="index" class="sticker-row">
+                  <img :src="stickerPreview(item.asset)" alt="">
+                  <el-select v-model="item.asset" filterable @change="onFieldTouched(group,{preview:'journal'})">
+                    <el-option-group v-for="pack in stickerAssets" :key="pack.group" :label="pack.group">
+                      <el-option v-for="asset in pack.items" :key="asset[0]" :label="asset[1]" :value="asset[0]"/>
+                    </el-option-group>
+                  </el-select>
+                  <el-select v-model="item.area" @change="onFieldTouched(group,{preview:'journal'})"><el-option v-for="area in stickerAreas" :key="area[0]" :label="area[1]" :value="area[0]"/></el-select>
+                  <button type="button" class="danger" @click="removeSticker(index)">×</button>
+                </article>
+                <p v-if="!stickerItems.length" class="group-hint">还没有贴纸。加两三张就够了，页面留白本身也是内容。</p>
+                <el-button plain size="small" :disabled="stickerItems.length>=10" @click="addSticker">＋ 添加贴纸</el-button>
+              </div>
+            </details>
+          </details>
+        </section><section class="theme-live"><header><span class="theme-live-title"><strong>网站实时预览</strong><small>固定示例数据</small></span><div><button type="button" :class="{active:previewMode==='desktop'}" @click="previewMode='desktop'">桌面</button><button type="button" :class="{active:previewMode==='mobile'}" @click="previewMode='mobile'">手机</button></div></header>
+          <div class="theme-live-scenes">
+            <button type="button" :class="{active:previewScene==='home'}" @click="previewScene='home'">首页</button>
+            <button type="button" :class="{active:previewScene==='journal'}" @click="previewScene='journal'">日记</button>
+            <button type="button" :class="{active:previewScene==='map'}" @click="previewScene='map'">地图</button>
+          </div>
+          <div ref="previewWrap" class="theme-frame-wrap" :class="previewMode"><div class="preview-stage" :style="stageStyle"><iframe ref="previewFrame" :style="frameStyle" :src="previewSrc" title="主题实时预览" @load="previewLoaded"></iframe></div></div></section></div>
         <template #footer><el-button @click="editor=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveTheme">保存主题</el-button></template>
       </el-dialog>
     </div>`

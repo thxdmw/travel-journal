@@ -128,7 +128,10 @@
 .tj-sticker {
   position: fixed;
   width: clamp(38px, 5vw, 64px);
-  height: auto;
+  aspect-ratio: 1 / 1;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
   opacity: .78;
   pointer-events: none;
   user-select: none;

@@ -256,10 +256,10 @@
       const tabOrder = TAB_ORDER;
       let tabSwipeStart = null;
       let suppressTabClick = false;
-      let pickerMap = null, pickerMarker = null;
+      let pickerMap = null, pickerMarker = null, pickerMapToken = 0, pickerWheelHandler = null;
 
       const stopForm = reactive(blankStop()), itemForm = reactive(blankItem()), expenseForm = reactive(blankExpense());
-      function blankStop(){return{cityName:'',regionName:'',countryName:'中国',countryCode:'CN',latitude:null,longitude:null,placeId:null,formattedAddress:'',adcode:'',coordinateSystem:'GCJ02',locationSource:'MANUAL',arrivalDate:null,departureDate:null,sortOrder:0,note:''};}
+      function blankStop(){return{cityName:'',regionName:'',countryName:'中国',countryCode:'CN',latitude:null,longitude:null,placeId:null,formattedAddress:'',adcode:'',coordinateSystem:'WGS84',locationSource:'MANUAL',arrivalDate:null,departureDate:null,sortOrder:0,note:''};}
       function blankItem(){return{tripStopId:null,itemDate:'',startTime:null,endTime:null,type:'ATTRACTION',title:'',address:'',note:'',plannedCost:0,completed:false,sortOrder:0,allowOutsideTripDates:false};}
       // 金额默认留空而不是 0，否则表单一打开就显示 0，提交时再报「金额必须大于 0」很别扭
       function blankExpense(){return{budgetCategoryId:null,tripStopId:null,expenseDate:'',amount:null,description:'',merchant:'',note:''};}
@@ -303,34 +303,48 @@
       }
       function closeStop(){
         editingStop.value = null; locationResults.value = [];
-        if (pickerMap) { pickerMap.remove(); pickerMap = null; pickerMarker = null; }
+        pickerMapToken++;
+        if (pickerWheelHandler && stopMapEl.value) stopMapEl.value.removeEventListener('wheel', pickerWheelHandler);
+        pickerWheelHandler = null;
+        if (pickerMap) { pickerMap.destroy(); pickerMap = null; pickerMarker = null; }
       }
-      function initStopMap(){
-        if(!window.L||!stopMapEl.value||pickerMap)return;
+      // TravelMap.create 是异步的（要先解析 AUTO/AMAP/OSM，高德还要动态加载脚本），
+      // 用 token 防止选点弹窗快速开关时，前一次还没建完的地图落地到已经关闭的容器上。
+      async function initStopMap(){
+        if(!stopMapEl.value||pickerMap)return;
+        const token=++pickerMapToken;
         const valid=Number.isFinite(Number(stopForm.latitude))&&Number.isFinite(Number(stopForm.longitude))&&!(Number(stopForm.latitude)===0&&Number(stopForm.longitude)===0);
         const center=valid?[Number(stopForm.latitude),Number(stopForm.longitude)]:[35.4,104.2];
-        pickerMap=L.map(stopMapEl.value,{scrollWheelZoom:false,zoomControl:true}).setView(center,valid?11:4);
-        L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',{subdomains:'1234',maxZoom:18,attribution:'© 高德地图'}).addTo(pickerMap);
-        pickerMap.on('click',event=>pickLocation(event.latlng.lat,event.latlng.lng,true));
+        let map;
+        try { map = await window.TravelMap.create(stopMapEl.value,{center,zoom:valid?11:4,scrollWheelZoom:false}); }
+        catch(e) { ElementPlus.ElMessage.warning('地图加载失败：'+(e.message||'请刷新页面重试')); return; }
+        if(token!==pickerMapToken||!map){map?.destroy();return;}
+        pickerMap=map;
+        pickerMap.onClick((lat,lng)=>pickLocation(lat,lng,true));
         // 只有按住 Ctrl 才缩放，避免页面滚动时误触地图
-        stopMapEl.value.addEventListener('wheel',event=>{if(!event.ctrlKey)return;event.preventDefault();event.stopPropagation();pickerMap.setZoomAround(pickerMap.mouseEventToContainerPoint(event),pickerMap.getZoom()+(event.deltaY<0?1:-1));},{passive:false});
+        pickerWheelHandler=event=>{if(!event.ctrlKey)return;event.preventDefault();event.stopPropagation();pickerMap?.zoomBy(event.deltaY<0?1:-1);};
+        stopMapEl.value.addEventListener('wheel',pickerWheelHandler,{passive:false});
         if(valid)setPickerMarker(center[0],center[1]);
-        requestAnimationFrame(()=>pickerMap.invalidateSize(false));
+        requestAnimationFrame(()=>pickerMap.invalidateSize());
       }
       function setPickerMarker(latitude,longitude){
         if(!pickerMap)return;
-        if(!pickerMarker){pickerMarker=L.marker([latitude,longitude],{draggable:true}).addTo(pickerMap);pickerMarker.on('dragend',event=>{const p=event.target.getLatLng();pickLocation(p.lat,p.lng,true);});}
-        else pickerMarker.setLatLng([latitude,longitude]);
+        pickerMarker?.remove();
+        pickerMarker=pickerMap.addMarker([latitude,longitude],{draggable:true,onDragEnd:(lat,lng)=>pickLocation(lat,lng,true)});
       }
       // 把搜索结果或逆地理编码结果填进表单，并同步校验状态（坐标是必填项）
       function applyLocation(item,move=true){
         stopForm.cityName=item.city||item.name||stopForm.cityName;stopForm.regionName=item.province||item.district||'';stopForm.countryName=item.country||'中国';stopForm.countryCode=item.countryCode||'CN';
-        stopForm.latitude=Number(item.latitude);stopForm.longitude=Number(item.longitude);stopForm.placeId=item.placeId||null;stopForm.formattedAddress=item.formattedAddress||item.address||'';stopForm.adcode=item.adcode||'';stopForm.coordinateSystem=item.coordinateSystem||'GCJ02';stopForm.locationSource=item.locationSource||'MAP_PICK';
-        setPickerMarker(stopForm.latitude,stopForm.longitude);if(move&&pickerMap)pickerMap.setView([stopForm.latitude,stopForm.longitude],Math.max(pickerMap.getZoom(),12));locationResults.value=[];
+        stopForm.latitude=Number(item.latitude);stopForm.longitude=Number(item.longitude);stopForm.placeId=item.placeId||null;stopForm.formattedAddress=item.formattedAddress||item.address||'';stopForm.adcode=item.adcode||'';stopForm.coordinateSystem=item.coordinateSystem||'WGS84';stopForm.locationSource=item.locationSource||'MAP_PICK';
+        setPickerMarker(stopForm.latitude,stopForm.longitude);
+        if(move&&pickerMap)pickerMap.fitBounds([[stopForm.latitude,stopForm.longitude]],{maxZoom:Math.max(pickerMap.getZoom(),12)});
+        locationResults.value=[];
         stopFormRef.value?.clearValidate(['latitude','longitude']);
       }
+      // TravelMap 的坐标契约永远是 WGS84：不管选点用的是高德还是 OSM 渲染的地图，
+      // 拿到手上的经纬度已经在适配层里转换过了，这里不需要关心当前是哪个 Provider。
       async function pickLocation(latitude,longitude,reverse){
-        stopForm.latitude=Number(latitude.toFixed(6));stopForm.longitude=Number(longitude.toFixed(6));stopForm.locationSource='MAP_PICK';stopForm.coordinateSystem='GCJ02';setPickerMarker(stopForm.latitude,stopForm.longitude);
+        stopForm.latitude=Number(latitude.toFixed(6));stopForm.longitude=Number(longitude.toFixed(6));stopForm.locationSource='MAP_PICK';stopForm.coordinateSystem='WGS84';setPickerMarker(stopForm.latitude,stopForm.longitude);
         stopFormRef.value?.clearValidate(['latitude','longitude']);
         if(reverse&&mapStatus.value.searchEnabled){try{const item=await A.reverseLocation(stopForm.latitude,stopForm.longitude);applyLocation(item,false);}catch(e){ElementPlus.ElMessage.warning(e.message||'地址识别失败，可继续手动填写');}}
       }

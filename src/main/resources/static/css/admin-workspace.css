@@ -117,6 +117,11 @@
 .theme-card-title { display:flex; align-items:center; gap:10px; }
 .theme-card-title small { color:var(--tj-muted); }
 .theme-card-actions { min-height:56px; padding:0 20px 16px; justify-content:flex-end; flex-wrap:wrap; }
+/* 系统主题「查看修改」弹窗：改动前后对照表 */
+.theme-diff-table { width:100%; border-collapse:collapse; }
+.theme-diff-table td { padding:9px 4px; border-bottom:1px solid var(--tj-border); font-size:14px; }
+.theme-diff-table td:first-child { color:var(--tj-muted); white-space:nowrap; padding-right:16px; }
+.theme-diff-table code { padding:1px 5px; border-radius:4px; background:var(--tj-bg-soft,#f4f1ea); font-size:13px; }
 /* 贴纸列表：预览图 + 素材 + 位置 + 删除。位置是下拉而不是坐标输入，见 studio.js 里的说明 */
 .sticker-editor { margin-top:10px; display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
 .sticker-row { width:100%; display:grid; grid-template-columns:32px minmax(0,1fr) minmax(0,1fr) 28px; align-items:center; gap:8px; }
@@ -149,19 +154,43 @@
 .hero-preview.empty { display:grid; place-items:center; border-style:dashed; color:var(--tj-muted); background:var(--tj-surface-soft); font-size:12px; }
 .hero-actions { display:flex; gap:8px; align-items:center; }
 .hero-picker small { color:var(--tj-muted); font-size:11px; line-height:1.5; }
-.theme-basic label,.theme-setting-grid label { display:grid; gap:6px; color:var(--tj-primary); font-size:12px; font-weight:700; }
+.theme-basic label,.theme-setting-grid label { display:grid; gap:6px; min-width:0; color:var(--tj-primary); font-size:12px; font-weight:700; }
 .theme-controls details { margin-top:13px; padding:0 13px 13px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface); }
 .theme-controls summary { padding:12px 0; color:var(--tj-primary); cursor:pointer; font-weight:700; }
 .theme-color-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .theme-color-grid label { min-width:0; display:grid; grid-template-columns:1fr 34px; align-items:center; gap:4px 8px; padding:8px; border:1px solid var(--tj-border); border-radius:7px; }
 .theme-color-grid label span { color:var(--tj-primary); font-size:12px; }
 .theme-color-grid code { grid-column:1/-1; color:var(--tj-muted); font-size:10px; }
-.theme-setting-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+.theme-setting-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-items:stretch; }
 .theme-setting-grid .el-input-number,.theme-setting-grid .el-select,.theme-basic .el-select { width:100%; }
+.setting-field { display:grid!important; grid-template-rows:minmax(44px,auto) minmax(34px,auto) 42px; align-content:start; gap:6px; min-width:0; height:100%; padding:9px; border:1px solid color-mix(in srgb,var(--tj-border) 76%,transparent); border-radius:8px; background:var(--tj-surface-soft); }
+.setting-field > .field-help { grid-row:2; min-height:34px; }
+.setting-field > .field-help-placeholder { grid-row:2; min-height:34px; visibility:hidden; }
+.setting-field > .el-select,.setting-field > .el-input-number { grid-row:3; align-self:end; height:42px; }
+.setting-field > .el-select .el-select__wrapper,.setting-field > .el-input-number .el-input__wrapper { width:100%; min-height:42px; height:42px; box-sizing:border-box; }
+.setting-field > .el-input-number .el-input__inner { height:40px; line-height:40px; padding-top:0; padding-bottom:0; text-align:center; }
+.setting-field > .el-input-number .el-input-number__increase,.setting-field > .el-input-number .el-input-number__decrease { width:38px; }
+.setting-field > .el-switch,.setting-field > .el-color-picker { grid-row:3; align-self:center; justify-self:start; }
+/* 每个设置项标出「作用在哪」和「为什么现在改不了」，不让用户瞎猜 */
+.setting-field-head { grid-row:1; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:8px; min-height:44px; font-weight:700; }
+.setting-field-head > span:first-child { min-width:0; line-height:22px; }
+.scene-badge { max-width:108px; padding:1px 7px; overflow:hidden; border-radius:99px; color:var(--tj-muted); background:var(--tj-bg-soft,#f4f1ea); font-weight:500; font-size:11px; line-height:20px; text-overflow:ellipsis; white-space:nowrap; }
+.field-help { color:var(--tj-muted); font-weight:400; line-height:1.4; }
+.setting-field.is-disabled { opacity:.5; }
+/* 高级效果默认折叠；里面的分组各自还是独立的 <details>，可以单独展开 */
+.advanced-toggle { background:transparent; }
+.advanced-toggle > summary { color:var(--tj-muted); }
+.advanced-group { margin-top:10px; }
 .theme-live { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--tj-border); border-radius:10px; background:#dedbd4; }
 .theme-live > header { flex:0 0 48px; display:flex; align-items:center; justify-content:space-between; padding:0 14px; color:var(--tj-primary); background:var(--tj-surface); border-bottom:1px solid var(--tj-border); }
+.theme-live-title { display:flex; align-items:center; gap:8px; }
+.theme-live-title small { padding:2px 7px; border-radius:99px; color:var(--tj-muted); background:var(--tj-bg-soft,#f4f1ea); font-size:11px; font-weight:500; }
 .theme-live header button { padding:5px 10px; border:0; border-radius:6px; color:var(--tj-muted); background:transparent; }
 .theme-live header button.active { color:white; background:var(--tj-primary); }
+/* 首页 / 日记 / 地图三个固定预览场景切换，改哪类设置就该看哪个场景，见 studio.js 的说明 */
+.theme-live-scenes { flex:0 0 auto; display:flex; gap:6px; padding:8px 14px; background:var(--tj-surface); border-bottom:1px solid var(--tj-border); }
+.theme-live-scenes button { padding:5px 12px; border:1px solid var(--tj-border); border-radius:99px; color:var(--tj-muted); background:transparent; font-size:13px; }
+.theme-live-scenes button.active { color:white; border-color:var(--tj-primary); background:var(--tj-primary); }
 .theme-frame-wrap { flex:1; min-height:0; display:flex; justify-content:center; overflow:hidden; padding:12px; }
 [data-density="compact"] .panel-pad { padding:17px; }
 .profile-grid { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr); gap:20px; max-width:960px; }
@@ -182,6 +211,10 @@
   .dashboard-grid { grid-template-columns:repeat(2,1fr); }
   .trip-list { grid-template-columns:repeat(2,1fr); }
   .template-card-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:1180px) and (min-width:761px) {
+  .theme-designer { grid-template-columns:minmax(330px,390px) 1fr; }
+  .theme-setting-grid { grid-template-columns:1fr; }
 }
 @media(max-width:760px) {
   .page-head { align-items:stretch; flex-direction:column; }

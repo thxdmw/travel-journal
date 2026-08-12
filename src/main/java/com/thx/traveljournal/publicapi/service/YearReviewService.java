@@ -7,6 +7,7 @@ import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
 import com.thx.traveljournal.trip.mapper.TripStopMapper;
+import com.thx.traveljournal.common.util.CoordinateConverter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -137,8 +138,12 @@ public class YearReviewService {
      * 也省掉引入 PostGIS 的成本。</p>
      */
     private double haversine(TripStop a, TripStop b) {
-        Double lat1 = toDouble(a.getLatitude()), lon1 = toDouble(a.getLongitude());
-        Double lat2 = toDouble(b.getLatitude()), lon2 = toDouble(b.getLongitude());
+        BigDecimal[] first = CoordinateConverter.toWgs84(
+                a.getLatitude(), a.getLongitude(), a.getCoordinateSystem());
+        BigDecimal[] second = CoordinateConverter.toWgs84(
+                b.getLatitude(), b.getLongitude(), b.getCoordinateSystem());
+        Double lat1 = toDouble(first[0]), lon1 = toDouble(first[1]);
+        Double lat2 = toDouble(second[0]), lon2 = toDouble(second[1]);
         if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 0;
         double dLat = Math.toRadians(lat2 - lat1);
         double dLon = Math.toRadians(lon2 - lon1);

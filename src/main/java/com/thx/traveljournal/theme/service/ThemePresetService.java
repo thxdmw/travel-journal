@@ -19,7 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -241,9 +243,16 @@ public class ThemePresetService {
     private final ObjectMapper objectMapper;
     private final SeasonService seasonService;
 
+    /**
+     * @param definitionJson         生效配置（官方值和用户覆盖 merge 之后），站点渲染和设计器编辑都用这份
+     * @param officialDefinitionJson 官方原始配置，只有 builtin 才有意义，用于「查看修改」对照旧值
+     * @param overrideJson           用户覆盖的稀疏 JSON，没有修改过时为 null
+     * @param customizedCount        override 里的叶子字段数，即「已自定义 N 项」
+     */
     public record ThemeView(Long id, String themeKey, String name, String description,
                             String baseThemeKey, String previewImageUrl, JsonNode definitionJson,
-                            boolean builtin, boolean enabled, int version) {}
+                            boolean builtin, boolean enabled, int version,
+                            JsonNode officialDefinitionJson, JsonNode overrideJson, int customizedCount) {}
 
     /**
      * 全站主题的当前状态，供后台的主题选择器展示「跟随季节 · 夏 · 盛夏出逃」这样一行。
@@ -327,22 +336,89 @@ public class ThemePresetService {
         return view(preset);
     }
 
+    /**
+     * 更新主题。系统主题和个人主题走两条不同的路：
+     *
+     * <p>个人主题和以前一样，提交的配置直接成为新的 definitionJson。系统主题不再拒绝编辑，
+     * 但官方 definitionJson 永不写回——名称、说明、基础视觉、启用状态是官方身份的一部分，
+     * 这个入口不改它们；视觉配置归一化后与官方值逐项 diff，只把真正不同的字段存进
+     * overrideJson（稀疏），相同的字段不存。这样官方主题以后升级、definitionJson 里
+     * 新增或调整了用户没碰过的字段时，effective 计算会自动带出新值。</p>
+     */
     @Transactional
     public ThemeView update(Long id, String name, String description, String baseThemeKey,
-                            String previewImageUrl, JsonNode definitionJson, Boolean enabled) {
+                             String previewImageUrl, JsonNode definitionJson, Boolean enabled) {
+        return update(id, name, description, baseThemeKey, previewImageUrl, definitionJson, enabled, null);
+    }
+
+    /**
+     * {@code changedPaths} 是设计器相对打开时快照真正改动过的 token 路径。系统主题只把这些
+     * 路径应用到当前 effective definition 后再做 sparse diff，避免前端为了渲染空控件补的
+     * fallback 被误记成用户覆盖。旧客户端不传时仍兼容原来的完整配置更新方式。
+     */
+    @Transactional
+    public ThemeView update(Long id, String name, String description, String baseThemeKey,
+                            String previewImageUrl, JsonNode definitionJson, Boolean enabled,
+                            List<String> changedPaths) {
         ThemePreset preset = get(id);
-        if (Boolean.TRUE.equals(preset.getBuiltin())) throw BusinessException.badRequest("系统主题请先复制后再修改");
-        apply(preset, name, description, baseThemeKey, previewImageUrl, definitionJson, enabled);
+        if (Boolean.TRUE.equals(preset.getBuiltin())) {
+            JsonNode normalized = normalizeDefinition(definitionJson);
+            JsonNode candidate = normalized;
+            if (changedPaths != null) {
+                candidate = effectiveDefinition(preset).deepCopy();
+                for (String path : changedPaths.stream().distinct().toList()) {
+                    if (!isThemeTokenPath(path)) throw BusinessException.badRequest("未知的主题设置：" + path);
+                    copyChangedPath((ObjectNode) candidate, preset.getDefinitionJson(), definitionJson, normalized, path);
+                }
+            }
+            JsonNode diff = sparseDiff(candidate, preset.getDefinitionJson());
+            preset.setOverrideJson(diff.size() == 0 ? null : diff);
+        } else {
+            apply(preset, name, description, baseThemeKey, previewImageUrl, definitionJson, enabled);
+        }
         preset.setVersion((preset.getVersion() == null ? 1 : preset.getVersion()) + 1);
         mapper.updateById(preset);
         return view(preset);
     }
 
+    private boolean isThemeTokenPath(String path) {
+        if (!StringUtils.hasText(path)) return false;
+        int dot = path.indexOf('.');
+        if (dot <= 0 || dot != path.lastIndexOf('.')) return false;
+        String section = path.substring(0, dot), key = path.substring(dot + 1);
+        return SCHEMA.stream().anyMatch(token -> token.section().equals(section) && token.key().equals(key));
+    }
+
+    /** 把单个已校验 token 从提交值复制到 candidate；显式 null 用于清除官方 mediaId。 */
+    private void copyChangedPath(ObjectNode candidate, JsonNode official, JsonNode raw, JsonNode normalized, String path) {
+        String[] parts = path.split("\\.", 2);
+        ObjectNode section = candidate.has(parts[0]) && candidate.get(parts[0]).isObject()
+                ? (ObjectNode) candidate.get(parts[0]) : candidate.putObject(parts[0]);
+        JsonNode rawValue = raw.path(parts[0]).get(parts[1]);
+        JsonNode value = normalized.path(parts[0]).get(parts[1]);
+        if (value != null) section.set(parts[1], value);
+        else if (rawValue != null && rawValue.isNull()
+                && official.path(parts[0]).has(parts[1])) section.putNull(parts[1]);
+        else section.remove(parts[1]);
+    }
+
+    /** 还原系统主题的官方默认：清空 overrideJson，effective 自然回到官方 definitionJson。 */
+    @Transactional
+    public ThemeView resetOverride(Long id) {
+        ThemePreset preset = get(id);
+        if (!Boolean.TRUE.equals(preset.getBuiltin())) throw BusinessException.badRequest("只有系统主题支持还原默认");
+        preset.setOverrideJson(null);
+        preset.setVersion((preset.getVersion() == null ? 1 : preset.getVersion()) + 1);
+        mapper.updateById(preset);
+        return view(preset);
+    }
+
+    /** 复制主题：系统主题复制的是当前生效值（官方 + 用户覆盖 merge 之后），不是裸官方值。 */
     @Transactional
     public ThemeView duplicate(Long id) {
         ThemePreset source = get(id);
         return create(source.getName() + " · 副本", source.getDescription(), source.getBaseThemeKey(),
-                source.getPreviewImageUrl(), source.getDefinitionJson(), true);
+                source.getPreviewImageUrl(), effectiveDefinition(source), true);
     }
 
     @Transactional
@@ -458,9 +534,72 @@ public class ThemePresetService {
     }
 
     private ThemeView view(ThemePreset preset) {
+        boolean builtin = Boolean.TRUE.equals(preset.getBuiltin());
+        JsonNode override = builtin ? preset.getOverrideJson() : null;
         return new ThemeView(preset.getId(), preset.getThemeKey(), preset.getName(), preset.getDescription(),
-                preset.getBaseThemeKey(), preset.getPreviewImageUrl(), preset.getDefinitionJson(),
-                Boolean.TRUE.equals(preset.getBuiltin()), Boolean.TRUE.equals(preset.getEnabled()),
-                preset.getVersion() == null ? 1 : preset.getVersion());
+                preset.getBaseThemeKey(), preset.getPreviewImageUrl(), effectiveDefinition(preset),
+                builtin, Boolean.TRUE.equals(preset.getEnabled()),
+                preset.getVersion() == null ? 1 : preset.getVersion(),
+                preset.getDefinitionJson(), override, countLeaves(override));
+    }
+
+    /** 生效配置 = 官方值 + 用户覆盖 merge；个人主题或没有覆盖的系统主题直接就是官方值本身。 */
+    private JsonNode effectiveDefinition(ThemePreset preset) {
+        if (!Boolean.TRUE.equals(preset.getBuiltin())) return preset.getDefinitionJson();
+        JsonNode override = preset.getOverrideJson();
+        if (override == null || override.isNull() || override.size() == 0) return preset.getDefinitionJson();
+        return deepMerge(preset.getDefinitionJson(), override);
+    }
+
+    /**
+     * 把 override 逐字段叠到 base 上：同名的对象字段递归合并，其余字段（含数组）
+     * 由 override 整体覆盖。贴纸列表这类数组改一项就整份收进 override，
+     * 逐条比较、逐条合并没有意义。
+     */
+    private JsonNode deepMerge(JsonNode base, JsonNode override) {
+        if (override == null || override.isNull() || override.isMissingNode()) return base;
+        if (base == null || !base.isObject() || !override.isObject()) return override;
+        ObjectNode merged = base.deepCopy();
+        Iterator<Map.Entry<String, JsonNode>> fields = override.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = fields.next();
+            JsonNode baseValue = merged.get(entry.getKey());
+            JsonNode overrideValue = entry.getValue();
+            merged.set(entry.getKey(), (baseValue != null && baseValue.isObject() && overrideValue.isObject())
+                    ? deepMerge(baseValue, overrideValue) : overrideValue);
+        }
+        return merged;
+    }
+
+    /**
+     * 计算 full 相对 base 的稀疏差异：只保留值不同的叶子字段，相同的字段整个省略，
+     * 用于把系统主题的编辑结果收窄成「只含改动过的字段」的 overrideJson。
+     */
+    private JsonNode sparseDiff(JsonNode full, JsonNode base) {
+        ObjectNode diff = objectMapper.createObjectNode();
+        if (full == null || !full.isObject()) return diff;
+        Iterator<String> names = full.fieldNames();
+        while (names.hasNext()) {
+            String key = names.next();
+            JsonNode fullValue = full.get(key);
+            JsonNode baseValue = base == null ? null : base.get(key);
+            if (fullValue.isObject() && (baseValue == null || baseValue.isObject())) {
+                JsonNode nested = sparseDiff(fullValue, baseValue);
+                if (nested.size() > 0) diff.set(key, nested);
+            } else if (!fullValue.equals(baseValue)) {
+                diff.set(key, fullValue);
+            }
+        }
+        return diff;
+    }
+
+    /** override 里的叶子字段数，供前端显示「已自定义 N 项」。数组算一个叶子，不展开数它的元素。 */
+    private int countLeaves(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) return 0;
+        if (!node.isObject()) return 1;
+        int count = 0;
+        Iterator<JsonNode> values = node.elements();
+        while (values.hasNext()) count += countLeaves(values.next());
+        return count;
     }
 }

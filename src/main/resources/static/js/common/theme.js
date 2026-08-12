@@ -215,5 +215,25 @@
 
   let active = null;
 
-  window.TravelTheme = { apply, normalize, stored, current, supportedBases };
+  /**
+   * 当前生效主题的地图相关 token，供 day-route.js / public-app.js 传给 TravelMap。
+   * Theme 不需要认识 AMap 或 Leaflet 的 API——它只把语义参数（颜色、粗细、标记
+   * 样式、要不要动画）交出来，具体怎么画由各个 Provider 适配层自己决定。
+   */
+  function mapTokens() {
+    const root = document.documentElement;
+    const style = getComputedStyle(root);
+    const color = style.getPropertyValue('--tj-route-color').trim() || undefined;
+    const widthRaw = style.getPropertyValue('--tj-map-route-width').trim();
+    const width = widthRaw ? parseFloat(widthRaw) : undefined;
+    return {
+      style: root.dataset.mapStyle || 'auto',
+      color,
+      width: Number.isFinite(width) ? width : undefined,
+      markerStyle: root.dataset.mapMarkerStyle || 'dot',
+      animateRoute: root.dataset.mapAnimateRoute === 'on'
+    };
+  }
+
+  window.TravelTheme = { apply, normalize, stored, current, supportedBases, mapTokens };
 })();

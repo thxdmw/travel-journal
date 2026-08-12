@@ -260,6 +260,11 @@ public class MomentService {
             throw BusinessException.badRequest("地点名称不能超过 120 个字符");
         if (StringUtils.hasText(moment.getMood()) && moment.getMood().length() > 40)
             throw BusinessException.badRequest("心情不能超过 40 个字符");
+        // 设备定位和 EXIF GPS 按规范都是 WGS84；显式写入元数据，避免数据库默认值或
+        // 客户端遗漏让这类新数据以后被当成 GCJ02 再转换。
+        if (moment.getLatitude() != null && moment.getLongitude() != null) {
+            moment.setCoordinateSystem("WGS84");
+        }
         if (moment.getTripStopId() != null) {
             TripStop stop = stopMapper.selectById(moment.getTripStopId());
             if (stop == null || !moment.getTripId().equals(stop.getTripId()))
