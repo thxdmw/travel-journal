@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,6 +16,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -82,12 +84,25 @@ public class PublicMapController {
         try {
             ResponseEntity<byte[]> response = restClientBuilder.build().get().uri(target).retrieve().toEntity(byte[].class);
             HttpHeaders headers = new HttpHeaders();
-            if (response.getHeaders().getContentType() != null) headers.setContentType(response.getHeaders().getContentType());
+            headers.setContentType(proxyContentType(request, response.getHeaders()));
             headers.setCacheControl("no-store");
             return ResponseEntity.status(response.getStatusCode()).headers(headers).body(response.getBody());
         } catch (RestClientException error) {
             return ResponseEntity.status(502).build();
         }
+    }
+
+    /**
+     * 高德部分接口通过 JSONP 注入为 script 标签。其上游有时返回
+     * application/octet-stream；在 nosniff 下浏览器会拒绝执行，因此只要请求明确带有
+     * callback，就必须返回 JavaScript MIME。普通请求仍保留高德上游声明的类型。
+     */
+    static MediaType proxyContentType(HttpServletRequest request, HttpHeaders upstreamHeaders) {
+        if (StringUtils.hasText(request.getParameter("callback"))) {
+            return new MediaType("application", "javascript", StandardCharsets.UTF_8);
+        }
+        MediaType upstream = upstreamHeaders == null ? null : upstreamHeaders.getContentType();
+        return upstream == null ? MediaType.APPLICATION_OCTET_STREAM : upstream;
     }
 
     /** 读一个可配置的可信 header 判断访客地区；没配置 header 名或读不到值就返回 null，交给兜底逻辑处理。 */

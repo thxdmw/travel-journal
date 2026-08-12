@@ -19,7 +19,7 @@
  * 草稿的离线能力不在这里，而在 IndexedDB（js/common/local-draft.js）：
  * Service Worker 负责「打得开」，IndexedDB 负责「写得下、不丢」。
  */
-const VERSION = 'v15';
+const VERSION = 'v16';
 const SHELL_CACHE = 'tj-shell-' + VERSION;
 const MEDIA_CACHE = 'tj-media-' + VERSION;
 /*
@@ -64,7 +64,7 @@ const SHELL_ASSETS = [
   '/js/common/theme.js?v=6',
   '/js/common/theme-effects.js?v=4',
   '/js/common/api.js?v=17',
-  '/js/common/travel-map.js?v=5',
+  '/js/common/travel-map.js?v=6',
   '/js/common/local-draft.js?v=3',
   '/js/common/journal-media.js?v=9',
   '/js/common/journal-blocks.js?v=5',

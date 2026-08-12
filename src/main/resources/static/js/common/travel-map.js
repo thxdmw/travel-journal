@@ -231,8 +231,10 @@
   /** 两个 Provider 只保持风格语义相近，不追求像素一致。 */
   function amapStyle(style) {
     const schemeDark = document.documentElement.dataset.scheme === 'dark';
-    const key = style === 'auto' ? (schemeDark ? 'dark' : 'light') : style;
-    const names = { dark:'dark', light:'whitesmoke', vintage:'macaron', terrain:'fresh' };
+    // whitesmoke 是近灰白低饱和样式，会让 AUTO/浅色主题看起来像地图没有颜色。
+    // 浅色语义使用高德标准彩色底图；只有暗色、复古、地形增强选择专用样式。
+    const key = style === 'auto' ? (schemeDark ? 'dark' : 'normal') : style;
+    const names = { normal:'normal', dark:'dark', light:'normal', vintage:'macaron', terrain:'fresh' };
     return 'amap://styles/' + (names[key] || 'normal');
   }
 

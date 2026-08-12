@@ -3,6 +3,10 @@ package com.thx.traveljournal.map.controller;
 import com.thx.traveljournal.config.AppProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -116,5 +120,30 @@ class PublicMapControllerTest {
 
         assertEquals("/api/public/_AMapService", result.amapServiceHost());
         assertEquals("https://tile.openstreetmap.org/{z}/{x}/{y}.png", result.osmTileUrl());
+    }
+
+    @Test
+    void jsonpProxyResponseUsesExecutableJavascriptMimeType() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getParameter("callback")).thenReturn("jsonp_998985_1786533593894");
+        HttpHeaders upstream = new HttpHeaders();
+        upstream.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+
+        MediaType result = PublicMapController.proxyContentType(request, upstream);
+
+        assertEquals("application", result.getType());
+        assertEquals("javascript", result.getSubtype());
+        assertEquals(StandardCharsets.UTF_8, result.getCharset());
+    }
+
+    @Test
+    void ordinaryProxyResponseKeepsUpstreamMimeType() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpHeaders upstream = new HttpHeaders();
+        upstream.setContentType(MediaType.APPLICATION_JSON);
+
+        MediaType result = PublicMapController.proxyContentType(request, upstream);
+
+        assertEquals(MediaType.APPLICATION_JSON, result);
     }
 }
