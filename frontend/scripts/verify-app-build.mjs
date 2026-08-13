@@ -35,13 +35,19 @@ await page.goto(base+'/theme-card-preview.html',{waitUntil:'networkidle'})
 const preview=await page.evaluate(()=>({
   title:document.querySelector('.mini-hero h1')?.textContent,
   blocks:document.querySelectorAll('.journal-block').length,
+  photoHeight:document.querySelector('.mini-photo')?.getBoundingClientRect().height||0,
+  summaryBottom:document.querySelector('.journal-day-summary')?.getBoundingClientRect().bottom||Infinity,
+  viewportHeight:innerHeight,
+  documentDisplay:getComputedStyle(document.querySelector('.journal-document')).display,
   globals:['TravelTheme','JournalBlocks','TravelThemeEffects'].filter(key=>key in window),
 }))
 
 const checks=[
   ['清单版本存在',Boolean(pwa.version)],['Service Worker 使用本次版本',pwa.scriptUrl.includes('build='+pwa.version)],['全部 hash 产物已缓存',pwa.missing.length===0],
   ['公开 Trips SFC 可路由和筛选',state.title==='旅行'],['旧 window 全局已清空',state.globals.length===0],
-  ['主题卡片 ESM 入口可渲染',preview.title==='路上的夏天'&&preview.blocks===5],['主题卡片无旧全局',preview.globals.length===0],['页面无控制台错误',errors.length===0],
+  ['主题卡片 ESM 入口可渲染',preview.title==='路上的夏天'&&preview.blocks===5],
+  ['主题卡片保持微缩日记构图',preview.photoHeight<260&&preview.summaryBottom<=preview.viewportHeight&&preview.documentDisplay==='grid'],
+  ['主题卡片无旧全局',preview.globals.length===0],['页面无控制台错误',errors.length===0],
 ]
 let failed=false;for(const [name,ok] of checks){console.log(ok?'通过 ':'失败 ',name);if(!ok)failed=true}
 if(state.globals.length||preview.globals.length)console.error('残留全局：'+[...state.globals,...preview.globals].join(','));if(pwa.missing.length)console.error('缺少缓存：'+pwa.missing.join(','));if(errors.length)console.error(errors.join('\n'))
