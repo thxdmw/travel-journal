@@ -6,6 +6,8 @@ export type RouteQueryValue = string | null | (string | null)[]
 export interface PublicRouteLocation {
   params: Record<string, string | string[] | undefined>
   query: Record<string, RouteQueryValue>
+  fullPath: string
+  meta: Record<string, unknown>
 }
 
 export interface PublicRouter {
@@ -17,11 +19,14 @@ export interface PublicRouteRecord {
   path: string
   component: Component
   props?: Record<string, unknown>
+  meta?: Record<string, unknown>
 }
 
 export interface PublicRouterInstance {
   install(app: App): void
   currentRoute: { value: { fullPath: string } }
+  beforeEach(guard: (to: PublicRouteLocation) => unknown | Promise<unknown>): void
+  replace(location: string): Promise<unknown>
 }
 
 declare global {
