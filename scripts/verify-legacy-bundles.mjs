@@ -35,6 +35,8 @@ const EXPECTED = {
   auth: 8,
   admin: 80,
   themeKeys: 'apply,current,mapTokens,normalize,stored,supportedBases',
+  blockKeys: 'CATALOG,createBlock,emptyDocument,normalize,render,renderBlock,sampleDocument,textContent,wordCount',
+  catalogSize: 29,
 }
 
 const server = createServer(async (request, response) => {
@@ -149,6 +151,41 @@ const switched = await page.evaluate(() => {
   }
 })
 
+/*
+ * Block 渲染产物。重点验的是转义边界：把负载塞进正文，看浏览器解析后有没有
+ * 多出元素或事件属性——这是 jsdom 之外再走一遍真实解析器。
+ */
+const blocks = await page.evaluate(() => {
+  const api = window.JournalBlocks
+  const payload = '<img src=x onerror="window.__pwned=1">'
+  const document_ = {
+    schemaVersion: 1,
+    blocks: [
+      api.createBlock('paragraph', { text: payload }),
+      api.createBlock('link-card', { url: 'javascript:window.__pwned=1', title: '点我' }),
+      api.createBlock('heading', { text: '正常标题', level: 2 }),
+    ],
+  }
+  const host = document.createElement('div')
+  host.innerHTML = api.render(document_, [])
+  document.body.appendChild(host)
+  const result = {
+    globalExists: typeof api === 'object' && api !== null,
+    keys: Object.keys(api).sort().join(','),
+    catalogSize: api.CATALOG.length,
+    blockCount: host.querySelectorAll('.journal-block').length,
+    injectedElements: host.querySelectorAll('img[onerror], script').length,
+    // 负载原样留在文本里，说明是被当成内容渲染的
+    payloadAsText: host.textContent.includes(payload),
+    linkHref: host.querySelector('.journal-link-card')?.getAttribute('href'),
+    headingLevel: host.querySelector('.journal-heading')?.tagName,
+    wordCount: api.wordCount(document_),
+    pwned: window.__pwned === 1,
+  }
+  host.remove()
+  return result
+})
+
 // 正常路径不应留下任何 console error；下面故意造 500，先把这一刻的快照留住
 const cleanRun = [...consoleErrors]
 
@@ -189,6 +226,16 @@ const checks = [
   ['mapTokens 读出路线宽度与颜色', theme.routeWidth === 5 && theme.routeColor === '#C97B3F'],
   ['current 仍供得出贴纸配置', theme.stickerAsset === 'autumn-leaf'],
   ['切主题后枚举与变量都被清干净', switched.particlesCleared && switched.accentCleared],
+
+  ['JournalBlocks 全局契约已建立', blocks.globalExists],
+  ['JournalBlocks 方法集与旧实现一致', blocks.keys === EXPECTED.blockKeys],
+  ['Block 目录条数一致', blocks.catalogSize === EXPECTED.catalogSize],
+  ['整篇正文渲染出全部 Block', blocks.blockCount === 3],
+  ['注入负载没有变成元素', blocks.injectedElements === 0 && !blocks.pwned],
+  ['注入负载被当作文本渲染', blocks.payloadAsText],
+  ['javascript: 链接被白名单挡成 #', blocks.linkHref === '#'],
+  ['标题层级按 level 输出', blocks.headingLevel === 'H2'],
+  ['字数统计可用', blocks.wordCount > 0],
 
   ['正常路径没有 console error', cleanRun.length === 0],
 ]

@@ -39,6 +39,12 @@ const bundles = [
     globalName: 'TravelThemeBundle',
     external: {},
   },
+  {
+    entry: 'src/legacy/journal-blocks-global.ts',
+    fileName: 'journal-blocks.js',
+    globalName: 'JournalBlocksBundle',
+    external: {},
+  },
 ]
 
 for (const bundle of bundles) {

@@ -4,7 +4,8 @@ import pluginVue from 'eslint-plugin-vue'
 import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
+  // 夹具是迁移前实现的历史快照，按原样保留才有对拍价值，不参与 lint
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'tests/fixtures/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],

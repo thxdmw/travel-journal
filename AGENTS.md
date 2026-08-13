@@ -35,7 +35,7 @@
 | API 客户端 | `frontend/src/api/`（TS，已迁移）；拦截器会解开 `ApiResponse.data` |
 | API 类型 | `frontend/src/types/`，与后端 record / entity 对应 |
 | 旧脚本兼容层 | `frontend/src/legacy/travel-api-global.ts`，重建 `window.TravelApi` |
-| 日记 Block 渲染 | `common/journal-blocks.js` |
+| 日记 Block 渲染 | `frontend/src/journal/`（TS，已迁移） |
 | 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
 | 日记媒体/灯箱 | `common/journal-media.js`、`public-app.js` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
@@ -101,8 +101,11 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | --- | --- | --- |
 | API 客户端与领域类型 | `frontend/src/api/`、`frontend/src/types/` | `static/js/dist/travel-api.js` |
 | 主题 token 应用 | `frontend/src/theme/` | `static/js/dist/travel-theme.js` |
+| 日记 Block 目录与渲染 | `frontend/src/journal/` | `static/js/dist/journal-blocks.js` |
 
 `theme-effects.js` 仍是旧脚本，它读 `TravelTheme.current()` 拿贴纸配置；`day-route.js` 读 `mapTokens()`。这两条契约在它们迁移前不能动。
+
+`frontend/tests/fixtures/legacy-journal-blocks.js` 是 Block 渲染迁移前的历史快照，只供对拍用例逐字节比对输出，不参与运行，也不要跟着新需求改。
 
 迁移期的机制：
 

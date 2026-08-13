@@ -1,0 +1,471 @@
+import { normalize } from './document'
+import { arr, clamp, esc, formatDay, lines, num, rec, safeLink, str } from './escape'
+import type { BlockData, JournalBlock, RenderableMedia } from '@/types/journal-block'
+
+export type MediaMap = Map<number, RenderableMedia>
+
+export function mediaMap(media: readonly RenderableMedia[] | null | undefined): MediaMap {
+  const map: MediaMap = new Map()
+  for (const item of media ?? []) map.set(Number(item.id), item)
+  return map
+}
+
+/** 没有随正文一起取到媒体信息时，按 id 拼出站内地址兜底。 */
+function mediaUrl(item: RenderableMedia | undefined, mediaId: unknown): string {
+  return item?.displayUrl ? item.displayUrl : '/api/media/' + Number(mediaId) + '/display'
+}
+
+function blockTitle(block: JournalBlock): string {
+  return block.title ? '<h2 class="journal-block__title">' + esc(block.title) + '</h2>' : ''
+}
+
+/**
+ * 图片区块的表现类名。
+ *
+ * size / align 没有显式选择时不输出覆盖类，让主题的 image.width 等默认值真正生效。
+ * 旧内容已经保存了明确值时仍按区块设置优先，不改变既有日记的排版。
+ */
+function figureClasses(settings: BlockData, extra?: string): string {
+  const values: string[] = []
+  if (settings.size) values.push('journal-figure--' + str(settings.size))
+  if (settings.align) values.push('journal-figure--' + str(settings.align))
+  for (const key of ['ratio', 'focus', 'frame', 'radius', 'tone', 'effect', 'captionPos']) {
+    if (settings[key]) {
+      values.push('journal-figure--' + (key === 'captionPos' ? 'caption' : key) + '-' + str(settings[key]))
+    }
+  }
+  if (extra) values.push(extra)
+  return values.map(esc).join(' ')
+}
+
+function figure(block: JournalBlock, map: MediaMap): string {
+  const data = block.data
+  const settings = block.settings
+  const item = map.get(Number(data.mediaId))
+  if (!data.mediaId && !data.previewUrl) return ''
+  const caption = str(data.caption) || str(item?.caption) || ''
+  const src = data.previewUrl ? str(data.previewUrl) : mediaUrl(item, data.mediaId)
+  return (
+    '<figure class="journal-figure ' +
+    figureClasses(settings) +
+    '"><img src="' +
+    esc(src) +
+    '" alt="' +
+    esc(caption || '旅行照片') +
+    '" loading="lazy">' +
+    (caption ? '<figcaption>' + esc(caption) + '</figcaption>' : '') +
+    '</figure>'
+  )
+}
+
+function gallery(block: JournalBlock, map: MediaMap): string {
+  const data = block.data
+  const settings = block.settings
+  const ids = arr(data.mediaIds)
+  const previews = arr(data.previewUrls)
+  if (!ids.length && !previews.length) return ''
+  const mode = str(settings.layout)
+  const columns = settings.columns == null ? null : clamp(num(settings.columns, 3), 1, 6)
+  const sources = previews.length ? previews : ids
+  // 对比模式只放两张，多出来的不渲染
+  const visibleSources = mode === 'compare' ? sources.slice(0, 2) : sources
+  const images = visibleSources
+    .map(source => {
+      const item = map.get(Number(source))
+      const caption = str(item?.caption) || '旅行照片'
+      // previews 分支里 source 本身就是地址，不是 id
+      const src = previews.length ? str(source) : mediaUrl(item, source)
+      return '<img src="' + esc(src) + '" alt="' + esc(caption) + '" loading="lazy">'
+    })
+    .join('')
+  const layoutClass = mode ? 'journal-gallery--' + mode : ''
+  const columnsClass = columns == null ? '' : ' journal-gallery--cols-' + columns
+  return (
+    '<figure class="journal-gallery ' +
+    figureClasses(settings, layoutClass) +
+    columnsClass +
+    '">' +
+    images +
+    (data.caption ? '<figcaption>' + esc(data.caption) + '</figcaption>' : '') +
+    '</figure>'
+  )
+}
+
+function postcard(block: JournalBlock, map: MediaMap): string {
+  const data = block.data
+  const item = map.get(Number(data.mediaId))
+  const src = data.previewUrl ? str(data.previewUrl) : mediaUrl(item, data.mediaId)
+  const image =
+    data.mediaId || data.previewUrl
+      ? '<img src="' + esc(src) + '" alt="' + esc(str(data.location) || '旅行明信片') + '" loading="lazy">'
+      : '<div class="journal-postcard__placeholder">旅行明信片</div>'
+  return (
+    '<figure class="journal-postcard">' +
+    image +
+    '<div class="journal-postcard__writing">' +
+    '<div class="journal-postcard__meta"><span>' +
+    esc(data.location) +
+    '</span><time>' +
+    esc(data.date) +
+    '</time></div>' +
+    '<p>' +
+    lines(data.message) +
+    '</p>' +
+    (data.signature ? '<footer>— ' + esc(data.signature) + '</footer>' : '') +
+    '</div></figure>'
+  )
+}
+
+/** 遍历一个可能不是数组的列表字段。每项都当成记录读，混进 null 也不会炸。 */
+function listItems(items: unknown, renderer: (item: Record<string, unknown>) => string): string {
+  return arr(items)
+    .map(item => renderer(rec(item)))
+    .join('')
+}
+
+/** 星级。评分区块和美食、住宿都用，统一夹在 0..max 之间。 */
+function stars(score: number, max: number): string {
+  return '★'.repeat(score) + '☆'.repeat(max - score)
+}
+
+function renderBody(block: JournalBlock, map: MediaMap): string | null {
+  const d = block.data
+  const s = block.settings
+  switch (block.type) {
+    case 'heading': {
+      const level = clamp(num(d.level, 2), 2, 4)
+      return '<h' + level + ' class="journal-heading">' + esc(d.text) + '</h' + level + '>'
+    }
+    case 'paragraph':
+      return (
+        '<p class="journal-paragraph journal-paragraph--' +
+        esc(str(s.style) || 'normal') +
+        ' journal-text--' +
+        esc(str(s.align) || 'left') +
+        '">' +
+        lines(d.text) +
+        '</p>'
+      )
+    case 'quote':
+      return (
+        '<blockquote><p>' +
+        lines(d.text) +
+        '</p>' +
+        (d.source ? '<cite>— ' + esc(d.source) + '</cite>' : '') +
+        '</blockquote>'
+      )
+    case 'callout':
+      return (
+        '<aside class="journal-callout journal-callout--' +
+        esc(str(d.tone) || 'note') +
+        '">' +
+        (d.icon ? '<b>' + esc(d.icon) + '</b>' : '') +
+        '<p>' +
+        lines(d.text) +
+        '</p></aside>'
+      )
+    case 'facts':
+      return (
+        '<dl class="journal-facts">' +
+        listItems(d.items, item => '<div><dt>' + esc(item.label) + '</dt><dd>' + lines(item.value) + '</dd></div>') +
+        '</dl>'
+      )
+    case 'pros-cons':
+      return (
+        '<div class="journal-pros-cons"><section><h3>喜欢</h3><ul>' +
+        arr(d.pros).map(item => '<li>' + esc(item) + '</li>').join('') +
+        '</ul></section><section><h3>遗憾</h3><ul>' +
+        arr(d.cons).map(item => '<li>' + esc(item) + '</li>').join('') +
+        '</ul></section></div>'
+      )
+    case 'table': {
+      const headers = arr(d.headers)
+      const rows = arr(d.rows)
+      return (
+        '<div class="journal-table-wrap"><table class="journal-table"><thead><tr>' +
+        headers.map(x => '<th>' + esc(x) + '</th>').join('') +
+        '</tr></thead><tbody>' +
+        rows
+          .map(
+            row =>
+              '<tr>' +
+              // 用 || 而不是 ??：单元格填 0 时原实现渲染的是空格子，保持一致
+              headers.map((_header, index) => '<td>' + lines(arr(row)[index] || '') + '</td>').join('') +
+              '</tr>',
+          )
+          .join('') +
+        '</tbody></table></div>'
+      )
+    }
+    case 'link-card':
+      return (
+        '<a class="journal-link-card" href="' +
+        esc(safeLink(d.url)) +
+        '" target="_blank" rel="noopener noreferrer"><strong>' +
+        esc(d.title || d.url) +
+        '</strong>' +
+        (d.description ? '<span>' + lines(d.description) + '</span>' : '') +
+        '<small>' +
+        esc(d.url) +
+        '</small></a>'
+      )
+    case 'rating': {
+      const max = Math.max(1, num(d.max, 5))
+      const score = clamp(num(d.score, 0), 0, max)
+      return (
+        '<div class="journal-rating" aria-label="' +
+        score +
+        ' / ' +
+        max +
+        '">' +
+        '<span>' +
+        stars(score, max) +
+        '</span><b>' +
+        score +
+        '/' +
+        max +
+        '</b></div>' +
+        (d.comment ? '<p>' + lines(d.comment) + '</p>' : '')
+      )
+    }
+    case 'checklist':
+      return (
+        '<ul class="journal-checklist">' +
+        listItems(
+          d.items,
+          item =>
+            '<li class="' +
+            (item.checked ? 'is-checked' : '') +
+            '"><span>' +
+            (item.checked ? '✓' : '') +
+            '</span>' +
+            esc(item.text) +
+            '</li>',
+        ) +
+        '</ul>'
+      )
+    case 'stats':
+      return (
+        '<div class="journal-stats">' +
+        listItems(d.items, item => '<div><strong>' + esc(item.value) + '</strong><span>' + esc(item.label) + '</span></div>') +
+        '</div>'
+      )
+    case 'companions':
+      return (
+        '<div class="journal-companions">' +
+        listItems(
+          d.items,
+          item =>
+            '<article><strong>' +
+            esc(item.name) +
+            '</strong>' +
+            (item.role ? '<span>' + esc(item.role) + '</span>' : '') +
+            (item.note ? '<p>' + lines(item.note) + '</p>' : '') +
+            '</article>',
+        ) +
+        '</div>'
+      )
+    case 'trip-info': {
+      const values = [d.date, d.city, d.tripTitle, d.weather, d.mood].filter(Boolean)
+      return '<div class="journal-trip-info">' + values.map(value => '<span>' + esc(value) + '</span>').join('') + '</div>'
+    }
+    case 'route':
+      return '<ol class="journal-route">' + arr(d.items).map(item => '<li>' + esc(item) + '</li>').join('') + '</ol>'
+    case 'itinerary':
+    case 'timeline':
+      return (
+        '<ol class="journal-timeline">' +
+        listItems(
+          d.items,
+          item =>
+            '<li><time>' +
+            esc(item.time) +
+            '</time><div><strong>' +
+            esc(item.title) +
+            '</strong>' +
+            (item.address ? '<small>' + esc(item.address) + '</small>' : '') +
+            (item.description ? '<p>' + lines(item.description) + '</p>' : '') +
+            '</div></li>',
+        ) +
+        '</ol>'
+      )
+    case 'expense-summary':
+      return (
+        '<div class="journal-expenses"><ul>' +
+        listItems(
+          d.categories,
+          item => '<li><span>' + esc(item.name) + '</span><b>' + esc(d.currency || '') + ' ' + esc(item.amount) + '</b></li>',
+        ) +
+        '</ul><div class="journal-expenses__total"><span>合计</span><strong>' +
+        esc(d.currency || '') +
+        ' ' +
+        esc(d.total) +
+        '</strong></div></div>'
+      )
+    case 'location-card':
+      return (
+        '<article class="journal-place-card"><header><strong>' +
+        esc(d.name) +
+        '</strong>' +
+        (d.cost ? '<b>' + esc(d.cost) + '</b>' : '') +
+        '</header>' +
+        (d.address ? '<span>' + esc(d.address) + '</span>' : '') +
+        (d.hours ? '<small>开放时间：' + esc(d.hours) + '</small>' : '') +
+        (d.impression ? '<p>' + lines(d.impression) + '</p>' : '') +
+        '</article>'
+      )
+    case 'food':
+      return (
+        '<article class="journal-record-card journal-food"><header><strong>' +
+        esc(d.dish) +
+        '</strong><span>' +
+        esc(d.restaurant) +
+        '</span></header>' +
+        '<div>' +
+        (d.price ? '<b>' + esc(d.price) + '</b>' : '') +
+        (d.rating ? '<span>' + '★'.repeat(clamp(num(d.rating, 0), 0, 5)) + '</span>' : '') +
+        '</div>' +
+        (d.note ? '<p>' + lines(d.note) + '</p>' : '') +
+        '</article>'
+      )
+    case 'stay':
+      return (
+        '<article class="journal-record-card journal-stay"><header><strong>' +
+        esc(d.name) +
+        '</strong><span>' +
+        esc(d.room) +
+        '</span></header>' +
+        '<div><b>' +
+        esc(d.nights || 1) +
+        ' 晚</b>' +
+        (d.rating ? '<span>' + '★'.repeat(clamp(num(d.rating, 0), 0, 5)) + '</span>' : '') +
+        '</div>' +
+        (d.note ? '<p>' + lines(d.note) + '</p>' : '') +
+        '</article>'
+      )
+    case 'transport':
+      return (
+        '<article class="journal-transport"><b>' +
+        esc(str(d.mode) || '交通') +
+        '</b><div><strong>' +
+        esc(d.from) +
+        '</strong><i>→</i><strong>' +
+        esc(d.to) +
+        '</strong></div>' +
+        '<small>' +
+        [d.number, d.duration].filter(Boolean).map(esc).join(' · ') +
+        '</small>' +
+        (d.note ? '<p>' + lines(d.note) + '</p>' : '') +
+        '</article>'
+      )
+    case 'weather':
+      return (
+        '<div class="journal-weather"><strong>' +
+        esc(d.condition) +
+        '</strong><b>' +
+        esc(d.temperature) +
+        '</b><span>' +
+        [d.feelsLike && '体感 ' + str(d.feelsLike), d.wind].filter(Boolean).map(esc).join(' · ') +
+        '</span>' +
+        (d.note ? '<p>' + lines(d.note) + '</p>' : '') +
+        '</div>'
+      )
+    /*
+     * 今日开场卡。
+     *
+     * 「东京 · Day 4 / 8月10日 · 晴 / 浅草 → 上野 → 银座 / 21,430 步 · ¥8,420」——
+     * 这些全都能从旅行、行程和账目里推出来，所以编辑器默认关联数据，作者不用填。
+     * 空字段直接不渲染，只写了一半也不会留下一行「· ·」。
+     */
+    case 'day-opener': {
+      const head = [d.city, d.dayLabel].filter(Boolean).map(esc).join(' · ')
+      const sub = [formatDay(d.date), d.weather].filter(Boolean).map(esc).join(' · ')
+      const route = arr(d.route).filter(Boolean)
+      const metrics = arr(d.metrics)
+        .map(rec)
+        .filter(item => item.value || item.label)
+      return (
+        '<header class="journal-day-opener">' +
+        (head ? '<strong>' + head + '</strong>' : '') +
+        (sub ? '<span>' + sub + '</span>' : '') +
+        (route.length ? '<p class="journal-day-opener__route">' + route.map(esc).join('<i>→</i>') + '</p>' : '') +
+        (metrics.length
+          ? '<div class="journal-day-opener__metrics">' +
+            metrics.map(item => '<div><b>' + esc(item.value) + '</b><span>' + esc(item.label) + '</span></div>').join('') +
+            '</div>'
+          : '') +
+        '</header>'
+      )
+    }
+    // 章节节点：一天里的一个时间锚点。本质是带时间的小标题，让长日记读起来有节奏。
+    case 'chapter':
+      return (
+        '<div class="journal-chapter">' +
+        (d.time ? '<time>' + esc(d.time) + '</time>' : '') +
+        '<h3>' +
+        esc(d.title) +
+        '</h3>' +
+        (d.note ? '<small>' + esc(d.note) + '</small>' : '') +
+        '</div>'
+      )
+    case 'day-summary': {
+      const items = arr(d.items)
+        .map(rec)
+        .filter(item => item.value || item.label)
+      return (
+        '<section class="journal-day-summary">' +
+        items
+          .map(
+            item =>
+              '<article>' +
+              (item.icon ? '<b>' + esc(item.icon) + '</b>' : '') +
+              '<div><span>' +
+              esc(item.label) +
+              '</span><strong>' +
+              esc(item.value) +
+              '</strong></div></article>',
+          )
+          .join('') +
+        '</section>'
+      )
+    }
+    case 'image':
+      return figure(block, map)
+    case 'gallery':
+      return gallery(block, map)
+    case 'postcard':
+      return postcard(block, map)
+    case 'divider':
+      return '<hr>'
+    default:
+      // 不认识的类型整块跳过，而不是渲染出一个空壳
+      return null
+  }
+}
+
+export function renderBlock(
+  block: JournalBlock,
+  media?: MediaMap | readonly RenderableMedia[] | null,
+): string {
+  const map = media instanceof Map ? media : mediaMap(media)
+  const body = renderBody(block, map)
+  if (body === null) return ''
+  return (
+    '<section class="journal-block journal-block--' +
+    esc(block.type) +
+    '" data-block-id="' +
+    esc(block.id) +
+    '">' +
+    // heading 自己就是标题，再套一层 block 标题会出现两级标题
+    (block.type === 'heading' ? '' : blockTitle(block)) +
+    body +
+    '</section>'
+  )
+}
+
+export function render(source: unknown, media?: readonly RenderableMedia[] | null): string {
+  const map = mediaMap(media)
+  return normalize(source)
+    .blocks.map(block => renderBlock(block, map))
+    .join('')
+}
