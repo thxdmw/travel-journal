@@ -4,6 +4,7 @@
   "description": "旅行日记后台的端到端测试。仅用于本地验证，生产构建（Maven / Docker）完全不依赖它。",
   "scripts": {
     "check:js": "node scripts/check-js.mjs",
+    "verify:api-bundle": "node scripts/verify-api-bundle.mjs",
     "e2e": "playwright test",
     "e2e:mobile": "playwright test --project=iphone-13",
     "e2e:report": "playwright show-report"

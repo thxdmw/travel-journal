@@ -16,8 +16,10 @@
 - Java 21、Spring Boot 3.5、Maven、Spring Security Session、MyBatis-Plus。
 - PostgreSQL + Flyway；媒体使用 MinIO。
 - 前端是随 Jar 发布的 Vue 3 浏览器全局版，使用 Vue Router、Element Plus、Axios、Leaflet 本地资源。
-- 没有前端构建步骤。不要引入 npm 运行时依赖、Vite、Webpack、React、TypeScript 迁移或大型状态管理。
-- 前端脚本通常使用 IIFE 和 `window.*` 命名空间，不要写需要打包器处理的 `import`。
+- 前端正在向 `frontend/`（Vite + TypeScript）渐进迁移，两套架构暂时共存，详见「前端迁移状态」。
+- 不要引入 React 或大型状态管理。生产构建（Maven / Docker）目前仍不依赖 npm。
+- `static/js` 下尚未迁移的脚本继续使用 IIFE 和 `window.*` 命名空间，不要在那里写 `import`；
+  新代码一律写在 `frontend/src/`，用 ESM 和 TypeScript。
 - 依赖和静态资源原则上本地托管，不新增 CDN 依赖。
 - 密钥只允许来自环境变量；不得提交数据库、MinIO、高德或 AI 的真实凭据。
 
@@ -30,7 +32,9 @@
 | 数据库迁移 | `src/main/resources/db/migration/` |
 | 公开站点 | `static/js/public-app.js`、`static/css/public.css`、`static/index.html` |
 | 后台入口 | `static/js/admin-app.js`、`static/js/admin/`、`static/css/admin-workspace.css` |
-| API 客户端 | `static/js/common/api.js`；Axios 拦截器会解开 `ApiResponse.data` |
+| API 客户端 | `frontend/src/api/`（TS，已迁移）；拦截器会解开 `ApiResponse.data` |
+| API 类型 | `frontend/src/types/`，与后端 record / entity 对应 |
+| 旧脚本兼容层 | `frontend/src/legacy/travel-api-global.ts`，重建 `window.TravelApi` |
 | 日记 Block 渲染 | `common/journal-blocks.js` |
 | 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
 | 日记媒体/灯箱 | `common/journal-media.js`、`public-app.js` |
@@ -84,6 +88,26 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 - 修改被 HTML 引用的 JS/CSS 后，同步提高对应 `?v=`：公开端看 `static/index.html`，后台看 `static/admin/index.html`。
 - 同步更新 `static/service-worker.js` 的同一资源地址，并提高其中的 `VERSION`，避免 PWA 继续使用旧缓存。
 - 运行中的 Spring Boot 通常从 `target/classes/static` 提供资源。源码改完但页面仍旧时，先执行 `mvn process-resources`，不要误判为代码没有生效。
+- `static/js/dist/` 是 `frontend/` 的构建产物，不要手改。改了 `frontend/src` 必须 `npm run build`（在 `frontend/` 下），产物和源码要一起提交。
+
+## 前端迁移状态
+
+前端正从「IIFE + `window.*` 全局」渐进迁移到 `frontend/`（Vite + TypeScript + SFC）。原则是每次只迁一块、旧页面无感知、随时可回滚。
+
+已迁移：
+
+| 模块 | 新位置 | 产物 |
+| --- | --- | --- |
+| API 客户端与领域类型 | `frontend/src/api/`、`frontend/src/types/` | `static/js/dist/travel-api.js` |
+
+迁移期的机制：
+
+- 产物由 `frontend/scripts/build-legacy-bundles.mjs` 构建成保持全局契约的 IIFE，旧脚本只换一行 `<script src>`。
+- `frontend/src/legacy/travel-api-global.ts` 负责重建 `window.TravelApi`，每迁走一个旧脚本就删掉对应分支。
+- 产物提交进 git，所以 Maven / Docker / Drone 无需改动。收尾阶段再把构建接进 CI。
+- `axios`、`vue` 等仍由 `static/vendor/` 的全局版提供，构建时按 external 处理，不重复打包。
+
+写新前端代码时：一律放 `frontend/src/`，禁止新增 `window.*` 全局，禁止 `any` 和 `@ts-ignore`（ESLint 已设为 error）。
 
 ## 最小验证矩阵
 
@@ -100,8 +124,17 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 # Java 单测；交付前涉及后端时推荐 clean test
 mvn -q test
 
-# 全部浏览器 JS 语法检查
+# 尚未迁移的浏览器脚本语法检查
 npm run check:js
+
+# 改动 frontend/ 时（在 frontend/ 目录下执行）
+npm run lint
+npm run typecheck
+npm run test:unit
+npm run build
+
+# API 客户端产物的浏览器冒烟验证，不需要后端
+npm run verify:api-bundle
 
 # 检查空白错误
 git diff --check
