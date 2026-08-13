@@ -42,6 +42,9 @@ const EXPECTED = {
   draftStores: 'drafts,pending-moments,photos',
   mapKeys:
     'create,destroy,gcj02ToWgs84,manualProvider,providerUsable,resolveProvider,runtime,setManualProvider,wgs84ToGcj02',
+  mediaKeys: 'MEDIA_SELECTOR,applyResponsiveImages,enhance,groupOf,teardown',
+  mediaSelector: '.journal-figure img, .journal-gallery img, .journal-postcard img',
+  routeKeys: 'STEP_MS,render,simpleMap',
 }
 
 const server = createServer(async (request, response) => {
@@ -305,6 +308,96 @@ const map = await page.evaluate(async () => {
   return { ...result, destroyedCleanly: afterDestroy === 0 }
 })
 
+/*
+ * 图片增强与灯箱分组。真实浏览器里才有布局和 matchMedia，jsdom 下 enhance 的
+ * 一些分支走不到。
+ */
+const media = await page.evaluate(() => {
+  const api = window.JournalMedia
+  const host = document.createElement('div')
+  host.className = 'journal-document'
+  host.innerHTML = `
+    <figure class="journal-figure"><img id="v-photo" src="/api/media/1/display"></figure>
+    <img id="v-avatar" class="site-avatar" src="/api/media/2/display">
+    <span class="tj-sticker" data-theme-decoration="sticker"></span>
+    <figure class="journal-gallery journal-gallery--carousel">
+      <img src="/api/media/3/display"><img src="/api/media/4/display"><img src="/api/media/5/display">
+    </figure>`
+  document.body.appendChild(host)
+
+  api.enhance(host)
+  const enhanced = {
+    carouselBuilt: host.querySelectorAll('.journal-carousel__track img').length === 3,
+    navBuilt: host.querySelectorAll('.journal-carousel__nav').length === 2,
+    srcsetApplied: host.querySelector('#v-photo')?.getAttribute('srcset')?.includes('480w') === true,
+  }
+
+  // 重复增强不应越套越深
+  api.enhance(host)
+  const idempotent = host.querySelectorAll('.journal-carousel').length === 1
+
+  // 灯箱分组：头像和贴纸都不能进正文照片组
+  const photoGroup = api.groupOf(host.querySelector('#v-photo'))
+  const avatarGroup = api.groupOf(host.querySelector('#v-avatar'))
+
+  api.teardown(host)
+  const restored = host.querySelectorAll('.journal-carousel').length === 0
+
+  const result = {
+    globalExists: typeof api === 'object' && api !== null,
+    keys: Object.keys(api).sort().join(','),
+    selector: api.MEDIA_SELECTOR,
+    ...enhanced,
+    idempotent,
+    restored,
+    // 正文里有 1 张单图 + 3 张组图，头像和贴纸都不算
+    photoGroupSize: photoGroup.length,
+    avatarExcluded: avatarGroup.length === 0,
+  }
+  host.remove()
+  return result
+})
+
+/* 今日路线：在真实地图上画点、连线并跑一次回放。 */
+const route = await page.evaluate(async () => {
+  const api = window.DayRoute
+  window.TravelMap.setManualProvider('OSM')
+
+  const host = document.createElement('div')
+  host.style.cssText = 'width:400px;height:300px'
+  document.body.appendChild(host)
+  const map = await window.TravelMap.create(host, { center: [30.9, 103.5], zoom: 8 })
+
+  const points = [
+    { order: 1, time: '09:30', title: '山门', latitude: 30.9, longitude: 103.5, photos: [] },
+    { order: 2, time: '15:20', title: '古镇', latitude: 31.0, longitude: 103.6, photos: [] },
+    // 没有坐标的点必须被丢掉，不能画到 (0,0) 去
+    { order: 3, time: '18:00', title: '缺坐标', latitude: null, longitude: null, photos: [] },
+  ]
+  const controller = api.render(map, points, { source: 'moment' })
+
+  const markerCount = host.querySelectorAll('.travel-map-marker').length
+  controller.play()
+  const playing = controller.playing
+  controller.stop()
+  const stopped = !controller.playing
+  controller.destroy()
+
+  const result = {
+    globalExists: typeof api === 'object' && api !== null,
+    keys: Object.keys(api).sort().join(','),
+    // 三个点里只有两个有坐标
+    markerCount,
+    playing,
+    stopped,
+    lineRemoved: host.querySelectorAll('.leaflet-overlay-pane path').length === 0,
+  }
+  window.TravelMap.destroy(host)
+  host.remove()
+  window.TravelMap.setManualProvider(null)
+  return result
+})
+
 // 正常路径不应留下任何 console error；下面故意造 500，先把这一刻的快照留住
 const cleanRun = [...consoleErrors]
 
@@ -451,6 +544,22 @@ const checks = [
   ['同容器并发建图不抛容器已初始化', map.concurrentError === null],
   ['GCJ-02 转换在真实环境同样生效', map.gcjShifted && map.gcjRoundTrip],
   ['destroy 后容器被清空', map.destroyedCleanly],
+
+  ['JournalMedia 全局契约已建立', media.globalExists],
+  ['JournalMedia 方法集与旧实现一致', media.keys === EXPECTED.mediaKeys],
+  ['灯箱选择器没有退回宽泛的 img', media.selector === EXPECTED.mediaSelector],
+  ['轮播结构与翻页按钮生成', media.carouselBuilt && media.navBuilt],
+  ['站内图片补上了 srcset', media.srcsetApplied],
+  ['重复增强不会越套越深', media.idempotent],
+  ['teardown 还原原始结构', media.restored],
+  ['正文照片按整篇成组', media.photoGroupSize === 4],
+  ['头像不进正文照片组', media.avatarExcluded],
+
+  ['DayRoute 全局契约已建立', route.globalExists],
+  ['DayRoute 方法集与旧实现一致', route.keys === EXPECTED.routeKeys],
+  ['缺坐标的点被丢掉，没有画到 (0,0)', route.markerCount === 2],
+  ['回放能开始也能停下', route.playing && route.stopped],
+  ['destroy 清掉路线', route.lineRemoved],
 
   ['正常路径没有 console error', cleanRun.length === 0],
 ]

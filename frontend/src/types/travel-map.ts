@@ -13,7 +13,13 @@ export interface MarkerHandle {
 export interface MarkerOptions {
   /** 自定义标记的 HTML。给了就用它，不用 Provider 的默认图钉。 */
   html?: string
-  popup?: string
+  /**
+   * 弹窗内容。两个 Provider 都同时接受字符串和 DOM 元素。
+   *
+   * 内容含用户输入时务必传元素并用 textContent 填——传字符串等于把正文
+   * 当 HTML 解析，那是条注入路径。
+   */
+  popup?: string | HTMLElement
   draggable?: boolean
   /** 图标锚点，像素。默认 [14,14] 即 28×28 图标的中心。 */
   iconAnchor?: [number, number]

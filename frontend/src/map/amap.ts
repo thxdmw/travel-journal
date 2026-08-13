@@ -60,9 +60,9 @@ export function createAMapTravelMap(
   let polyline: AMapPolyline | null = null
   let infoWindow: AMapInfoWindow | null = null
   /** 弹窗内容跟着 marker 走，但不能挂在 SDK 对象上，用一张边表。 */
-  const popups = new WeakMap<AMapMarker, string>()
+  const popups = new WeakMap<AMapMarker, string | HTMLElement>()
 
-  function openInfoWindow(marker: AMapMarker, content: string): void {
+  function openInfoWindow(marker: AMapMarker, content: string | HTMLElement): void {
     if (!infoWindow) {
       infoWindow = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -28), anchor: 'bottom-center' })
     }
@@ -162,8 +162,9 @@ export function createAMapTravelMap(
         map,
       })
       if (opts.popup) {
-        popups.set(marker, opts.popup)
-        marker.on('click', () => openInfoWindow(marker, opts.popup as string))
+        const popup = opts.popup
+        popups.set(marker, popup)
+        marker.on('click', () => openInfoWindow(marker, popup))
       }
       if (opts.draggable && typeof opts.onDragEnd === 'function') {
         const onDragEnd = opts.onDragEnd

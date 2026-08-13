@@ -24,7 +24,7 @@ interface LeafletMarker {
   _icon?: HTMLElement
   getLatLng(): LeafletLatLng
   openPopup(): void
-  bindPopup(content: string): void
+  bindPopup(content: string | HTMLElement): void
   on(event: string, handler: (event: { target: LeafletMarker }) => void): void
   addTo(map: LeafletMap): LeafletMarker
 }

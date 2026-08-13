@@ -64,6 +64,18 @@ const bundles = [
     // Leaflet 由页面上的 vendor/leaflet.js 提供，适配层只从 window.L 取
     external: {},
   },
+  {
+    entry: 'src/legacy/journal-media-global.ts',
+    fileName: 'journal-media.js',
+    globalName: 'JournalMediaBundle',
+    external: {},
+  },
+  {
+    entry: 'src/legacy/day-route-global.ts',
+    fileName: 'day-route.js',
+    globalName: 'DayRouteBundle',
+    external: {},
+  },
 ]
 
 for (const bundle of bundles) {

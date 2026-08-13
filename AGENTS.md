@@ -37,13 +37,13 @@
 | 旧脚本兼容层 | `frontend/src/legacy/travel-api-global.ts`，重建 `window.TravelApi` |
 | 日记 Block 渲染 | `frontend/src/journal/`（TS，已迁移） |
 | 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
-| 日记媒体/灯箱 | `common/journal-media.js`、`public-app.js` |
+| 日记媒体/灯箱 | `frontend/src/media/`（TS，已迁移）、`public-app.js` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
 | 主题设计器 | `admin/studio.js`、`theme-*.css` |
 | 主题特效运行时 | `frontend/src/effects/`（TS，已迁移） |
 | 本机草稿与离线队列 | `frontend/src/draft/`（TS，已迁移） |
 | 主题 token 应用 | `frontend/src/theme/`（TS，已迁移） |
-| 地图适配层 | `frontend/src/map/`（TS，已迁移）、`common/day-route.js` |
+| 地图适配层 | `frontend/src/map/`、`frontend/src/route/`（TS，已迁移） |
 | 地图后端 | `map/controller/PublicMapController.java`、`map/service/MapLocationService.java` |
 | E2E | `e2e/*.spec.ts`、`playwright.config.ts` |
 
@@ -107,8 +107,10 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 主题特效运行时 | `frontend/src/effects/` | `static/js/dist/theme-effects.js` |
 | 本机草稿仓库 | `frontend/src/draft/` | `static/js/dist/local-draft.js` |
 | 地图 Provider 适配层 | `frontend/src/map/` | `static/js/dist/travel-map.js` |
+| 日记媒体增强与灯箱分组 | `frontend/src/media/` | `static/js/dist/journal-media.js` |
+| 今日路线与回放 | `frontend/src/route/` | `static/js/dist/day-route.js` |
 
-`day-route.js` 仍是旧脚本，它读 `TravelTheme.mapTokens()` 并使用 `TravelMap` 实例，这两条契约在它迁移前不能动。
+公共层已全部迁完。`static/js` 下剩余的都是页面与编辑器：`public-app.js`、`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 

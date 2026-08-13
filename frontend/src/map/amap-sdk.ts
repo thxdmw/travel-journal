@@ -27,7 +27,7 @@ export interface AMapPolyline extends AMapOverlay {
 }
 
 export interface AMapInfoWindow {
-  setContent(content: string): void
+  setContent(content: string | HTMLElement): void
   open(map: unknown, position: AMapLngLat): void
   close(): void
 }
