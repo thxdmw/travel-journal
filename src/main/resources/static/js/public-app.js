@@ -25,7 +25,7 @@
   }
 
   const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips) {
+  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview) {
     throw new Error('公开站 SFC 页面注册不完整');
   }
   const JournalCard = publicPages.JournalCard;
@@ -291,53 +291,7 @@
 
   const Journals = publicPages.Journals;
 
-  /** 年度回顾：把一年的旅行聚合成几个数字，配一份城市清单。 */
-  const YearReview = {
-    setup() {
-      const route = VueRouter.useRoute(), router = VueRouter.useRouter();
-      const years = ref([]), data = ref(null), loading = ref(true);
-      const current = computed(() => Number(route.params.year) || years.value[0]);
-      async function load() {
-        if (!current.value) { loading.value = false; return; }
-        loading.value = true;
-        try { data.value = await api.yearReview(current.value); }
-        catch (_) { data.value = null; }
-        finally { loading.value = false; }
-      }
-      watch(() => route.params.year, load);
-      onMounted(async () => {
-        try { years.value = await api.years(); } catch (_) { years.value = []; }
-        // 没带年份时跳到最近有内容的一年
-        if (!route.params.year && years.value.length) {
-          router.replace('/years/' + years.value[0]);
-          return;
-        }
-        await load();
-      });
-      return { years, data, loading, current,
-        go: year => router.push('/years/' + year) };
-    },
-    template: `<main class="page year-review">
-      <div class="page-title"><span class="eyebrow">YEAR IN REVIEW</span><h1>{{current||''}} 年回顾</h1><p>这一年走过的路，和留下的文字。</p></div>
-      <div v-if="years.length>1" class="year-switch"><button v-for="y in years" :key="y" type="button" :class="{active:y===current}" @click="go(y)">{{y}}</button></div>
-      <div v-if="loading" class="empty">正在统计…</div>
-      <template v-else-if="data && data.journalCount">
-        <div class="review-grid">
-          <div class="review-stat"><strong>{{data.tripCount}}</strong><span>次旅行</span></div>
-          <div class="review-stat"><strong>{{data.cityCount}}</strong><span>座城市</span></div>
-          <div class="review-stat"><strong>{{data.countryCount}}</strong><span>个国家</span></div>
-          <div class="review-stat"><strong>{{data.distanceKm.toLocaleString()}}</strong><span>公里</span></div>
-          <div class="review-stat"><strong>{{data.journalCount}}</strong><span>篇日记</span></div>
-          <div class="review-stat"><strong>{{data.photoCount}}</strong><span>张照片</span></div>
-        </div>
-        <p v-if="data.farthestCity" class="review-note">今年走得最远的地方是 <strong>{{data.farthestCity}}</strong>，最长的一次旅行持续了 {{data.longestTripDays}} 天。</p>
-        <div v-if="data.trips.length" class="section"><h2 class="section-title">这一年的旅行</h2>
-          <ul class="review-trips"><li v-for="t in data.trips" :key="t.slug"><router-link :to="'/trips/'+t.slug">{{t.title}}</router-link><span>{{t.startDate}} — {{t.endDate}} · {{t.cityCount}} 座城市 · {{t.journalCount}} 篇日记</span></li></ul>
-        </div>
-      </template>
-      <div v-else class="empty">{{current||'这'}} 年还没有公开的日记。</div>
-    </main>`
-  };
+  const YearReview = publicPages.YearReview;
 
   const JournalDetail = {
     // preview=true 时按令牌取内容，用于草稿预览。除数据来源外与正式详情页完全一致，

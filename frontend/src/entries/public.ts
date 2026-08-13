@@ -14,6 +14,7 @@ import '@/legacy/day-route-global'
 import JournalCard from '@/public/components/JournalCard.vue'
 import JournalsPage from '@/public/pages/JournalsPage.vue'
 import TripsPage from '@/public/pages/TripsPage.vue'
+import YearReviewPage from '@/public/pages/YearReviewPage.vue'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
@@ -22,7 +23,12 @@ const pagesKey = Symbol.for('travel-journal.public-pages')
 Object.defineProperty(appRoot, pagesKey, {
   configurable: false,
   enumerable: false,
-  value: Object.freeze({ JournalCard, Journals: JournalsPage, Trips: TripsPage }),
+  value: Object.freeze({
+    JournalCard,
+    Journals: JournalsPage,
+    Trips: TripsPage,
+    YearReview: YearReviewPage,
+  }),
 })
 
 async function bootstrap() {

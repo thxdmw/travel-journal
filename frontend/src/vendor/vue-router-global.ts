@@ -2,11 +2,13 @@
 export type RouteQueryValue = string | null | (string | null)[]
 
 export interface PublicRouteLocation {
+  params: Record<string, string | string[] | undefined>
   query: Record<string, RouteQueryValue>
 }
 
 export interface PublicRouter {
-  push(location: { path: string; query?: Record<string, string> }): Promise<unknown>
+  push(location: string | { path: string; query?: Record<string, string> }): Promise<unknown>
+  replace(location: string): Promise<unknown>
 }
 
 declare global {

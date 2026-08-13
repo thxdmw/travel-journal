@@ -20,6 +20,7 @@ export const {
   createElementBlock,
   createElementVNode,
   createTextVNode,
+  createVNode,
   defineComponent,
   normalizeClass,
   onMounted,
