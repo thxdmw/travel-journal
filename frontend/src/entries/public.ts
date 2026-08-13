@@ -17,6 +17,7 @@ import TripsPage from '@/public/pages/TripsPage.vue'
 import YearReviewPage from '@/public/pages/YearReviewPage.vue'
 import { createTripDetailPage } from '@/public/factories/trip-detail'
 import { createHomePage } from '@/public/factories/home'
+import { createFootprintMapPage } from '@/public/factories/footprint-map'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
@@ -30,6 +31,7 @@ Object.defineProperty(appRoot, pagesKey, {
     Journals: JournalsPage,
     Trips: TripsPage,
     YearReview: YearReviewPage,
+    createFootprintMapPage,
     createHomePage,
     createTripDetailPage,
   }),

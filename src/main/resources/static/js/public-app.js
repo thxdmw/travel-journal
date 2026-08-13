@@ -25,7 +25,7 @@
   }
 
   const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createHomePage || !publicPages?.createTripDetailPage) {
+  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createTripDetailPage) {
     throw new Error('公开站 SFC 页面注册不完整');
   }
   const JournalCard = publicPages.JournalCard;
@@ -196,6 +196,12 @@
     destroyMap: element => window.TravelMap?.destroy(element)
   });
 
+  const FootprintMap = publicPages.createFootprintMapPage({
+    mapProviderSwitch: MapProviderSwitch,
+    createMap,
+    destroyMap: element => window.TravelMap?.destroy(element)
+  });
+
   // 页面层渐进迁移桥：SFC 由 ESM 入口注册到 #app，不新增 window.* 全局。
   const Trips = publicPages.Trips;
 
@@ -329,36 +335,6 @@
       </main>
       <div v-else-if="previewFailed" class="loading">预览链接无效或已过期。</div>
       <div v-else class="loading">正在展开日记…</div>`
-  };
-
-  const FootprintMap = {
-    components: { MapProviderSwitch },
-    setup() {
-      const mapEl = ref(null),cities=ref([]),country=ref('全部'),year=ref('全部'),trip=ref('全部'),journalOnly=ref(false);
-      let map=null,renderToken=0;
-      const countries=computed(()=>['全部',...new Set(cities.value.map(x=>x.countryName).filter(Boolean))]);
-      const years=computed(()=>['全部',...new Set(cities.value.flatMap(x=>x.visitedYears||[]).map(String))].sort((a,b)=>a==='全部'?-1:Number(b)-Number(a)));
-      const trips=computed(()=>{const values=new Map();cities.value.flatMap(x=>x.trips||[]).forEach(x=>values.set(x.slug,x.title));return[{slug:'全部',title:'全部旅行'},...Array.from(values,( [slug,title] )=>({slug,title}))];});
-      const filtered=computed(()=>cities.value.filter(item=>(country.value==='全部'||item.countryName===country.value)&&(year.value==='全部'||(item.visitedYears||[]).includes(Number(year.value)))&&(trip.value==='全部'||(item.trips||[]).some(x=>x.slug===trip.value))&&(!journalOnly.value||item.publishedJournalCount>0)));
-      async function render(){
-        const token=++renderToken;
-        await nextTick();
-        if(map){map.destroy();map=null;}
-        const instance=await createMap(mapEl.value,filtered.value,{fit:true,maxZoom:7});
-        // 筛选条件在地图加载完成前又变了，这份已经过时，直接丢弃，不要覆盖更新的结果
-        if(token!==renderToken||!mapEl.value?.isConnected){instance?.destroy();return;}
-        map=instance;
-      }
-      watch([country,year,trip,journalOnly],render);
-      onMounted(async()=>{cities.value=await api.cities();await render();});
-      onBeforeUnmount(()=>{map?.destroy();window.TravelMap?.destroy(mapEl.value);});
-      return {mapEl,cities,country,year,trip,journalOnly,countries,years,trips,filtered};
-    },
-    template: `<main class="page"><div class="page-title"><span class="eyebrow">MY FOOTPRINTS</span><h1>足迹地图</h1><p>每一个坐标，都连接着一段已经发生的故事。</p></div>
-      <div class="map-filter-bar"><select v-model="country" aria-label="按国家筛选"><option v-for="item in countries" :key="item" :value="item">{{item==='全部'?'全部国家':item}}</option></select><select v-model="year" aria-label="按年份筛选"><option v-for="item in years" :key="item" :value="item">{{item==='全部'?'全部年份':item+' 年'}}</option></select><select v-model="trip" aria-label="按旅行筛选"><option v-for="item in trips" :key="item.slug" :value="item.slug">{{item.title}}</option></select><label><input v-model="journalOnly" type="checkbox"> 仅看有日记的城市</label><span>{{filtered.length}} 个地点</span></div>
-      <div class="map-panel"><map-provider-switch @change="render"/><div ref="mapEl" class="map-box" style="height:620px"></div></div>
-      <section class="section"><div class="card-grid"><div v-for="city in filtered" :key="city.countryName+city.cityName" class="journal-card"><div class="card-body"><h3>{{city.cityName}} · {{city.countryName}}</h3><p>{{city.tripCount}} 次旅行，{{city.publishedJournalCount}} 篇日记</p><div class="card-meta"><span>{{city.firstVisitedOn || '日期未记录'}}</span></div></div></div></div><div v-if="!filtered.length" class="empty">当前筛选条件下没有足迹。</div></section>
-    </main>`
   };
 
   // ------------------------------------------------------------ 主题设计器：三场景预览

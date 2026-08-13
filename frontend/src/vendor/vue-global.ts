@@ -35,6 +35,8 @@ export const {
   resolveDynamicComponent,
   toDisplayString,
   unref,
+  vModelCheckbox,
+  vModelSelect,
   vModelText,
   watch,
   withCtx,
