@@ -17,7 +17,7 @@ services:
 
 steps:
   - name: verify-frontend
-    image: node:22-bookworm-slim
+    image: mcr.microsoft.com/playwright:v1.49.0-noble
     commands:
       - npm ci --prefix frontend --no-audit --no-fund
       - npm run lint --prefix frontend
