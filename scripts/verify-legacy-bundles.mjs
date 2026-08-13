@@ -104,6 +104,22 @@ await page.route('**/api/**', route =>
   }),
 )
 
+await page.route('**/api/public/trips', route =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      code: 'OK',
+      message: 'success',
+      requestId: 'verify-trips-sfc',
+      data: [
+        { id: 1, title: '京都之旅', slug: 'kyoto', summary: null, status: 'COMPLETED', startDate: '2026-04-01', endDate: '2026-04-05', cities: ['京都'], journalCount: 3, coverUrl: null },
+        { id: 2, title: '冰岛环岛', slug: 'iceland', summary: '追着极光走', status: 'COMPLETED', startDate: '2025-10-01', endDate: '2025-10-08', cities: ['雷克雅未克'], journalCount: 5, coverUrl: null },
+      ],
+    }),
+  }),
+)
+
 await page.goto(base + '/', { waitUntil: 'networkidle' })
 
 /*
@@ -127,6 +143,24 @@ const pwa = await page.evaluate(async () => {
     scriptUrl: registration.active?.scriptURL ?? '',
     cacheExists: (await caches.keys()).includes(cacheName),
     missing,
+  }
+})
+
+// 首个页面 SFC：通过真实客户端路由切换，确认旧 Vue Router 拿到 ESM 注册的组件。
+await page.evaluate(() => { location.hash = '#/trips' })
+await page.waitForSelector('.filter-row .chip')
+await page.locator('.filter-row .chip').filter({ hasText: /^2025$/ }).click()
+await page.waitForFunction(() => {
+  const cards = [...document.querySelectorAll('.journal-card h3')]
+  return cards.length === 1 && cards[0]?.textContent === '冰岛环岛'
+})
+const tripsPage = await page.evaluate(() => {
+  const buttons = [...document.querySelectorAll('.filter-row .chip')]
+  return {
+    title: document.querySelector('.page-title h1')?.textContent,
+    years: buttons.map(button => button.textContent?.trim()),
+    visibleCards: [...document.querySelectorAll('.journal-card h3')].map(item => item.textContent),
+    link: document.querySelector('.journal-card')?.getAttribute('href'),
   }
 })
 
@@ -520,6 +554,8 @@ const checks = [
   ['Vite 产物清单带内容版本', /^[a-f0-9]{12}$/.test(pwa.version) && pwa.assetCount > 0],
   ['PWA 注册 URL 携带本次产物版本', pwa.scriptUrl.includes('build=' + pwa.version)],
   ['Service Worker 预缓存全部 hash 产物', pwa.cacheExists && pwa.missing.length === 0],
+  ['Trips SFC 已挂载到旧公开端路由', tripsPage.title === '旅行' && tripsPage.link === '#/trips/iceland'],
+  ['Trips SFC 在真浏览器按年份筛选', tripsPage.years.includes('2026') && tripsPage.years.includes('2025') && tripsPage.visibleCards.join(',') === '冰岛环岛'],
   ['TravelApi 全局契约已建立', shape.exists],
   ['TravelApi 顶层 key 与旧 api.js 一致', shape.root === EXPECTED.root],
   ['TravelApi public 分组条数一致', shape.public === EXPECTED.public],

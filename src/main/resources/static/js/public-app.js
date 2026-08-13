@@ -255,29 +255,10 @@
       <div v-else class="loading">正在翻开旅行手记…</div>`
   };
 
-  const Trips = {
-    setup() {
-      const items = ref([]);
-      const year = ref('全部');
-      onMounted(async () => items.value = await api.trips());
-      const years = computed(() => ['全部', ...new Set(items.value.map(x => String(x.startDate).slice(0,4)))]);
-      const filtered = computed(() => year.value === '全部' ? items.value : items.value.filter(x => String(x.startDate).startsWith(year.value)));
-      return { items, year, years, filtered };
-    },
-    template: `
-      <main class="page">
-        <div class="page-title"><span class="eyebrow">TRAVEL ARCHIVE</span><h1>旅行</h1><p>按照时间整理走过的城市，每一次出发都留下独一无二的章节。</p></div>
-        <div class="filter-row"><button v-for="item in years" :key="item" class="chip" :class="{active:year===item}" @click="year=item">{{item}}</button></div>
-        <div v-if="filtered.length" class="card-grid">
-          <router-link v-for="trip in filtered" :key="trip.id" class="journal-card" :to="'/trips/'+trip.slug">
-            <img v-if="trip.coverUrl" class="card-photo" :src="trip.coverUrl"><div v-else class="card-photo placeholder">{{trip.cities[0] || '旅行'}}</div>
-            <div class="card-body"><h3>{{trip.title}}</h3><p>{{trip.summary || trip.cities.join(' · ')}}</p>
-              <div class="card-meta"><span>{{trip.startDate}} — {{trip.endDate}}</span><span>{{trip.journalCount}} 篇</span></div></div>
-          </router-link>
-        </div>
-        <div v-else class="empty">还没有公开的旅行。</div>
-      </main>`
-  };
+  // 页面层渐进迁移桥：SFC 由 ESM 入口注册到 #app，不新增 window.* 全局。
+  const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
+  if (!publicPages?.Trips) throw new Error('公开站缺少 Trips SFC 注册');
+  const Trips = publicPages.Trips;
 
   const TripDetail = {
     components: { JournalCard, MapProviderSwitch },

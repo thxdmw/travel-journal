@@ -23,11 +23,14 @@
     }
   }
 
-  window.addEventListener('load', () => {
+  function registerWorker() {
     workerUrl().then(url => navigator.serviceWorker.register(url)).catch(() => {
       // 注册失败不影响正常使用，只是没有离线能力；http 环境下本来就注册不了
     });
-  });
+  }
+  // ESM 入口会按需加载本脚本：既可能在 load 前，也可能在 load 后。
+  if (document.readyState === 'complete') registerWorker();
+  else window.addEventListener('load', registerWorker, { once: true });
 
   /** 断网横幅。挂在 body 上，不参与各页面的布局，也就不会把内容顶下去。 */
   function banner() {

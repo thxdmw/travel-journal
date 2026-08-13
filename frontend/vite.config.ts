@@ -14,6 +14,8 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      // SFC 与旧页面共用 vendor/vue 的同一个运行时，避免页面里出现两份 Vue。
+      { find: /^vue$/, replacement: resolve(root, 'src/vendor/vue-global.ts') },
       // 迁移期继续复用页面先加载的 vendor/axios，不重复打包 Axios。
       { find: /^axios$/, replacement: resolve(root, 'src/vendor/axios-global.ts') },
     ],
