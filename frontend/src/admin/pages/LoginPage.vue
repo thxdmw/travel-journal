@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { authApi } from '@/api/auth'
 import { ensureCsrf } from '@/api/client'
 import { publicApi } from '@/api/public'
-import { useRouter } from '@/vendor/vue-router-global'
+import { useRouter } from 'vue-router'
 import type { AdminInfo } from '@/types/auth'
 import type { ThemeInput } from '@/types/theme'
 

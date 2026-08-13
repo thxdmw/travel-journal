@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { themeApi } from '@/api/theme'
 import { tripApi } from '@/api/trip'
-import { useRouter } from '@/vendor/vue-router-global'
+import { useRouter } from 'vue-router'
 import type { ThemeView } from '@/types/theme'
 import type { Trip, TripRequest, TripStatus } from '@/types/trip'
 

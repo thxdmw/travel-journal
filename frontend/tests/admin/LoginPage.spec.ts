@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/api/auth', () => ({ authApi: { login: mocks.login } }))
 vi.mock('@/api/public', () => ({ publicApi: { profile: mocks.profile } }))
 vi.mock('@/api/client', () => ({ ensureCsrf: mocks.ensureCsrf }))
-vi.mock('@/vendor/vue-router-global', () => ({ useRouter: () => ({ push: vi.fn(), replace: mocks.replace }) }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn(), replace: mocks.replace }) }))
 
 const ElForm = { emits: ['submit'], template: '<form @submit.prevent="$emit(\'submit\')"><slot /></form>' }
 const ElFormItem = { template: '<label><slot /></label>' }

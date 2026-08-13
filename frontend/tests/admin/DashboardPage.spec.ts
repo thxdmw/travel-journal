@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/api/trip', () => ({ tripApi: { list: mocks.trips } }))
 vi.mock('@/api/journal', () => ({ journalApi: { list: mocks.journals } }))
-vi.mock('@/vendor/vue-router-global', () => ({ useRouter: () => ({ push: mocks.push, replace: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push, replace: vi.fn() }) }))
 
 const ElButton = { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' }
 const ElTable = { props: ['data'], template: '<div class="el-table"><slot /></div>' }

@@ -3,6 +3,36 @@ import { create, destroy } from '@/map'
 import { resetRuntimeForTest } from '@/map/provider'
 import type { TravelMapInstance } from '@/types/travel-map'
 
+const leafletState = vi.hoisted(() => ({ created: [] as { destroyed: boolean }[] }))
+
+vi.mock('leaflet', () => {
+  const noop = () => undefined
+  return {
+    default: {
+      map: () => {
+        const record = { destroyed: false }
+        leafletState.created.push(record)
+        const instance = {
+          setView: () => instance,
+          panTo: noop,
+          invalidateSize: noop,
+          getZoom: () => 4,
+          setZoom: noop,
+          fitBounds: noop,
+          removeLayer: noop,
+          remove: () => { record.destroyed = true },
+          on: noop,
+        }
+        return instance
+      },
+      tileLayer: () => ({ addTo: noop }),
+      marker: () => ({ addTo: () => ({}) }),
+      polyline: () => ({ addTo: () => ({}) }),
+      divIcon: () => ({}),
+    },
+  }
+})
+
 /*
  * 容器生命周期。
  *
@@ -14,45 +44,16 @@ import type { TravelMapInstance } from '@/types/travel-map'
  */
 
 /** 每次建图记一笔，用来断言创建与销毁的配对。 */
-const created: { destroyed: boolean }[] = []
+const created = leafletState.created
 
 /** 建图前要等的闸门，测试用它精确控制时序。 */
 let gate: Promise<void> = Promise.resolve()
-
-function fakeLeaflet(): void {
-  const noop = () => undefined
-  vi.stubGlobal('L', {
-    map: () => {
-      const record = { destroyed: false }
-      created.push(record)
-      const instance = {
-        setView: () => instance,
-        panTo: noop,
-        invalidateSize: noop,
-        getZoom: () => 4,
-        setZoom: noop,
-        fitBounds: noop,
-        removeLayer: noop,
-        remove: () => {
-          record.destroyed = true
-        },
-        on: noop,
-      }
-      return instance
-    },
-    tileLayer: () => ({ addTo: noop }),
-    marker: () => ({ addTo: () => ({}) }),
-    polyline: () => ({ addTo: () => ({}) }),
-    divIcon: () => ({}),
-  })
-}
 
 beforeEach(() => {
   created.length = 0
   gate = Promise.resolve()
   localStorage.clear()
   resetRuntimeForTest()
-  fakeLeaflet()
   // 运行时解析到 OSM，避免碰高德 SDK 的动态加载
   vi.stubGlobal(
     'fetch',
@@ -132,10 +133,8 @@ describe('同容器串行', () => {
     const element = container()
     // 让第一次解析失败
     vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('炸了')))
-    vi.stubGlobal('L', undefined)
     await create(element).catch(() => undefined)
 
-    fakeLeaflet()
     const second = await create(element)
     expect(second?.provider).toBe('OSM')
   })
@@ -184,13 +183,11 @@ describe('显式指定 Provider', () => {
   })
 })
 
-describe('Leaflet 未加载', () => {
-  it('明确报错，而不是静默降级', async () => {
-    /*
-     * 不做静默自动降级：页面自己决定怎么提示用户、要不要换一个 provider 重试，
-     * 也不会替用户改掉已保存的手动选择。
-     */
+describe('Leaflet ESM 依赖', () => {
+  it('不依赖 window.L 全局也能建图', async () => {
     vi.stubGlobal('L', undefined)
-    await expect(create(container())).rejects.toThrow('地图组件加载失败')
+    const map = await create(container())
+    expect(map?.provider).toBe('OSM')
+    expect(created).toHaveLength(1)
   })
 })

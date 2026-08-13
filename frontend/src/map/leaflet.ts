@@ -1,3 +1,4 @@
+import L, { type Marker as LeafletMarker, type Polyline as LeafletPolyline } from 'leaflet'
 import { animateRoutePath } from './animate'
 import type {
   FitBoundsOptions,
@@ -15,63 +16,14 @@ import type {
  * OSM 直接用 WGS84，所以这一份没有任何坐标转换——对外契约就是它的原生坐标系。
  */
 
-interface LeafletLatLng {
-  lat: number
-  lng: number
-}
-
-interface LeafletMarker {
-  _icon?: HTMLElement
-  getLatLng(): LeafletLatLng
-  openPopup(): void
-  bindPopup(content: string | HTMLElement): void
-  on(event: string, handler: (event: { target: LeafletMarker }) => void): void
-  addTo(map: LeafletMap): LeafletMarker
-}
-
-interface LeafletPolyline {
-  setLatLngs(points: readonly LatLng[]): void
-  addTo(map: LeafletMap): LeafletPolyline
-}
-
-interface LeafletMap {
-  setView(center: LatLng, zoom: number): LeafletMap
-  panTo(center: LatLng, options: Record<string, unknown>): void
-  invalidateSize(animate: boolean): void
-  getZoom(): number
-  setZoom(zoom: number): void
-  fitBounds(points: readonly LatLng[], options: Record<string, unknown>): void
-  removeLayer(layer: unknown): void
-  remove(): void
-  on(event: string, handler: (event: { latlng: LeafletLatLng }) => void): void
-}
-
-interface LeafletNamespace {
-  map(element: HTMLElement, options: Record<string, unknown>): LeafletMap
-  tileLayer(url: string, options: Record<string, unknown>): { addTo(map: LeafletMap): void }
-  marker(point: LatLng, options: Record<string, unknown>): LeafletMarker
-  polyline(points: readonly LatLng[], options: Record<string, unknown>): LeafletPolyline
-  divIcon(options: Record<string, unknown>): unknown
-}
-
-declare global {
-  interface Window {
-    L?: LeafletNamespace
-  }
-}
-
 const isValid = (point: LatLng): boolean => Number.isFinite(point[0]) && Number.isFinite(point[1])
 
 export function createLeafletTravelMap(
   element: HTMLElement,
   options: TravelMapOptions,
 ): TravelMapInstance {
-  const L = window.L
-  if (!L) throw new Error('地图组件加载失败，请刷新页面重试')
-
   const map = L.map(element, {
     scrollWheelZoom: options.scrollWheelZoom !== false,
-    tap: true,
     zoomControl: true,
   }).setView(options.center ?? [30, 110], options.zoom || 4)
 
@@ -86,7 +38,7 @@ export function createLeafletTravelMap(
   function markerHandle(marker: LeafletMarker): MarkerHandle {
     return {
       setActive(active) {
-        marker._icon?.classList.toggle('is-active', !!active)
+        marker.getElement()?.classList.toggle('is-active', !!active)
       },
       openPopup() {
         marker.openPopup()
@@ -189,7 +141,7 @@ export function createLeafletTravelMap(
         color: opts.color || '#c96f4e',
         weight: opts.width || 4,
         opacity: opts.opacity == null ? 0.82 : opts.opacity,
-        dashArray: opts.dashed ? '8 7' : null,
+        dashArray: opts.dashed ? '8 7' : undefined,
       }).addTo(map)
       polyline = line
       if (opts.animate) animateRoutePath(pts => line.setLatLngs(pts), valid, 1200)

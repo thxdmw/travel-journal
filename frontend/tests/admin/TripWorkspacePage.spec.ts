@@ -12,7 +12,7 @@ vi.mock('@/api/budget', () => ({ budgetApi: { summary: mocks.budget, expenses: m
 vi.mock('@/api/journal', () => ({ journalApi: { list: mocks.journals } }))
 vi.mock('@/api/map', () => ({ mapApi: {} }))
 vi.mock('@/map', () => ({ create: vi.fn() }))
-vi.mock('@/vendor/vue-router-global', () => ({
+vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: '7' }, query: {}, fullPath: '/trips/7', meta: {} }),
   useRouter: () => ({ replace: mocks.replace, push: mocks.push }),
 }))

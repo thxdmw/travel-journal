@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from '@/vendor/vue-router-global'
+import { useRoute } from 'vue-router'
 import type { AdminInfo } from '@/types/auth'
 
 export interface AdminAppShellDeps {

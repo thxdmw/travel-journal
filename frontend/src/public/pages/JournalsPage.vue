@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { publicApi } from '@/api/public'
 import JournalCard from '@/public/components/JournalCard.vue'
-import { useRoute, useRouter, type RouteQueryValue } from '@/vendor/vue-router-global'
+import { useRoute, useRouter, type LocationQueryValue } from 'vue-router'
 import type { PageResponse } from '@/types/common'
 import type { JournalCard as JournalCardView, TagView } from '@/types/journal'
 
@@ -12,7 +12,7 @@ const data = ref<PageResponse<JournalCardView> | null>(null)
 const tags = ref<TagView[]>([])
 const loading = ref(false)
 
-function queryText(value: RouteQueryValue | undefined): string {
+function queryText(value: LocationQueryValue | LocationQueryValue[] | undefined): string {
   return typeof value === 'string' ? value : ''
 }
 

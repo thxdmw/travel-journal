@@ -2,7 +2,7 @@
 import { onMounted, reactive } from 'vue'
 import { journalApi } from '@/api/journal'
 import { tripApi } from '@/api/trip'
-import { useRouter } from '@/vendor/vue-router-global'
+import { useRouter } from 'vue-router'
 import type { JournalEntry, JournalStatus } from '@/types/journal'
 
 const props = defineProps<{ fail(error: unknown): void }>()

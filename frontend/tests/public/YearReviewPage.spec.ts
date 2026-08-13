@@ -15,7 +15,7 @@ vi.mock('@/api/public', () => ({
   publicApi: { years: mocks.years, yearReview: mocks.yearReview },
 }))
 
-vi.mock('@/vendor/vue-router-global', () => ({
+vi.mock('vue-router', () => ({
   useRoute: () => mocks.route,
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
 }))

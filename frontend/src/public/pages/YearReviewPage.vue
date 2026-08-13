@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { publicApi } from '@/api/public'
-import { useRoute, useRouter } from '@/vendor/vue-router-global'
+import { useRoute, useRouter } from 'vue-router'
 import type { YearReview } from '@/types/public'
 
 const route = useRoute()

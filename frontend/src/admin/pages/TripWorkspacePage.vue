@@ -11,7 +11,7 @@ import type { JournalEntry } from '@/types/journal'
 import type { LocationView, MapSearchStatus } from '@/types/map'
 import type { MarkerHandle, TravelMapInstance } from '@/types/travel-map'
 import type { StopRequest, Trip, TripDashboard, TripStatus, TripStop } from '@/types/trip'
-import { useRoute, useRouter } from '@/vendor/vue-router-global'
+import { useRoute, useRouter } from 'vue-router'
 
 export interface TripWorkspacePageDeps {
   message(text: string): void

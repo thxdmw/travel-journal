@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
-import { useRoute } from '@/vendor/vue-router-global'
+import { useRoute } from 'vue-router'
 import { publicApi } from '@/api/public'
 import { wordCount } from '@/journal/document'
 import { render as renderJournal } from '@/journal/render'

@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   params: { slug: 'kyoto-morning', token: 'preview-token' },
 }))
 vi.mock('@/api/public', () => ({ publicApi: { journal: mocks.journal, preview: mocks.preview } }))
-vi.mock('@/vendor/vue-router-global', () => ({ useRoute: () => ({ params: mocks.params, query: {} }) }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: mocks.params, query: {} }) }))
 
 const RouterLink = { props: ['to'], template: '<a :href="String(to)"><slot /></a>' }
 const MapProviderSwitch = { emits: ['change'], template: '<button class="provider-switch" @click="$emit(\'change\')">切换</button>' }

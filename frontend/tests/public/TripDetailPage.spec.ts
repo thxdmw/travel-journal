@@ -14,7 +14,7 @@ vi.mock('@/api/public', () => ({
   publicApi: { trip: mocks.trip },
 }))
 
-vi.mock('@/vendor/vue-router-global', () => ({
+vi.mock('vue-router', () => ({
   useRoute: () => mocks.route,
 }))
 

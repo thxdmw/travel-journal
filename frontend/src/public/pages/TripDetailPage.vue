@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { markRaw, nextTick, onBeforeUnmount, onMounted, ref, type Component } from 'vue'
 import { publicApi } from '@/api/public'
-import { useRoute } from '@/vendor/vue-router-global'
+import { useRoute } from 'vue-router'
 import type { TripDetail, TripStopView } from '@/types/public'
 import type { ThemeView } from '@/types/theme'
 import type { TravelMapInstance } from '@/types/travel-map'

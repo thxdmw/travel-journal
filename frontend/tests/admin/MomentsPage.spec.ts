@@ -18,7 +18,7 @@ vi.mock('@/draft/moments', () => ({
   pendingMoments: mocks.pendingMoments, queueMoment: mocks.queueMoment,
   updatePendingMoment: mocks.updatePendingMoment, dropPendingMoment: mocks.dropPendingMoment,
 }))
-vi.mock('@/vendor/vue-router-global', () => ({
+vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {}, params: {}, fullPath: '/moments', meta: {} }),
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
 }))

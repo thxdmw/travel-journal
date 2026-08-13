@@ -1,6 +1,6 @@
 /* 公开站正式 ESM 入口：页面与运行时全部直接使用 TypeScript 模块。 */
 import { createApp } from 'vue'
-import { createRouter, createWebHashHistory, type PublicRouteRecord } from '@/vendor/vue-router-global'
+import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { destroy as destroyMap, create as createMap } from '@/map'
 import { apply, mapTokens, stored } from '@/theme/theme'
 import MapProviderSwitch from '@/public/components/MapProviderSwitch.vue'
@@ -61,7 +61,7 @@ const ThemePreviewScene = createThemePreviewScene({
   mapTokens,
 })
 
-const routes: PublicRouteRecord[] = isThemePreview
+const routes: RouteRecordRaw[] = isThemePreview
   ? [{ path: '/:pathMatch(.*)*', component: ThemePreviewScene }]
   : [
       { path: '/', component: Home },

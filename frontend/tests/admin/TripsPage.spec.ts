@@ -19,7 +19,7 @@ vi.mock('@/api/trip', () => ({ tripApi: {
   clearCover: mocks.clearCover,
 } }))
 vi.mock('@/api/theme', () => ({ themeApi: { list: mocks.themeList } }))
-vi.mock('@/vendor/vue-router-global', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
 
 const ElButton = {
   props: ['loading'],

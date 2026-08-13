@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminAppShell from '@/admin/AdminAppShell.vue'
 
 const route = reactive({ fullPath: '/', meta: { title: '管理首页' } as Record<string, unknown>, params: {}, query: {} })
-vi.mock('@/vendor/vue-router-global', () => ({ useRoute: () => route }))
+vi.mock('vue-router', () => ({ useRoute: () => route }))
 
 const RouterView = { template: '<div class="route-view">页面内容</div>' }
 const RouterLink = { props: ['to'], template: '<a :href="to"><slot /></a>' }
