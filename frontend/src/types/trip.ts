@@ -5,7 +5,7 @@ import type {
   LocalDateString,
 } from './common'
 
-export const TRIP_STATUSES = ['PLANNING', 'ONGOING', 'COMPLETED'] as const
+export const TRIP_STATUSES = ['PLANNING', 'ONGOING', 'COMPLETED', 'ARCHIVED'] as const
 export type TripStatus = (typeof TRIP_STATUSES)[number]
 
 /** 后台的旅行实体，`/admin/trips` 直接返回 entity。 */

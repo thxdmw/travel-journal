@@ -6,117 +6,17 @@
     shortTime, timeRange, IMAGE_TYPES, TAB_ORDER, renderTemplateSample,
     required, check, slugRule, validateForm, fillForm } = window.AdminShared;
   const adminPages = document.getElementById('admin-app')?.[Symbol.for('travel-journal.admin-pages')];
-  if (!adminPages?.createDashboardPage || !adminPages?.createLoginPage) throw new Error('后台 SFC 页面注册不完整');
+  if (!adminPages?.createDashboardPage || !adminPages.createLoginPage || !adminPages.createTripsPage) throw new Error('后台 SFC 页面注册不完整');
   const Login = adminPages.createLoginPage({
     completeSession: user => { session.user=user;session.checked=true;session.offline=false; },
     rememberSession, applyTheme, fail
   });
   const Dashboard = adminPages.createDashboardPage({ fail });
-
-  const Trips = {
-    setup() {
-      const data = ref([]), themes=ref([]), loading = ref(false), dialog = ref(false), editing = ref(null), keyword = ref('');
-      const formRef = ref(null), saving = ref(false);
-      // 新建旅行时还没有 trip id，封面文件先暂存在这里，等旅行保存出 id 之后再上传
-      const coverInput = ref(null), coverFile = ref(null), coverPreview = ref(''), coverCleared = ref(false);
-      const form = reactive(blankTrip());
-      function blankTrip() { return { title:'',slug:'',summary:'',status:'PLANNING',startDate:'',endDate:'',defaultCurrency:'CNY',coverMediaId:null,internalNote:'',themeKey:null }; }
-      const rules = {
-        title:[required('请填写旅行标题')],
-        slug:[required('请填写 Slug'), slugRule],
-        status:[required('请选择旅行状态','change')],
-        startDate:[required('请选择开始日期','change')],
-        endDate:[required('请选择结束日期','change'),
-          check(value => !value || !form.startDate || value >= form.startDate, '结束日期不能早于开始日期', 'change')],
-        defaultCurrency:[required('请填写币种'),
-          { pattern:/^[A-Za-z]{3}$/, message:'币种为 3 位字母，例如 CNY', trigger:'blur' }]
-      };
-      // 优先显示本次选中但还没上传的图片，其次显示已保存的封面
-      const coverUrl = computed(() => coverPreview.value
-        || (form.coverMediaId ? '/api/media/' + form.coverMediaId + '/thumbnail' : ''));
-
-      async function load() { loading.value=true; try { const result=await Promise.all([A.trips({page:1,pageSize:100,keyword:keyword.value}),A.themes(true)]);data.value=result[0].items;themes.value=result[1]; } catch(e){fail(e);} finally{loading.value=false;} }
-      function releasePreview() { if (coverPreview.value) { URL.revokeObjectURL(coverPreview.value); coverPreview.value=''; } }
-      function resetCover() { releasePreview(); coverFile.value=null; coverCleared.value=false; }
-      function chooseCover() { coverInput.value?.click(); }
-      function coverPicked(event) {
-        const file = event.target.files?.[0]; event.target.value='';
-        if (!file) return;
-        if (!IMAGE_TYPES.includes(file.type)) return ElementPlus.ElMessage.warning('封面只支持 JPEG、PNG 和 WebP');
-        releasePreview();
-        coverFile.value=file; coverCleared.value=false; coverPreview.value=URL.createObjectURL(file);
-      }
-      function removeCover() {
-        releasePreview();
-        coverFile.value=null;
-        coverCleared.value=!!form.coverMediaId;
-        form.coverMediaId=null;
-      }
-      function open(item) {
-        editing.value=item?.id||null;
-        fillForm(form, blankTrip, item);
-        resetCover();
-        dialog.value=true;
-        nextTick(() => formRef.value?.clearValidate());
-      }
-      async function save() {
-        if (!await validateForm(formRef)) return;
-        saving.value=true;
-        try {
-          let tripId = editing.value;
-          // 移除封面要赶在更新之前：更新会把 coverMediaId 写成 null，
-          // 之后服务端就找不到那张旧图，MinIO 里会留下删不掉的孤儿文件
-          if (tripId && coverCleared.value && !coverFile.value) await A.clearTripCover(tripId);
-          if (tripId) await A.updateTrip(tripId, form);
-          else tripId = (await A.createTrip(form)).id;
-          // 封面要有 trip id 才能上传，所以放在旅行保存之后；对用户来说仍然只是点一次「保存」
-          if (coverFile.value) {
-            const payload = new FormData(); payload.append('file', coverFile.value);
-            await A.uploadTripCover(tripId, payload);
-          }
-          dialog.value=false;
-          message('旅行已保存');
-          load();
-        } catch(e){ fail(e); }
-        finally { saving.value=false; }
-      }
-      onMounted(load);
-      onBeforeUnmount(releasePreview);
-      return { data,themes,loading,dialog,editing,keyword,form,formRef,rules,saving,coverInput,coverUrl,coverFile,
-               load,open,save,chooseCover,coverPicked,removeCover,resetCover,tripStatusOptions,statusLabel };
-    },
-    template: `<div><div class="page-head"><div><h2>旅行管理</h2><p>从计划到完成，集中整理每一次出发。</p></div><el-button type="primary" @click="open()">新建旅行</el-button></div>
-      <div class="panel"><div class="toolbar"><el-input v-model="keyword" clearable placeholder="搜索旅行" style="max-width:280px" @keyup.enter="load"/><el-button @click="load">查询</el-button></div>
-      <div class="panel-pad"><div v-loading="loading" class="trip-list"><article v-for="item in data" :key="item.id" class="admin-trip-card" @click="$router.push('/trips/'+item.id)">
-        <img v-if="item.coverMediaId" class="trip-card-cover" :src="'/api/media/'+item.coverMediaId+'/thumbnail'" :alt="item.title">
-        <div v-else class="trip-card-cover trip-card-cover-empty" aria-hidden="true"><span>还没有封面</span></div>
-        <span class="status">{{statusLabel(item.status)}}</span><h3>{{item.title}}</h3><p>{{item.summary||'还没有旅行简介'}}</p><footer><span>{{item.startDate}} — {{item.endDate}}</span><el-button link @click.stop="open(item)">编辑</el-button></footer>
-      </article></div><el-empty v-if="!data.length&&!loading" description="还没有旅行"/></div></div>
-      <el-dialog v-model="dialog" :title="editing?'编辑旅行':'新建旅行'" width="min(680px,92vw)" @closed="resetCover">
-        <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-          <el-form-item label="标题" prop="title"><el-input v-model="form.title" placeholder="例如：京都的四月"/></el-form-item>
-          <el-form-item label="Slug" prop="slug"><el-input v-model="form.slug" placeholder="japan-2026，前台网址会用到"/></el-form-item>
-          <el-form-item label="封面图片">
-            <div class="cover-picker">
-              <div class="cover-preview" :class="{empty:!coverUrl}" @click="chooseCover">
-                <img v-if="coverUrl" :src="coverUrl" alt="旅行封面"><span v-else>点击选择封面</span>
-              </div>
-              <div class="cover-actions">
-                <el-button size="small" @click="chooseCover">{{coverUrl?'更换封面':'选择封面'}}</el-button>
-                <el-button v-if="coverUrl" size="small" type="danger" link @click="removeCover">移除</el-button>
-                <small>JPEG / PNG / WebP，保存旅行时一并上传</small>
-              </div>
-              <input ref="coverInput" hidden type="file" accept="image/jpeg,image/png,image/webp" @change="coverPicked">
-            </div>
-          </el-form-item>
-          <el-form-item label="简介"><el-input v-model="form.summary" type="textarea" :rows="3" maxlength="1000" show-word-limit/></el-form-item>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="开始日期" prop="startDate"><el-date-picker :editable="$allowTextInput" v-model="form.startDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择开始日期"/></el-form-item><el-form-item label="结束日期" prop="endDate"><el-date-picker :editable="$allowTextInput" v-model="form.endDate" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="选择结束日期"/></el-form-item></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><el-form-item label="状态" prop="status"><el-select v-model="form.status"><el-option v-for="x in tripStatusOptions" :key="x.value" :label="x.label" :value="x.value"/></el-select></el-form-item><el-form-item label="币种" prop="defaultCurrency"><el-input v-model="form.defaultCurrency" maxlength="3" placeholder="CNY"/></el-form-item></div>
-          <el-form-item label="旅行专属主题"><el-select v-model="form.themeKey" clearable placeholder="继承全站主题"><el-option v-for="x in themes" :key="x.themeKey" :label="x.name" :value="x.themeKey"/></el-select></el-form-item>
-          <el-form-item label="内部备注"><el-input v-model="form.internalNote" type="textarea" :rows="2" placeholder="只有后台能看到"/></el-form-item>
-        </el-form><template #footer><el-button @click="dialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
-      </el-dialog></div>`
-  };
+  const Trips = adminPages.createTripsPage({
+    message,
+    warning: text => ElementPlus.ElMessage.warning(text),
+    fail
+  });
 
   const TripWorkspace = {
     setup() {
