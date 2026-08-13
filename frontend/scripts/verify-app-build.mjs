@@ -3,8 +3,9 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { extname, join, normalize, resolve } from 'node:path'
 import { chromium } from 'playwright'
+import process from 'node:process'
 
-const root = resolve('src/main/resources/static')
+const root = resolve('../src/main/resources/static')
 const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.svg':'image/svg+xml', '.png':'image/png' }
 const server = createServer(async (request,response) => {
   let path = decodeURIComponent(new URL(request.url,'http://x').pathname)

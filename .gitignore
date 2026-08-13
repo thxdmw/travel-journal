@@ -7,8 +7,11 @@ out/
 
 # 端到端测试（可选的开发依赖，不参与生产构建）
 node_modules/
+frontend/dist/
 test-results/
 playwright-report/
+frontend/test-results/
+frontend/playwright-report/
 .playwright/
 
 # 本地 Maven 缓存
