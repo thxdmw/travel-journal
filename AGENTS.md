@@ -110,7 +110,7 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记媒体增强与灯箱分组 | `frontend/src/media/` | `static/js/dist/journal-media.js` |
 | 今日路线与回放 | `frontend/src/route/` | `static/js/dist/day-route.js` |
 
-公共层与公开端页面层已全部迁完。公开端由 `frontend/src/entries/public.ts` 直接装配 TS/SFC 页面、Vue Router、地图渲染和主题作用域，不再加载 `static/js/public-app.js`，生产清单也不再生成 `public-app-*.js`。Vite 继续以公开站/后台多页 ESM 构建，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。后台「管理首页」已迁到 `frontend/src/admin/`，通过 `#admin-app` 的 Symbol 注册表接入旧路由；其余后台页面与编辑器 IIFE 仍由 `frontend/src/entries/admin.ts` 按原顺序引入：`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步继续逐页迁移后台。
+公共层与公开端页面层已全部迁完。公开端由 `frontend/src/entries/public.ts` 直接装配 TS/SFC 页面、Vue Router、地图渲染和主题作用域，不再加载 `static/js/public-app.js`，生产清单也不再生成 `public-app-*.js`。Vite 继续以公开站/后台多页 ESM 构建，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。后台「登录」「管理首页」已迁到 `frontend/src/admin/`，通过 `#admin-app` 的 Symbol 注册表接入旧路由；其余后台页面与编辑器 IIFE 仍由 `frontend/src/entries/admin.ts` 按原顺序引入：`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步继续逐页迁移后台。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 

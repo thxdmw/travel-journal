@@ -5,40 +5,12 @@
     tripStatusOptions, itineraryTypeOptions, journalStatusLabels, statusLabel, itineraryTypeLabel,
     shortTime, timeRange, IMAGE_TYPES, TAB_ORDER, renderTemplateSample,
     required, check, slugRule, validateForm, fillForm } = window.AdminShared;
-  const Login = {
-    setup() {
-      const router = VueRouter.useRouter();
-      const form = reactive({ username: 'admin', password: '' });
-      const loading = ref(false);
-      async function submit() {
-        loading.value = true;
-        try {
-          session.user = await api.auth.login(form);
-          session.checked = true;
-          session.offline = false;
-          rememberSession(session.user);
-          const profile=await api.public.profile();applyTheme(profile.theme||session.user.themeKey);
-          await api.ensureCsrf();
-          router.replace('/');
-        } catch (error) { fail(error); }
-        finally { loading.value = false; }
-      }
-      return { form, loading, submit };
-    },
-    template: `
-      <div class="admin-login">
-        <section class="login-visual"><h1>远行手记</h1><p>把城市、照片和当时的心情，安静地收进自己的旅行档案。</p></section>
-        <section class="login-panel"><div class="login-card"><div class="brand">远行手记</div><h2>欢迎回来</h2><p>登录后继续整理你的旅途。</p>
-          <el-form @submit.prevent="submit"><el-form-item><el-input v-model="form.username" size="large" placeholder="用户名"/></el-form-item>
-          <el-form-item><el-input v-model="form.password" size="large" type="password" show-password placeholder="密码" @keyup.enter="submit"/></el-form-item>
-          <el-button type="primary" size="large" :loading="loading" @click="submit">登录</el-button></el-form>
-          <div style="margin-top:24px"><a href="/" style="color:var(--tj-accent)">← 返回公开网站</a></div>
-        </div></section>
-      </div>`
-  };
-
   const adminPages = document.getElementById('admin-app')?.[Symbol.for('travel-journal.admin-pages')];
-  if (!adminPages?.createDashboardPage) throw new Error('后台 SFC 页面注册不完整');
+  if (!adminPages?.createDashboardPage || !adminPages?.createLoginPage) throw new Error('后台 SFC 页面注册不完整');
+  const Login = adminPages.createLoginPage({
+    completeSession: user => { session.user=user;session.checked=true;session.offline=false; },
+    rememberSession, applyTheme, fail
+  });
   const Dashboard = adminPages.createDashboardPage({ fail });
 
   const Trips = {
