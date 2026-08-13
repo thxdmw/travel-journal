@@ -26,6 +26,12 @@ export default defineConfig({
         entryFileNames: 'app-assets/[name]-[hash].js',
         chunkFileNames: 'app-assets/[name]-[hash].js',
         assetFileNames: 'app-assets/[name]-[hash][extname]',
+        manualChunks(id) {
+          if (id.includes('/node_modules/element-plus/')) return 'element-plus'
+          if (id.includes('/node_modules/vue/') || id.includes('/node_modules/vue-router/')) return 'vue'
+          if (id.includes('/node_modules/axios/')) return 'axios'
+          if (id.includes('/node_modules/leaflet/')) return 'leaflet'
+        },
       },
     },
   },

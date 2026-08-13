@@ -269,7 +269,7 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 
 ## 前端说明
 
-前端源码位于 `frontend/`，使用 Vite、TypeScript 和 Vue SFC。构建结果发布到 `src/main/resources/static/app-assets/` 并随 Jar 提交和分发，运行应用不依赖 Node.js。
+前端源码位于 `frontend/`，使用 Vite、TypeScript 和 Vue SFC。完整构建结果发布到 `src/main/resources/static/` 并随 Jar 提交和分发，运行应用不依赖 Node.js。
 
 主要入口：
 
@@ -281,19 +281,14 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 - `frontend/src/media/`、`frontend/src/theme/`、`frontend/src/effects/`：媒体、主题与特效运行时
 - `frontend/src/map/`、`frontend/src/route/`：地图适配和当天路线回放
 - `frontend/src/enhancements/`：自定义光标、Service Worker 注册与离线横幅
-- src/main/resources/static/service-worker.js、manifest.json：PWA 入口
-- src/main/resources/static/css/admin-shell.css 等六个后台样式文件（见 docs/journal-editor.md 的分工说明）
-- src/main/resources/static/css/journal-blocks.css：区块公开样式
-- src/main/resources/static/css/journal-media.css：后台与公开端共用的图片版式
-- src/main/resources/static/css/theme-tokens.css：主题 Token 的基础视觉实现
-- src/main/resources/static/css/theme-pack.css：装饰、贴纸、分隔线、氛围与 Block 皮肤
-- src/main/resources/static/css/themes/travel-classic.css：默认主题变量
-- src/main/resources/static/assets/themes/stickers/：主题贴纸 SVG
-- src/main/resources/static/vendor/：Vue、Vue Router、Element Plus、Axios、Leaflet
+- `frontend/public/service-worker.js`、`frontend/public/manifest.json`：PWA 源文件
+- `frontend/src/styles/`：公开端、后台、编辑器、主题和媒体样式
+- `frontend/public/assets/themes/stickers/`：主题贴纸 SVG
+- `frontend/public/img/`：需要稳定 URL 的站点图片与 PWA 图标
 
-公开端和后台是同一套 Vite 多页构建，直接使用 ESM 模块，不建立业务 `window.*` 全局。CSS 仍按 HTML 中的顺序层叠，入口模板里的样式顺序不要随意调换。
+公开端和后台是同一套 Vite 多页构建，直接使用 ESM 模块，不建立业务 `window.*` 全局。CSS 由三个入口按既定顺序导入，样式顺序不要随意调换。
 
-前端依赖全部放在 `static/vendor/` 下随 Jar 发布，不再引用 CDN。除了离线可用之外，这也让 Service Worker 能把它们缓存进应用外壳。主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
+前端依赖由 `frontend/package-lock.json` 锁定并进入 Vite 模块图，不引用 CDN。构建后的 hash 资源由 Service Worker 缓存进应用外壳；主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
 
 ## Maven 构建
 

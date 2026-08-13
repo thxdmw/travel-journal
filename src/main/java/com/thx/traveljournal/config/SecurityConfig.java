@@ -72,7 +72,7 @@ public class SecurityConfig {
                     .contentSecurityPolicy(csp -> csp.policyDirectives("frame-ancestors 'self'")))
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/", "/index.html", "/admin", "/admin/", "/admin/index.html",
-                            "/css/**", "/js/**", "/img/**", "/vendor/**", "/assets/**",
+                            "/app-assets/**", "/img/**", "/assets/**", "/theme-card-preview.html",
                             // PWA：清单和 Service Worker 都必须匿名可取，装到桌面之后
                             // 是先加载它们、再谈登录状态的
                             "/manifest.json", "/service-worker.js",

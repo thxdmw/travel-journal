@@ -102,7 +102,7 @@ public class ThemePresetService {
      * 主题可调项全表，也是整套主题系统的唯一真相来源。
      *
      * <p>新增一个可调项只需要在这里加一行，后端校验、默认值、前端控件列表和 CSS 变量名
-     * 都会跟着走；对应的视觉表现写在 static/css/theme-tokens.css。</p>
+     * 都会跟着走；对应的视觉表现写在 frontend/src/styles/theme-tokens.css。</p>
      */
     private static final List<Token> SCHEMA = List.of(
             // —— 配色。留空表示沿用基础主题，所以没有默认值 ——
@@ -225,7 +225,7 @@ public class ThemePresetService {
              *
              * 只收枚举，绝不收 JavaScript 或 onclick 之类的字符串——主题配置是可以
              * 导入导出的 JSON，一旦允许里面出现代码，导入一份别人的主题就等于执行别人的脚本。
-             * 每个值对应前端预先写好的一个行为，见 static/css/theme-pack.css 和 theme-effects.js。
+             * 每个值对应前端预先写好的一个行为，见 frontend/src/styles/theme-pack.css 和 frontend/src/effects/。
              */
             Token.option("interactions", "stickerClick", "none", "none", "pop", "wiggle", "drift", "heart-pop"),
             Token.option("interactions", "imageHover", "none", "none", "tilt", "zoom", "lift", "stamp"),
