@@ -18,6 +18,8 @@ import { apply, stored } from '@/theme/theme'
 import type { AdminInfo } from '@/types/auth'
 import { installCustomCursor } from '@/enhancements/custom-cursor'
 import { installPwa } from '@/enhancements/pwa'
+import { install as installThemeEffects } from '@/effects/runtime'
+import { current } from '@/theme/theme'
 
 interface ElementPlusRuntime {
   ElMessage: { success(text:string):void; warning(text:string):void; error(text:string):void; info(text:string):void }
@@ -52,6 +54,7 @@ async function loadSession(){
 }
 function updateUser(user:AdminInfo){session.user=user}
 apply(stored())
+installThemeEffects({currentDefinition:()=>current()?.definitionJson})
 
 const pages={
   Login:createLoginPage({completeSession:user=>{session.user=user;session.checked=true;session.offline=false},rememberSession,applyTheme:apply,fail}),

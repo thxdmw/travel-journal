@@ -18,6 +18,8 @@ import { createPublicMap } from '@/public/map-renderer'
 import type { ThemeInput } from '@/types/theme'
 import { installCustomCursor } from '@/enhancements/custom-cursor'
 import { installPwa } from '@/enhancements/pwa'
+import { install as installThemeEffects } from '@/effects/runtime'
+import { current } from '@/theme/theme'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
@@ -42,6 +44,7 @@ function clearScopedTheme() {
 }
 
 apply(siteTheme)
+installThemeEffects({ currentDefinition: () => current()?.definitionJson })
 
 const sharedMapDeps = {
   mapProviderSwitch: MapProviderSwitch,

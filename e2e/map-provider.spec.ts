@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 
 /*
  * 地图 Provider 解析优先级：用户手动选择 > AUTO 按访客网络地区判定的结果。
- * 通过拦截 /api/public/runtime 模拟不同地区，配合 localStorage 验证
- * window.TravelMap.resolveProvider() 的行为——不需要真的加载高德或 OSM 瓦片。
+ * 通过拦截 /api/public/runtime 模拟不同地区，并从公开页面的 Provider 选择器
+ * 验证实际解析结果。底层并发建图与销毁由 frontend 单元测试覆盖。
  */
 test.describe('地图 Provider 解析', () => {
   test.beforeEach(async ({ page }) => {
@@ -16,10 +16,7 @@ test.describe('地图 Provider 解析', () => {
       json: { code: 'OK', message: 'success', data: { region: 'CN', mapProvider: 'AMAP', amapJsKey: 'test-key' } }
     }));
     await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('travel-map-provider'));
-    const resolved = await page.evaluate(() => (window as any).TravelMap.resolveProvider());
-    expect(resolved.provider).toBe('AMAP');
-    expect(resolved.source).toBe('auto');
+    await expect(page.locator('.map-provider-switch').first().locator('button').first()).toContainText('高德');
   });
 
   test('AUTO 判定为高德但部署未配置 JS Key 时使用 OSM', async ({ page }) => {
@@ -27,12 +24,7 @@ test.describe('地图 Provider 解析', () => {
       json: { code: 'OK', message: 'success', data: { region: 'CN', mapProvider: 'AMAP', amapJsKey: '' } }
     }));
     await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('travel-map-provider'));
-
-    const resolved = await page.evaluate(() => (window as any).TravelMap.resolveProvider());
-
-    expect(resolved.provider).toBe('OSM');
-    expect(resolved.source).toBe('auto');
+    await expect(page.locator('.map-provider-switch').first().locator('button').first()).toContainText('OSM');
   });
 
   test('AUTO + 访客在海外（非 CN）→ 解析为 OSM', async ({ page }) => {
@@ -40,34 +32,25 @@ test.describe('地图 Provider 解析', () => {
       json: { code: 'OK', message: 'success', data: { region: 'JP', mapProvider: 'OSM', amapJsKey: '' } }
     }));
     await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('travel-map-provider'));
-    const resolved = await page.evaluate(() => (window as any).TravelMap.resolveProvider());
-    expect(resolved.provider).toBe('OSM');
-    expect(resolved.source).toBe('auto');
+    await expect(page.locator('.map-provider-switch').first().locator('button').first()).toContainText('OSM');
   });
 
   test('@smoke 手动选择 OSM 时，即使 AUTO 判定是 AMAP 也保持 OSM', async ({ page }) => {
     await page.route('**/api/public/runtime', route => route.fulfill({
       json: { code: 'OK', message: 'success', data: { region: 'CN', mapProvider: 'AMAP', amapJsKey: 'test-key' } }
     }));
+    await page.addInitScript(() => localStorage.setItem('travel-map-provider', 'OSM'));
     await page.goto('/');
-    await page.evaluate(() => (window as any).TravelMap.setManualProvider('OSM'));
-    const resolved = await page.evaluate(() => (window as any).TravelMap.resolveProvider());
-    expect(resolved.provider).toBe('OSM');
-    expect(resolved.source).toBe('manual');
-    await page.evaluate(() => (window as any).TravelMap.setManualProvider(null));
+    await expect(page.locator('.map-provider-switch').first().locator('button').nth(2)).toHaveClass(/active/);
   });
 
   test('手动选择 AMAP 时，即使 AUTO 判定是 OSM 也保持 AMAP', async ({ page }) => {
     await page.route('**/api/public/runtime', route => route.fulfill({
       json: { code: 'OK', message: 'success', data: { region: 'JP', mapProvider: 'OSM', amapJsKey: '' } }
     }));
+    await page.addInitScript(() => localStorage.setItem('travel-map-provider', 'AMAP'));
     await page.goto('/');
-    await page.evaluate(() => (window as any).TravelMap.setManualProvider('AMAP'));
-    const resolved = await page.evaluate(() => (window as any).TravelMap.resolveProvider());
-    expect(resolved.provider).toBe('AMAP');
-    expect(resolved.source).toBe('manual');
-    await page.evaluate(() => (window as any).TravelMap.setManualProvider(null));
+    await expect(page.locator('.map-provider-switch').first().locator('button').nth(1)).toHaveClass(/active/);
   });
 
   test('地图 Provider 手动选择开关在首页可见并可切换', async ({ page }) => {
@@ -106,62 +89,4 @@ test.describe('地图 Provider 解析', () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem('travel-map-provider'))).toBeNull();
   });
 
-  test('同一容器快速连续建图会串行替换，不触发 Leaflet 重复初始化', async ({ page }) => {
-    await page.route('**/api/public/runtime', route => route.fulfill({
-      json: { code: 'OK', message: 'success', data: {
-        region: 'JP', mapProvider: 'OSM', amapJsKey: '',
-        osmTileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        osmAttribution: '© OpenStreetMap contributors',
-      } }
-    }));
-    await page.route('https://tile.openstreetmap.org/**', route => route.abort());
-    await page.goto('/');
-
-    const result = await page.evaluate(async () => {
-      const host = document.createElement('div');
-      host.style.cssText = 'width:320px;height:240px';
-      document.body.appendChild(host);
-      const api = (window as any).TravelMap;
-      const [first, second] = await Promise.all([
-        api.create(host, { provider: 'OSM', center: [30, 104], zoom: 6 }),
-        api.create(host, { provider: 'OSM', center: [31, 103], zoom: 7 }),
-      ]);
-      const containers = host.querySelectorAll('.leaflet-pane').length;
-      first.destroy(); // 已被第二次 create 自动销毁；重复 destroy 必须安全。
-      second.destroy();
-      host.remove();
-      return { containers };
-    });
-
-    expect(result.containers).toBeGreaterThan(0);
-  });
-
-  test('可以按容器销毁临时重试创建的地图', async ({ page }) => {
-    await page.route('**/api/public/runtime', route => route.fulfill({
-      json: { code: 'OK', message: 'success', data: {
-        region: 'JP', mapProvider: 'OSM', amapJsKey: '',
-        osmTileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        osmAttribution: '© OpenStreetMap contributors',
-      } }
-    }));
-    await page.route('https://tile.openstreetmap.org/**', route => route.abort());
-    await page.goto('/');
-
-    const result = await page.evaluate(async () => {
-      const host = document.createElement('div');
-      host.style.cssText = 'width:320px;height:240px';
-      document.body.appendChild(host);
-      const api = (window as any).TravelMap;
-      const map = await api.create(host, { provider: 'OSM', center: [30, 104], zoom: 6 });
-      const before = host.querySelectorAll('.leaflet-pane').length;
-      api.destroy(host);
-      const after = host.querySelectorAll('.leaflet-pane').length;
-      map.destroy(); // 显式实例销毁和容器兜底销毁都必须幂等。
-      host.remove();
-      return { before, after };
-    });
-
-    expect(result.before).toBeGreaterThan(0);
-    expect(result.after).toBe(0);
-  });
 });
