@@ -67,6 +67,11 @@ const channel = process.env.E2E_BROWSER_CHANNEL
 const browser = await chromium.launch(channel ? { channel } : {})
 const page = await browser.newPage()
 
+// 真 Leaflet 会请求 OSM 瓦片；冒烟验证只关心地图适配层，不应依赖外网。
+await page.route('https://**/*', route =>
+  route.fulfill({ status: 204, contentType: 'image/png', body: '' }),
+)
+
 const consoleErrors = []
 page.on('console', message => {
   if (message.type() === 'error') consoleErrors.push(message.text())
@@ -100,6 +105,30 @@ await page.route('**/api/**', route =>
 )
 
 await page.goto(base + '/', { waitUntil: 'networkidle' })
+
+/*
+ * 多页构建与 PWA 升级链路。页面从 app-manifest.json 取产物版本注册 SW，
+ * SW 再把这份清单中的所有 hash 产物预缓存；这里用真正的 Cache Storage
+ * 验证整条链路，不只是检查文件存在。
+ */
+const pwa = await page.evaluate(async () => {
+  const manifest = await fetch('/app-manifest.json', { cache: 'no-store' }).then(response => response.json())
+  const registration = await navigator.serviceWorker.ready
+  await new Promise(done => setTimeout(done, 100))
+  const cacheName = 'tj-shell-' + manifest.version
+  const cache = await caches.open(cacheName)
+  const missing = []
+  for (const asset of manifest.assets) {
+    if (!(await cache.match(asset))) missing.push(asset)
+  }
+  return {
+    version: manifest.version,
+    assetCount: manifest.assets.length,
+    scriptUrl: registration.active?.scriptURL ?? '',
+    cacheExists: (await caches.keys()).includes(cacheName),
+    missing,
+  }
+})
 
 const shape = await page.evaluate(() => ({
   exists: typeof window.TravelApi === 'object' && window.TravelApi !== null,
@@ -488,6 +517,9 @@ await browser.close()
 server.close()
 
 const checks = [
+  ['Vite 产物清单带内容版本', /^[a-f0-9]{12}$/.test(pwa.version) && pwa.assetCount > 0],
+  ['PWA 注册 URL 携带本次产物版本', pwa.scriptUrl.includes('build=' + pwa.version)],
+  ['Service Worker 预缓存全部 hash 产物', pwa.cacheExists && pwa.missing.length === 0],
   ['TravelApi 全局契约已建立', shape.exists],
   ['TravelApi 顶层 key 与旧 api.js 一致', shape.root === EXPECTED.root],
   ['TravelApi public 分组条数一致', shape.public === EXPECTED.public],

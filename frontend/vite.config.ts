@@ -1,18 +1,39 @@
 import { fileURLToPath, URL } from 'node:url'
+import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 /*
- * 迁移期的开发配置。
- *
- * 生产产物目前不由这里直出：迁移阶段的产物是「保持 window 全局契约的 IIFE」，
- * 由 scripts/build-legacy-bundles.mjs 逐个入口构建后回填 static/js/dist/。
- * 等页面本身也迁到 SFC，再把这里切成正式的多页入口。
+ * 页面层迁移的正式多页构建。公开站和管理后台各有一个 HTML/ESM 入口，
+ * 目前入口仍按旧顺序引入页面 IIFE；后续可以在同一构建链路内逐页换成 SFC。
  */
+const root = fileURLToPath(new URL('.', import.meta.url))
+
 export default defineConfig({
   plugins: [vue()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      // 迁移期继续复用页面先加载的 vendor/axios，不重复打包 Axios。
+      { find: /^axios$/, replacement: resolve(root, 'src/vendor/axios-global.ts') },
+    ],
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    target: 'es2020',
+    manifest: true,
+    rollupOptions: {
+      input: {
+        public: resolve(root, 'index.html'),
+        admin: resolve(root, 'admin/index.html'),
+      },
+      output: {
+        entryFileNames: 'app-assets/[name]-[hash].js',
+        chunkFileNames: 'app-assets/[name]-[hash].js',
+        assetFileNames: 'app-assets/[name]-[hash][extname]',
+      },
+    },
   },
   server: {
     port: 5173,

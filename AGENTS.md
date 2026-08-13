@@ -30,8 +30,8 @@
 | 后端模块 | `src/main/java/com/thx/traveljournal/<领域>/` |
 | 配置 | `config/AppProperties.java`、`src/main/resources/application.yml`、`.env.example` |
 | 数据库迁移 | `src/main/resources/db/migration/` |
-| 公开站点 | `static/js/public-app.js`、`static/css/public.css`、`static/index.html` |
-| 后台入口 | `static/js/admin-app.js`、`static/js/admin/`、`static/css/admin-workspace.css` |
+| 公开站点 | `frontend/index.html`、`frontend/src/entries/public.ts`、`static/js/public-app.js`、`static/css/public.css` |
+| 后台入口 | `frontend/admin/index.html`、`frontend/src/entries/admin.ts`、`static/js/admin-app.js`、`static/js/admin/` |
 | API 客户端 | `frontend/src/api/`（TS，已迁移）；拦截器会解开 `ApiResponse.data` |
 | API 类型 | `frontend/src/types/`，与后端 record / entity 对应 |
 | 旧脚本兼容层 | `frontend/src/legacy/travel-api-global.ts`，重建 `window.TravelApi` |
@@ -91,7 +91,7 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 - 修改被 HTML 引用的 JS/CSS 后，同步提高对应 `?v=`：公开端看 `static/index.html`，后台看 `static/admin/index.html`。
 - 同步更新 `static/service-worker.js` 的同一资源地址，并提高其中的 `VERSION`，避免 PWA 继续使用旧缓存。
 - 运行中的 Spring Boot 通常从 `target/classes/static` 提供资源。源码改完但页面仍旧时，先执行 `mvn process-resources`，不要误判为代码没有生效。
-- `static/js/dist/` 是 `frontend/` 的构建产物，不要手改。改了 `frontend/src` 必须 `npm run build`（在 `frontend/` 下），产物和源码要一起提交。
+- `static/app-assets/`、`static/app-manifest.json` 和两份运行 HTML 由 `frontend/` 构建生成，不要手改。改了 `frontend/src` 或页面入口必须 `npm run build`（在 `frontend/` 下），产物和源码要一起提交。`static/js/dist/` 是上一阶段的回滚产物，新页面不再引用。
 
 ## 前端迁移状态
 
@@ -110,18 +110,19 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记媒体增强与灯箱分组 | `frontend/src/media/` | `static/js/dist/journal-media.js` |
 | 今日路线与回放 | `frontend/src/route/` | `static/js/dist/day-route.js` |
 
-公共层已全部迁完。`static/js` 下剩余的都是页面与编辑器：`public-app.js`、`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。
+公共层已全部迁完。Vite 已切换为公开站/后台多页 ESM 构建，产物以 hash 命名并由 `app-manifest.json` 接入 Service Worker 缓存升级。`static/js` 下剩余的页面与编辑器 IIFE 已由 `frontend/src/entries/` 按原顺序引入：`public-app.js`、`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步是在这两个入口内逐页替换为 SFC。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 
-两条迁移期的坑，新增产物时注意：
+两条上一阶段 IIFE 回滚产物的坑，调试旧产物时注意：
 
 - **产物之间不共享模块实例。** 每个 IIFE 各自打包一份依赖，A 产物里 `import` 来的模块状态和 B 产物里的是两个对象。跨产物读状态必须走 `window.*`，或者由入口注入——`src/effects/runtime.ts` 的 `currentDefinition` 就是后者。单元测试发现不了这类问题，因为测试里它们本来就是同一实例。
 - **`frontend/src/draft/schema.ts` 里的每个字符串都对应用户机器上已有的数据。** 库名、store 名、keyPath、索引名、版本号、localStorage 的键，改一个字符就是一次没有提示的数据丢失。真要改结构必须写 `onupgradeneeded` 的迁移分支并验证旧数据读得出来。
 
-迁移期的机制：
+页面层迁移机制：
 
-- 产物由 `frontend/scripts/build-legacy-bundles.mjs` 构建成保持全局契约的 IIFE，旧脚本只换一行 `<script src>`。
+- `frontend/vite.config.ts` 以公开站和后台两份 HTML 为多页入口；`frontend/scripts/publish-app.mjs` 将 hash 产物、HTML 和清单回填 `static/`。
+- `frontend/scripts/build-legacy-bundles.mjs` 仅由 `npm run build:legacy` 保留为回滚工具，正常页面构建不再调用。
 - `frontend/src/legacy/travel-api-global.ts` 负责重建 `window.TravelApi`，每迁走一个旧脚本就删掉对应分支。
 - 产物提交进 git，所以 Maven / Docker / Drone 无需改动。收尾阶段再把构建接进 CI。
 - `axios`、`vue` 等仍由 `static/vendor/` 的全局版提供，构建时按 external 处理，不重复打包。

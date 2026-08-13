@@ -10,8 +10,21 @@
   if (!('serviceWorker' in navigator)) return;
   const DISMISSED_KEY = 'travel-journal.offline-banner-dismissed';
 
+  async function workerUrl() {
+    try {
+      const response = await fetch('/app-manifest.json', { cache: 'no-store' });
+      if (!response.ok) return '/service-worker.js';
+      const manifest = await response.json();
+      return manifest.version
+        ? '/service-worker.js?build=' + encodeURIComponent(manifest.version)
+        : '/service-worker.js';
+    } catch (_) {
+      return '/service-worker.js';
+    }
+  }
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js').catch(() => {
+    workerUrl().then(url => navigator.serviceWorker.register(url)).catch(() => {
       // 注册失败不影响正常使用，只是没有离线能力；http 环境下本来就注册不了
     });
   });

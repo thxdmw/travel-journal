@@ -19,7 +19,8 @@
  * 草稿的离线能力不在这里，而在 IndexedDB（frontend/src/draft/）：
  * Service Worker 负责「打得开」，IndexedDB 负责「写得下、不丢」。
  */
-const VERSION = 'v23';
+// 页面会用 Vite 产物版本注册 `?build=` URL，每次产物变化都会触发 SW 升级。
+const VERSION = new URL(self.location.href).searchParams.get('build') || 'v24';
 const SHELL_CACHE = 'tj-shell-' + VERSION;
 const MEDIA_CACHE = 'tj-media-' + VERSION;
 /*
@@ -35,6 +36,7 @@ const SHELL_ASSETS = [
   '/admin/index.html',
   '/theme-card-preview.html',
   '/manifest.json',
+  '/app-manifest.json',
   '/vendor/vue/vue.global.prod.js',
   '/vendor/vue/vue-router.global.prod.js',
   '/vendor/axios/axios.min.js',
@@ -61,24 +63,6 @@ const SHELL_ASSETS = [
   '/css/journal-blocks.css?v=4',
   '/css/moments.css?v=3',
   '/css/custom-cursor.css?v=6',
-  '/js/dist/travel-theme.js?v=1',
-  '/js/dist/theme-effects.js?v=1',
-  '/js/dist/travel-api.js?v=1',
-  '/js/dist/travel-map.js?v=1',
-  '/js/dist/local-draft.js?v=1',
-  '/js/dist/journal-media.js?v=1',
-  '/js/dist/journal-blocks.js?v=1',
-  '/js/dist/day-route.js?v=1',
-  '/js/common/journal-block-editor.js?v=11',
-  '/js/admin/shared.js?v=2',
-  '/js/admin/trip-workspace.js?v=6',
-  '/js/admin/journal-editor.js?v=4',
-  '/js/admin/moments.js?v=5',
-  '/js/admin/studio.js?v=8',
-  '/js/admin-app.js?v=28',
-  '/js/public-app.js?v=27',
-  '/js/common/custom-cursor.js?v=6',
-  '/js/common/pwa.js?v=2',
   '/img/home-hero-kyoto.png',
   '/img/app-icon.svg',
   '/assets/themes/stickers/classic-compass.svg',
@@ -105,13 +89,33 @@ const SHELL_ASSETS = [
   '/assets/themes/stickers/retro-postmark.svg',
   '/assets/themes/stickers/retro-stamp.svg'
 ];
+
+/**
+ * Vite 产物带内容 hash，不再把文件名写死在 Service Worker 里。
+ * app-manifest.json 由 frontend/scripts/publish-app.mjs 与 HTML 同步生成；
+ * 读取失败时仍能安装基础 shell，不让一个清单拖垮整次 PWA 升级。
+ */
+async function shellAssets() {
+  try {
+    const response = await fetch('/app-manifest.json', { cache: 'no-store' });
+    if (!response.ok) return SHELL_ASSETS;
+    const manifest = await response.json();
+    const generated = Array.isArray(manifest.assets) ? manifest.assets : [];
+    return [...new Set([...SHELL_ASSETS, ...generated])];
+  } catch (_) {
+    return SHELL_ASSETS;
+  }
+}
 /** 图片缓存的条数上限。一次长途旅行可能有几百张，不封顶会把手机存储吃掉。 */
 const MEDIA_LIMIT = 300;
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(SHELL_CACHE)
-    // 单个资源抓不到不该让整次安装失败，那样会一直装不上
-    .then(cache => Promise.allSettled(SHELL_ASSETS.map(url => cache.add(url))))
+    .then(async cache => {
+      const assets = await shellAssets();
+      // 单个资源抓不到不该让整次安装失败，那样会一直装不上
+      await Promise.allSettled(assets.map(url => cache.add(url)));
+    })
     .then(() => self.skipWaiting()));
 });
 
@@ -179,6 +183,10 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // 构建清单决定下一个 SW 的注册 URL，必须每次直连网络。
+  // 如果让旧 SW 用 stale-while-revalidate 回旧清单，页面会永远注册旧版本。
+  if (url.pathname === '/app-manifest.json' || url.pathname === '/service-worker.js') return;
 
   // 图片内容不会变（换图会换 id），拿到就一直有效
   if (url.pathname.startsWith('/api/media/')) {

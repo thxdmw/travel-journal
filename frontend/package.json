@@ -2,10 +2,11 @@
   "name": "travel-journal-frontend",
   "private": true,
   "type": "module",
-  "description": "远行手记前端工程。渐进式迁移中：产物先以兼容全局契约的形式回填 static/js/dist/，旧页面无感知。",
+  "description": "远行手记前端工程。Vite 负责公开站和管理后台的多页构建，页面层正在渐进迁移到 SFC。",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-legacy-bundles.mjs",
+    "build": "vite build && node scripts/publish-app.mjs",
+    "build:legacy": "node scripts/build-legacy-bundles.mjs",
     "typecheck": "vue-tsc --noEmit",
     "test:unit": "vitest run",
     "test:watch": "vitest",
