@@ -14,6 +14,7 @@ if (!window.Vue) throw new Error('页面缺少 vendor/vue，无法初始化 Vue 
 
 export const {
   Fragment,
+  Teleport,
   computed,
   createBlock,
   createCommentVNode,
@@ -25,6 +26,7 @@ export const {
   h,
   markRaw,
   normalizeClass,
+  normalizeStyle,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -42,4 +44,5 @@ export const {
   withCtx,
   withDirectives,
   withKeys,
+  withModifiers,
 } = window.Vue
