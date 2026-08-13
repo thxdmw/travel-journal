@@ -2,7 +2,7 @@
   "name": "travel-journal-frontend",
   "private": true,
   "type": "module",
-  "description": "远行手记前端工程。Vite 负责公开站和管理后台的多页构建，页面层正在渐进迁移到 SFC。",
+  "description": "远行手记前端工程。Vite 负责公开站和管理后台的 TypeScript SFC 多页构建。",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/publish-app.mjs",

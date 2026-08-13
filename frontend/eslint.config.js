@@ -4,8 +4,7 @@ import pluginVue from 'eslint-plugin-vue'
 import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
-  // 夹具是迁移前实现的历史快照，按原样保留才有对拍价值，不参与 lint
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'tests/fixtures/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
@@ -17,7 +16,7 @@ export default tseslint.config(
   },
   {
     rules: {
-      // 迁移期的硬约束：any 与 ts-ignore 一律报错，避免用它们换迁移速度
+      // 类型安全硬约束：any 与 ts-ignore 一律报错
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/ban-ts-comment': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],

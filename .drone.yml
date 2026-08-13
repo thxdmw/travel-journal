@@ -27,8 +27,13 @@ steps:
       - mvn package -B -ntp
 
   - name: verify-frontend
-    image: node:22-alpine
+    image: node:22-bookworm-slim
     commands:
+      - npm ci --prefix frontend --no-audit --no-fund
+      - npm run lint --prefix frontend
+      - npm run typecheck --prefix frontend
+      - npm run test:unit --prefix frontend
+      - npm run build --prefix frontend
       - npm run check:js
 
   - name: verify-mobile-smoke

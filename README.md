@@ -1,6 +1,6 @@
 # Travel Journal（远行手记）
 
-一个会随四季变化、帮你随手记录并重新回到旅途现场的个人旅行日记。项目采用单体 Spring Boot 工程，Vue 3 浏览器全局版页面随 Jar 一起发布，不需要 Node.js 或独立前端构建。
+一个会随四季变化、帮你随手记录并重新回到旅途现场的个人旅行日记。项目采用单体 Spring Boot 工程，Vue 3 + TypeScript 页面经 Vite 构建后随 Jar 一起发布；运行时不需要 Node.js。
 
 ## 功能
 
@@ -258,23 +258,18 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 
 ## 前端说明
 
-前端文件位于 src/main/resources/static，不需要 npm 打包；根目录 package.json 只提供 JavaScript 语法检查和 Playwright 端到端测试命令，运行应用不依赖 Node.js。
+前端源码位于 `frontend/`，使用 Vite、TypeScript 和 Vue SFC。构建结果发布到 `src/main/resources/static/app-assets/` 并随 Jar 提交和分发，运行应用不依赖 Node.js。
 
 主要入口：
 
-- src/main/resources/static/index.html：公开端
-- src/main/resources/static/admin/index.html：管理端
-- src/main/resources/static/js/public-app.js：公开页面
-- src/main/resources/static/js/admin-app.js：管理后台的路由与挂载
-- src/main/resources/static/js/admin/：后台各页面（shared、trip-workspace、journal-editor、moments、studio）
-- src/main/resources/static/js/common/journal-blocks.js：区块协议、默认值和统一渲染器
-- src/main/resources/static/js/common/journal-block-editor.js：区块编辑组件，含正文的 inline 编辑
-- src/main/resources/static/js/common/local-draft.js：草稿与待上传照片的本机 IndexedDB 仓库
-- src/main/resources/static/js/common/journal-media.js：轮播、胶片条、对比和图片灯箱行为
-- src/main/resources/static/js/common/theme.js：把主题 Token 铺成 CSS 变量和 `data-*` 属性
-- src/main/resources/static/js/common/theme-effects.js：粒子、滚动揭示和贴纸的运行时
-- src/main/resources/static/js/common/day-route.js：当天路线的地图打点、连线与回放
-- src/main/resources/static/js/common/pwa.js：Service Worker 注册与离线横幅
+- `frontend/src/entries/public.ts`：公开端入口与路由
+- `frontend/src/entries/admin.ts`：管理端入口、会话守卫与路由
+- `frontend/src/public/`、`frontend/src/admin/`：公开页与后台 SFC
+- `frontend/src/journal/`：区块协议、默认值和统一渲染器
+- `frontend/src/draft/`：草稿、待上传照片和随手记离线队列
+- `frontend/src/media/`、`frontend/src/theme/`、`frontend/src/effects/`：媒体、主题与特效运行时
+- `frontend/src/map/`、`frontend/src/route/`：地图适配和当天路线回放
+- `frontend/src/enhancements/`：自定义光标、Service Worker 注册与离线横幅
 - src/main/resources/static/service-worker.js、manifest.json：PWA 入口
 - src/main/resources/static/css/admin-shell.css 等六个后台样式文件（见 docs/journal-editor.md 的分工说明）
 - src/main/resources/static/css/journal-blocks.css：区块公开样式
@@ -285,7 +280,7 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 - src/main/resources/static/assets/themes/stickers/：主题贴纸 SVG
 - src/main/resources/static/vendor/：Vue、Vue Router、Element Plus、Axios、Leaflet
 
-后台的 JS 与 CSS 拆成多个职责单一的文件，但都不走模块系统和打包：`js/admin/shared.js` 先建立 `window.AdminShared`，各页面把组件注册到 `window.AdminPages`，`admin-app.js` 最后取用。CSS 的引入顺序即层叠顺序，`admin/index.html` 里不能随意调换。
+公开端和后台是同一套 Vite 多页构建，直接使用 ESM 模块，不建立业务 `window.*` 全局。CSS 仍按 HTML 中的顺序层叠，入口模板里的样式顺序不要随意调换。
 
 前端依赖全部放在 `static/vendor/` 下随 Jar 发布，不再引用 CDN。除了离线可用之外，这也让 Service Worker 能把它们缓存进应用外壳。主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
 
@@ -304,7 +299,7 @@ target/travel-journal.jar
 
 ## Docker 部署
 
-仓库以 Gitee 为代码与构建来源，`.drone.yml` 由 Gitee 的 push 事件触发。流水线先并行执行 Maven（包含真实 PostgreSQL Flyway 迁移）和前端 JavaScript 检查，再启动打包后的应用运行 iPhone 13 Playwright smoke；全部通过后才连接服务器。远端也从 Gitee 获取代码，并按本次 `DRONE_COMMIT_SHA` 精确部署，避免构建期间 master 前移导致版本错配。
+仓库以 Gitee 为代码与构建来源，`.drone.yml` 由 Gitee 的 push 事件触发。流水线先并行执行 Maven（包含真实 PostgreSQL Flyway 迁移）和前端 lint、类型检查、单测与构建，再启动打包后的应用运行 iPhone 13 Playwright smoke；全部通过后才连接服务器。远端也从 Gitee 获取代码，并按本次 `DRONE_COMMIT_SHA` 精确部署，避免构建期间 master 前移导致版本错配。
 
 `deploy.sh` 会在旧容器仍运行时先构建候选镜像，随后切换容器并检查 `/actuator/health`。候选版本不健康时自动恢复上一镜像；只有通过检查的镜像才会更新 `travel-journal:latest`。部署成功后默认保留当前 release 和最近 3 个历史 release，可用 `DEPLOY_RELEASES_TO_KEEP` 调整数量，旧标签会自动清理。
 
@@ -388,9 +383,14 @@ mc mirror minio/travel-journal /backup/travel-journal
 - 随手记客户端幂等与当地日期换算
 - 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行；Drone 使用流水线 PostgreSQL 服务强制执行）
 
-前端 JavaScript 可使用 Node.js 做统一语法检查，但运行项目不依赖 Node.js：
+前端改动需要完成工程校验并重建随 Jar 发布的产物：
 
 ~~~bash
+npm ci --prefix frontend
+npm run lint --prefix frontend
+npm run typecheck --prefix frontend
+npm run test:unit --prefix frontend
+npm run build --prefix frontend
 npm run check:js
 ~~~
 
