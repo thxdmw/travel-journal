@@ -77,6 +77,9 @@ export interface JournalRequest {
 /** 自动保存的请求体：字段全部可选，缺席的沿用库里的旧值。 */
 export type JournalDraftRequest = Partial<JournalRequest>
 
+/** 明确解除旅行归属时草稿接口需要额外携带此标记。 */
+export type JournalEditorDraftRequest = JournalDraftRequest & { detachFromTrip?: boolean }
+
 /** 开一篇空草稿。三个字段都能缺席，编辑器一进页面就调。 */
 export interface JournalDraftInit {
   tripId?: number | null

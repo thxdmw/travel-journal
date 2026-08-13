@@ -2,7 +2,7 @@ import { del, get, patch, post, put, withParams } from './client'
 import type { PageResponse } from '@/types/common'
 import type {
   JournalDraftInit,
-  JournalDraftRequest,
+  JournalEditorDraftRequest,
   JournalEntry,
   JournalRequest,
   JournalStatus,
@@ -32,7 +32,7 @@ export const journalApi = {
   createDraft: (body?: JournalDraftInit) => post<JournalEntry>('/admin/journals/draft', body ?? {}),
 
   /** 自动保存：字段可以不全，后端按草稿标准校验（允许空标题、空正文）。 */
-  saveDraft: (id: number, body: JournalDraftRequest) =>
+  saveDraft: (id: number, body: JournalEditorDraftRequest) =>
     patch<JournalEntry>('/admin/journals/' + id + '/draft', body),
 
   /*
