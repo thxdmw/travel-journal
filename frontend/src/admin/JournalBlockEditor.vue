@@ -1,7 +1,57 @@
-(function(){
-  'use strict';
-  const {ref,watch,nextTick,onMounted,onBeforeUnmount,computed}=Vue;
-  const JB=window.JournalBlocks;
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { CATALOG } from '@/journal/catalog'
+import { createBlock, normalize } from '@/journal/document'
+import { renderBlock } from '@/journal/render'
+import { enhance, teardown } from '@/media/enhance'
+import type { CatalogEntry, JournalBlock, JournalDocument } from '@/types/journal-block'
+import type { MediaView } from '@/types/media'
+import type { BlockEditorHandle, BlockUpload } from '@/admin/block-editor'
+import type { BudgetSummary } from '@/api/budget'
+import type { Trip } from '@/types/trip'
+
+interface EditorItem {
+  id?: number; label?: string; value?: string; text?: string; checked?: boolean; name?: string; role?: string
+  note?: string; time?: string; title?: string; address?: string; description?: string; amount?: number; icon?: string
+}
+interface RelatedRecord {
+  id: number; cityName?: string; arrivalDate?: string | null; formattedAddress?: string | null; regionName?: string | null
+  expenseDate?: string; description?: string | null; merchant?: string | null; amount?: number | string; budgetCategoryId?: number | null
+  itemDate?: string; startTime?: string | null; endTime?: string | null; title?: string; address?: string | null
+  note?: string | null; type?: string; plannedCost?: number | string | null; tripStopId?: number | null
+}
+interface DataBinding { enabled: boolean; fields: string[]; source: string; selectedIds: number[]; recordId: number | null }
+interface EditorData {
+  [key: string]: unknown
+  text: string; source: string; tone: string; icon: string; level: number
+  items: Array<EditorItem|string>; pros: string[]; cons: string[]; headers: string[]; rows: string[][]
+  categories: EditorItem[]; route: string[]; metrics: EditorItem[]
+  url: string; title: string; description: string; score: number; max: number; comment: string
+  date: string; city: string; tripTitle: string; weather: string; mood: string
+  currency: string; total: number; name: string; address: string; hours: string; cost: string; impression: string
+  dish: string; restaurant: string; price: string; rating: number; note: string; room: string; nights: number
+  mode: string; from: string; to: string; number: string; duration: string
+  condition: string; temperature: string; feelsLike: string; wind: string
+  mediaId: number | null; mediaIds: number[]; caption: string; location: string; message: string; signature: string
+  dayLabel: string; pendingKey?: string; pendingKeys?: string[]; pendingOrder?: string[]; pendingResolved?: Record<string, number>
+}
+interface EditorSettings {
+  [key: string]: unknown
+  style: string; align: string; layout: string; size: string; columns: number; ratio: string
+  frame: string; radius: string; tone: string; effect: string; captionPos: string; dataBinding: DataBinding
+}
+interface EditorBlock extends Omit<JournalBlock, 'data' | 'settings'> { data: EditorData; settings: EditorSettings }
+interface EditorDocument extends Omit<JournalDocument, 'blocks'> { blocks: EditorBlock[] }
+interface TravelContext {
+  trip?: Trip | null; stop?: RelatedRecord | null; stops?: RelatedRecord[]; itinerary?: RelatedRecord[]
+  expenses?: RelatedRecord[]; budget?: BudgetSummary | null; occurredOn?: string
+}
+interface ScrollSnapshot { nodes: Array<{ node: HTMLElement, top: number, left: number }>; x: number; y: number }
+
+function editorDocument(value: JournalDocument): EditorDocument { return value as EditorDocument }
+function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.filter((item):item is EditorItem=>typeof item==='object'&&item!==null)}
+
+  const JB={CATALOG,createBlock,normalize,renderBlock};
   const IMAGE_BLOCKS=['image','gallery','postcard'];
   const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport',
     'day-opener','day-summary'];
@@ -10,61 +60,60 @@
   // 手机上按 ＋ 先看到的是这几个，不是全部类型。正文直接写，另起组件用「＋正文」。
   const QUICK_BLOCKS=['image','chapter','location-card','heading','day-opener','gallery','day-summary','divider'];
   const PLACEHOLDERS={paragraph:'继续写……',heading:'小标题',quote:'想记住的一句话',callout:'写下这条提示'};
+  const CALLOUT_TONES=[['note','心得'],['tip','提示'],['warning','提醒'],['memory','记忆']] as const;
   // textarea 跟着内容长高，让正文看起来是连续的一篇，而不是一格格输入框
-  const autoGrow=el=>{if(!el||el.tagName!=='TEXTAREA')return;el.style.height='auto';el.style.height=el.scrollHeight+'px';};
+  const autoGrow=(el:Element|null)=>{if(!(el instanceof HTMLTextAreaElement))return;el.style.height='auto';el.style.height=el.scrollHeight+'px';};
+  const vGrow={mounted:autoGrow,updated:autoGrow};
 
-  window.JournalBlockEditor={
-    name:'JournalBlockEditor',
-    directives:{grow:{mounted:autoGrow,updated:autoGrow}},
-    props:{modelValue:{type:Object,required:true},media:{type:Array,default:()=>[]},travelContext:{type:Object,default:()=>({})},
-      uploads:{type:Array,default:()=>[]}},
-    emits:['update:modelValue','retry-upload','discard-upload'],
-    setup(props,{emit,expose}){
-      const document=ref(JB.normalize(props.modelValue));
-      const catalogOpen=ref(false),editorOpen=ref(false),draft=ref(null),editIndex=ref(-1),insertAt=ref(0);
-      const query=ref(''),activeCategory=ref('全部'),imageTab=ref('content'),previewEl=ref(null);
+  const props=withDefaults(defineProps<{modelValue:JournalDocument,media?:MediaView[],travelContext?:TravelContext,uploads?:BlockUpload[],notify?:(text:string)=>void}>(),{media:()=>[],travelContext:()=>({}),uploads:()=>[],notify:()=>undefined});
+  const emit=defineEmits<{(event:'update:modelValue',value:JournalDocument):void;(event:'retry-upload',key:string):void;(event:'discard-upload',key:string):void}>();
+      const document=ref<EditorDocument>(editorDocument(JB.normalize(props.modelValue)));
+      const catalogOpen=ref(false),editorOpen=ref(false),draft=ref<EditorBlock|null>(null),editIndex=ref(-1),insertAt=ref(0);
+      const query=ref(''),activeCategory=ref('全部'),imageTab=ref('content'),previewEl=ref<HTMLElement|null>(null);
       const catalogMode=ref('quick'),catalogCount=JB.CATALOG.length,focusedIndex=ref(-1);
-      const quickItems=QUICK_BLOCKS.map(type=>JB.CATALOG.find(x=>x.type===type)).filter(Boolean);
+      const quickItems=QUICK_BLOCKS.map(type=>JB.CATALOG.find(x=>x.type===type)).filter((item):item is CatalogEntry=>Boolean(item));
       const categories=['全部',...new Set(JB.CATALOG.map(x=>x.category))];
       const filtered=()=>JB.CATALOG.filter(x=>(activeCategory.value==='全部'||x.category===activeCategory.value)
         &&(!query.value||[x.label,x.description,x.category].join(' ').includes(query.value)));
-      const isImageBlock=computed(()=>IMAGE_BLOCKS.includes(draft.value?.type));
+      const isImageBlock=computed(()=>draft.value!==null&&IMAGE_BLOCKS.includes(draft.value.type));
       const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media):'');
       const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&['grid','masonry'].includes(draft.value.settings?.layout));
-      const layoutUsesRatio=computed(()=>draft.value?.type!=='postcard'&&(
-        draft.value?.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value?.settings?.layout)));
-      const alignAvailable=computed(()=>!['full','bleed'].includes(draft.value?.settings?.size));
-      const isLinkableBlock=computed(()=>LINKABLE_BLOCKS.includes(draft.value?.type));
+      const layoutUsesRatio=computed(()=>draft.value!==null&&draft.value.type!=='postcard'&&(
+        draft.value.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value.settings.layout)));
+      const alignAvailable=computed(()=>draft.value===null||!['full','bleed'].includes(draft.value.settings.size));
+      const isLinkableBlock=computed(()=>draft.value!==null&&LINKABLE_BLOCKS.includes(draft.value.type));
       const hasTravelContext=computed(()=>props.travelContext?.trip?.id!=null);
-      const dataBinding=computed(()=>draft.value?.settings?.dataBinding||null);
-      const relatedRecords=computed(()=>{
-        const context=props.travelContext||{},type=draft.value?.type,binding=dataBinding.value||{};
-        if(type==='route')return binding.source==='itinerary'?(context.itinerary||[]):(context.stops||[]);
-        if(['itinerary','timeline'].includes(type))return context.itinerary||[];
-        if(type==='expense-summary')return context.expenses||[];
-        if(type==='location-card')return context.stops||[];
-        if(type==='food')return (context.itinerary||[]).filter(item=>item.type==='FOOD');
-        if(type==='stay')return (context.itinerary||[]).filter(item=>item.type==='HOTEL');
-        if(type==='transport')return (context.itinerary||[]).filter(item=>item.type==='TRANSPORT');
+      const emptyBinding:DataBinding={enabled:false,fields:[],source:'stops',selectedIds:[],recordId:null};
+      const dataBinding=computed<DataBinding>(()=>draft.value?.settings?.dataBinding||emptyBinding);
+      const relatedRecords=computed<RelatedRecord[]>(()=>{
+        const context=props.travelContext||{},type=draft.value?.type,binding=dataBinding.value;
+        if(type==='route')return (binding?.source==='itinerary'?(context.itinerary||[]):(context.stops||[])) as RelatedRecord[];
+        if(type&&['itinerary','timeline'].includes(type))return (context.itinerary||[]) as RelatedRecord[];
+        if(type==='expense-summary')return (context.expenses||[]) as RelatedRecord[];
+        if(type==='location-card')return (context.stops||[]) as RelatedRecord[];
+        if(type==='food')return (context.itinerary||[]).filter(item=>item.type==='FOOD') as RelatedRecord[];
+        if(type==='stay')return (context.itinerary||[]).filter(item=>item.type==='HOTEL') as RelatedRecord[];
+        if(type==='transport')return (context.itinerary||[]).filter(item=>item.type==='TRANSPORT') as RelatedRecord[];
         return [];
       });
       const imageModeHint=computed(()=>{
         if(draft.value?.type==='postcard')return '明信片使用固定的“照片 + 手写寄语”结构，只需填写内容。';
         const layout=draft.value?.settings?.layout;
-        const hints={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
-        return draft.value?.type==='gallery'?(hints[layout]||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
+        const hints:Record<string,string>={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
+        return draft.value?.type==='gallery'?(hints[layout||'']||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
       });
-      let syncing=false,inlineTimer=null,ensureTimer=null,caretTimer=null,viewportFrame=null,lastViewportMetrics='';
-      let selectScrollSnapshot=null;
+      let syncing=false,inlineTimer:number|null=null,ensureTimer:number|null=null,caretTimer:number|null=null,viewportFrame:number|null=null,lastViewportMetrics='';
+      let selectScrollSnapshot:ScrollSnapshot|null=null;
 
-      function bindingDefaults(type){
-        if(type==='trip-info')return{enabled:false,fields:['date','city','tripTitle']};
-        if(type==='route')return{enabled:false,source:'stops',selectedIds:[]};
-        if(['itinerary','timeline','expense-summary'].includes(type))return{enabled:false,selectedIds:[]};
+      function bindingDefaults(type:string):DataBinding{
+        const defaults:DataBinding={enabled:false,fields:[],source:'stops',selectedIds:[],recordId:null};
+        if(type==='trip-info')return{...defaults,fields:['date','city','tripTitle']};
+        if(type==='route')return defaults;
+        if(['itinerary','timeline','expense-summary'].includes(type))return defaults;
         // 开场卡和小结默认就开着关联：它们要的东西——城市、第几天、路线、花费——
         // 全都已经在旅行工作台里了，让作者再抄一遍没有意义
-        if(['day-opener','day-summary'].includes(type))return{enabled:true};
-        return{enabled:false,recordId:null};
+        if(['day-opener','day-summary'].includes(type))return{...defaults,enabled:true};
+        return defaults;
       }
       function ensureBinding(){
         if(!draft.value||!LINKABLE_BLOCKS.includes(draft.value.type))return;
@@ -74,9 +123,9 @@
         if(draft.value.settings.dataBinding.enabled&&hasTravelContext.value){initializeBindingSelection();applyBinding();}
       }
       /** 这两种块不挑具体记录，它们要的是「这一天的全部」，所以没有可选列表。 */
-      function bindsWholeDay(type){return ['day-opener','day-summary'].includes(type);}
-      function shortTime(value){return value?String(value).slice(0,5):'';}
-      function recordLabel(item){
+      function bindsWholeDay(type:string){return ['day-opener','day-summary'].includes(type);}
+      function shortTime(value:unknown){return value?String(value).slice(0,5):'';}
+      function recordLabel(item:RelatedRecord){
         if(!item)return'';
         if(draft.value?.type==='expense-summary')return [item.expenseDate,item.description||item.merchant,'¥'+item.amount].filter(Boolean).join(' · ');
         if(draft.value?.type==='route'&&dataBinding.value?.source!=='itinerary')return [item.cityName,item.arrivalDate].filter(Boolean).join(' · ');
@@ -85,31 +134,32 @@
       }
       function initializeBindingSelection(){
         const binding=dataBinding.value,context=props.travelContext||{};if(!binding)return;
-        if(draft.value.type==='trip-info'||bindsWholeDay(draft.value.type))return;
+        const block=draft.value;if(!block)return;
+        if(block.type==='trip-info'||bindsWholeDay(block.type))return;
         const records=relatedRecords.value;
-        if(['route','itinerary','timeline','expense-summary'].includes(draft.value.type)){
+        if(['route','itinerary','timeline','expense-summary'].includes(block.type)){
           if(binding.selectedIds?.length)return;
           let preferred=records;
-          if(draft.value.type!=='route'&&context.occurredOn){
-            const key=draft.value.type==='expense-summary'?'expenseDate':'itemDate';
-            const sameDay=records.filter(item=>item[key]===context.occurredOn);if(sameDay.length)preferred=sameDay;
+          if(block.type!=='route'&&context.occurredOn){
+            const dateKey:'expenseDate'|'itemDate'=block.type==='expense-summary'?'expenseDate':'itemDate';
+            const sameDay=records.filter(item=>item[dateKey]===context.occurredOn);if(sameDay.length)preferred=sameDay;
           }
           binding.selectedIds=preferred.map(item=>item.id);
         }else if(binding.recordId==null){
-          const currentStop=draft.value.type==='location-card'&&context.stop
-            ? records.find(item=>Number(item.id)===Number(context.stop.id)):null;
+          const currentStop=block.type==='location-card'&&context.stop
+            ? records.find(item=>Number(item.id)===Number(context.stop?.id)):null;
           binding.recordId=(currentStop||records[0])?.id||null;
         }
       }
       /** 这一天是这次旅行的第几天。旅行没填开始日期时不猜，直接留空。 */
-      function dayLabel(context){
+      function dayLabel(context:TravelContext){
         const start=context.trip?.startDate,day=context.occurredOn;
         if(!start||!day)return '';
-        const diff=Math.round((new Date(day)-new Date(start))/86400000);
+        const diff=Math.round((new Date(day).getTime()-new Date(start).getTime())/86400000);
         return diff>=0?('Day '+(diff+1)):'';
       }
       /** 当天的行程按时间排一遍，取出经过的地方——就是开场卡上那行「浅草 → 上野 → 银座」。 */
-      function dayRoute(context){
+      function dayRoute(context:TravelContext){
         const day=context.occurredOn;
         return (context.itinerary||[])
           .filter(item=>!day||item.itemDate===day)
@@ -117,7 +167,7 @@
           .map(item=>item.title).filter(Boolean);
       }
       /** 当天花了多少。没有账目就返回 null，让调用方决定要不要显示这一项。 */
-      function daySpend(context){
+      function daySpend(context:TravelContext){
         const day=context.occurredOn;
         const items=(context.expenses||[]).filter(item=>!day||item.expenseDate===day);
         if(!items.length)return null;
@@ -139,16 +189,16 @@
           data.city=context.stop?.cityName||context.trip?.title||'';
           data.dayLabel=dayLabel(context);
           data.date=context.occurredOn||'';
-          data.route=dayRoute(context);
+          data.route=dayRoute(context).filter((item):item is string=>Boolean(item));
           const spend=daySpend(context);
           // 只覆盖自动算得出的那几项，作者手填的数字（步数之类）留着
-          const manual=(data.metrics||[]).filter(item=>item&&item.label!=='花费');
+          const manual=data.metrics.filter(item=>item&&item.label!=='花费');
           data.metrics=spend?[...manual,{value:spend,label:'花费'}]:manual;
           return;
         }
         /* 今日小结：能自动填的只有花费，其余几项是作者对这一天的判断，只把位置准备好。 */
         if(block.type==='day-summary'){
-          const items=Array.isArray(data.items)?data.items.filter(item=>item&&item.label!=='今日花费'):[];
+          const items=data.items.filter((item):item is EditorItem=>typeof item==='object'&&item!==null&&item.label!=='今日花费');
           const spend=daySpend(context);
           data.items=spend?[...items,{icon:'💴',label:'今日花费',value:spend}]:items;
           return;
@@ -163,14 +213,14 @@
         const selectedIds=new Set((binding.selectedIds||[]).map(Number));
         const selected=relatedRecords.value.filter(item=>selectedIds.has(Number(item.id)));
         if(block.type==='route'){
-          data.items=selected.map(item=>binding.source==='itinerary'?item.title:item.cityName).filter(Boolean);return;
+          data.items=selected.map(item=>binding.source==='itinerary'?item.title:item.cityName).filter((item):item is string=>Boolean(item));return;
         }
         if(['itinerary','timeline'].includes(block.type)){
           data.items=selected.map(item=>({time:shortTime(item.startTime),title:item.title||'',address:item.address||'',description:item.note||''}));return;
         }
         if(block.type==='expense-summary'){
           const categoryNames=new Map((context.budget?.categories||[]).map(item=>[Number(item.id),item.name]));
-          const groups=new Map();let total=0;
+          const groups=new Map<string,number>();let total=0;
           selected.forEach(item=>{const amount=Number(item.amount)||0,name=categoryNames.get(Number(item.budgetCategoryId))||'其他';total+=amount;groups.set(name,(groups.get(name)||0)+amount);});
           data.currency=context.budget?.currency||context.trip?.defaultCurrency||'CNY';data.total=Number(total.toFixed(2));
           data.categories=Array.from(groups,([name,amount])=>({name,amount:Number(amount.toFixed(2))}));return;
@@ -181,18 +231,18 @@
         if(block.type==='stay')Object.assign(data,{name:item.title||'',room:item.address||'',note:item.note||''});
         if(block.type==='transport')Object.assign(data,{mode:item.title||'交通',from:context.stops?.find(stop=>Number(stop.id)===Number(item.tripStopId))?.cityName||'',to:item.address||'',duration:[shortTime(item.startTime),shortTime(item.endTime)].filter(Boolean).join('–'),note:item.note||''});
       }
-      function onBindingModeChange(enabled){if(enabled){initializeBindingSelection();applyBinding();}}
+      function onBindingModeChange(enabled:boolean){if(enabled){initializeBindingSelection();applyBinding();}}
       function onBindingSourceChange(){if(dataBinding.value)dataBinding.value.selectedIds=[];initializeBindingSelection();applyBinding();}
-      function refreshBinding(){initializeBindingSelection();applyBinding();ElementPlus.ElMessage.success('已同步当前旅行数据');}
+      function refreshBinding(){initializeBindingSelection();applyBinding();props.notify('已同步当前旅行数据');}
 
       watch(()=>props.modelValue,value=>{
         // 正文里有还没提交的击键时不接受回流，否则光标下的那段字会被旧快照顶掉
         if(syncing||inlineTimer)return;
-        const incoming=JB.normalize(value);
+        const incoming=editorDocument(JB.normalize(value));
         if(JSON.stringify(incoming)!==JSON.stringify(document.value))document.value=incoming;
       },{deep:true});
       watch([draftPreview,editorOpen],()=>nextTick(()=>{
-        if(editorOpen.value&&previewEl.value)window.JournalMedia?.enhance(previewEl.value);
+        if(editorOpen.value&&previewEl.value)enhance(previewEl.value);
       }),{flush:'post'});
       watch(()=>dataBinding.value?.selectedIds,()=>applyBinding(),{deep:true});
       watch(()=>dataBinding.value?.recordId,()=>applyBinding());
@@ -200,7 +250,7 @@
       watch(()=>props.travelContext,()=>{if(hasTravelContext.value)applyBinding();},{deep:true});
       function commit(){
         syncing=true;
-        const value=JB.normalize(document.value);
+        const value=editorDocument(JB.normalize(document.value));
         document.value=value;emit('update:modelValue',value);
         nextTick(()=>syncing=false);
       }
@@ -210,27 +260,27 @@
        */
       function scheduleCommit(){
         if(inlineTimer)clearTimeout(inlineTimer);
-        inlineTimer=setTimeout(()=>{inlineTimer=null;commit();},300);
+        inlineTimer=window.setTimeout(()=>{inlineTimer=null;commit();},300);
       }
       function flushInline(){
         if(inlineTimer){clearTimeout(inlineTimer);inlineTimer=null;}
         commit();
       }
-      function isInline(type){return INLINE_BLOCKS.includes(type);}
-      function placeholderOf(block){return PLACEHOLDERS[block.type]||'';}
-      function inlineInput(event){autoGrow(event.target);scheduleCommit();keepInlineCaretVisible(event.target,60);}
-      function inlineFocus(index,event){focusedIndex.value=index;keepInlineCaretVisible(event?.target,180);}
+      function isInline(type:string){return INLINE_BLOCKS.includes(type);}
+      function placeholderOf(block:EditorBlock){return PLACEHOLDERS[block.type as keyof typeof PLACEHOLDERS]||'';}
+      function inlineInput(event:Event){const target=event.target as HTMLTextAreaElement;autoGrow(target);scheduleCommit();keepInlineCaretVisible(target,60);}
+      function inlineFocus(index:number,event:FocusEvent){focusedIndex.value=index;keepInlineCaretVisible(event.target as HTMLTextAreaElement,180);}
       /** 底部工具栏用：新内容落在光标所在段落之后，而不是一律追加到文末。 */
-      function insertQuick(type){
+      function insertQuick(type:string){
         const item=JB.CATALOG.find(x=>x.type===type);if(!item)return;
         insertAt.value=focusedIndex.value>=0&&focusedIndex.value<document.value.blocks.length
           ? focusedIndex.value+1 : document.value.blocks.length;
         choose(item);
       }
       /** 把光标放到某个块里。caret 支持 'start'、'end' 或具体下标。 */
-      function focusInline(blockId,caret){
+      function focusInline(blockId:string,caret:'start'|'end'|number){
         nextTick(()=>{
-          const el=window.document.querySelector('[data-inline-input="'+blockId+'"]');
+          const el=window.document.querySelector<HTMLTextAreaElement>('[data-inline-input="'+blockId+'"]');
           if(!el)return;
           autoGrow(el);el.focus({preventScroll:true});
           const pos=caret==='end'?el.value.length:(caret==='start'||caret==null?0:Math.min(caret,el.value.length));
@@ -243,48 +293,49 @@
        * 回车交还给 textarea，手机软键盘和普通文本编辑器一样插入段内换行。
        * 新建正文块改由每个组件下方的显式按钮完成，避免作者只是想换行却意外拆块。
        */
-      function insertParagraph(index){
-        const block=JB.createBlock('paragraph');
+      function insertParagraph(index:number){
+        const block=JB.createBlock('paragraph') as EditorBlock;
         document.value.blocks.splice(index+1,0,block);
         flushInline();focusInline(block.id,'start');
       }
       /** 在块首退格＝和上一段合并，这样删掉多余的空段落不用去点删除按钮。 */
-      function inlineBackspace(event,index){
-        const el=event.target;
+      function inlineBackspace(event:KeyboardEvent,index:number){
+        const el=event.target as HTMLTextAreaElement;
         if(el.selectionStart!==0||el.selectionEnd!==0||index===0)return;
         const previous=document.value.blocks[index-1];
-        if(!isInline(previous.type))return;
+        if(!previous||!isInline(previous.type))return;
         event.preventDefault();
-        const tail=String(document.value.blocks[index].data.text||'');
+        const current=document.value.blocks[index];if(!current)return;
+        const tail=String(current.data.text||'');
         const caret=String(previous.data.text||'').length;
         previous.data.text=String(previous.data.text||'')+tail;
         document.value.blocks.splice(index,1);
         flushInline();focusInline(previous.id,caret);
       }
       /** 光标已经在首行/末行时，上下键跨到相邻段落，正文读起来才是一整篇。 */
-      function inlineArrow(event,index,step){
-        const el=event.target;
+      function inlineArrow(event:KeyboardEvent,index:number,step:number){
+        const el=event.target as HTMLTextAreaElement;
         if(step<0?el.selectionStart!==0:el.selectionEnd!==el.value.length)return;
         const target=document.value.blocks[index+step];
         if(!target||!isInline(target.type))return;
         event.preventDefault();focusInline(target.id,step<0?'end':'start');
       }
       /** 空日记里的那个占位输入框：一打字才真正建出第一个段落，没写就退出不会留下空区块。 */
-      function startWriting(event){
-        const text=event.target.value;
-        event.target.value='';
+      function startWriting(event:Event){
+        const target=event.target as HTMLTextAreaElement,text=target.value;
+        target.value='';
         if(!text)return;
-        const block=JB.createBlock('paragraph',{text:text});
+        const block=JB.createBlock('paragraph',{text:text}) as EditorBlock;
         document.value.blocks.push(block);commit();focusInline(block.id,'end');
       }
-      function setHeadingLevel(block,level){block.data.level=level;flushInline();}
-      function setCalloutTone(block,tone){block.data.tone=tone;flushInline();}
-      function openCatalog(index){
+      function setHeadingLevel(block:EditorBlock,level:number){block.data.level=level;flushInline();}
+      function setCalloutTone(block:EditorBlock,tone:string){block.data.tone=tone;flushInline();}
+      function openCatalog(index?:number){
         insertAt.value=index==null?document.value.blocks.length:index;
         query.value='';activeCategory.value='全部';catalogMode.value='quick';catalogOpen.value=true;
       }
-      function choose(item){
-        catalogOpen.value=false;draft.value=JB.createBlock(item.type);editIndex.value=-1;
+      function choose(item:CatalogEntry){
+        catalogOpen.value=false;draft.value=JB.createBlock(item.type) as EditorBlock;editIndex.value=-1;
         if(item.type==='divider'){confirmEdit();return;}
         // 小标题和引用不该再弹一次表单——直接落在正文里开始打字
         if(isInline(item.type)){
@@ -296,44 +347,44 @@
         imageTab.value='content';
         nextTick(()=>editorOpen.value=true);
       }
-      function edit(index){draft.value=JSON.parse(JSON.stringify(document.value.blocks[index]));editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
-      function editOnDoubleClick(event,index){
-        if(event.target.closest('button,a,input,textarea,select,[role="button"]'))return;
+      function edit(index:number){const block=document.value.blocks[index];if(!block)return;draft.value=JSON.parse(JSON.stringify(block)) as EditorBlock;editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
+      function editOnDoubleClick(event:MouseEvent,index:number){
+        if((event.target as Element).closest('button,a,input,textarea,select,[role="button"]'))return;
         edit(index);
       }
       function backToCatalog(){editorOpen.value=false;draft.value=null;nextTick(()=>catalogOpen.value=true);}
       function confirmEdit(){
         if(!draft.value)return;
-        const block=JSON.parse(JSON.stringify(draft.value));
+        const block=JSON.parse(JSON.stringify(draft.value)) as EditorBlock;
         let index=editIndex.value;
         if(index>=0)document.value.blocks.splice(index,1,block);
         else{index=insertAt.value;document.value.blocks.splice(index,0,block);}
         editorOpen.value=false;commit();
-        if(window.document.activeElement?.blur)window.document.activeElement.blur();
+        if(window.document.activeElement instanceof HTMLElement)window.document.activeElement.blur();
         nextTick(()=>setTimeout(()=>window.document.querySelector('[data-editor-block-id="'+block.id+'"]')
           ?.scrollIntoView({behavior:'smooth',block:'center'}),80));
       }
-      function remove(index){
+      function remove(index:number){
         const previous=document.value.blocks[index-1];
         document.value.blocks.splice(index,1);flushInline();
         if(previous&&isInline(previous.type))focusInline(previous.id,'end');
       }
-      function move(index,offset){
+      function move(index:number,offset:number){
         const target=index+offset;if(target<0||target>=document.value.blocks.length)return;
-        const item=document.value.blocks.splice(index,1)[0];document.value.blocks.splice(target,0,item);commit();
+        const item=document.value.blocks.splice(index,1)[0];if(item)document.value.blocks.splice(target,0,item);commit();
       }
-      function addRow(field,value){if(!Array.isArray(draft.value.data[field]))draft.value.data[field]=[];draft.value.data[field].push(value);}
-      function removeRow(field,index){draft.value.data[field].splice(index,1);}
-      function addTableColumn(){draft.value.data.headers.push('新列');draft.value.data.rows.forEach(row=>row.push(''));}
-      function removeTableColumn(index){if(draft.value.data.headers.length<=1)return;draft.value.data.headers.splice(index,1);draft.value.data.rows.forEach(row=>row.splice(index,1));}
-      function addTableRow(){draft.value.data.rows.push(draft.value.data.headers.map(()=>''));}
-      function render(block){return JB.renderBlock(block,props.media);}
-      function label(type){return JB.CATALOG.find(x=>x.type===type)?.label||type;}
-      function isMediaType(type){return IMAGE_BLOCKS.includes(type);}
-      function ensureVisible(event){
-        const el=event?.target||window.document.activeElement;if(!el)return;
+      function addRow(field:string,value:unknown){const block=draft.value;if(!block)return;const rows=block.data[field];if(!Array.isArray(rows))block.data[field]=[];(block.data[field] as unknown[]).push(value);}
+      function removeRow(field:string,index:number){const block=draft.value;if(!block)return;const rows=block.data[field];if(Array.isArray(rows))rows.splice(index,1);}
+      function addTableColumn(){const block=draft.value;if(!block)return;block.data.headers.push('新列');block.data.rows.forEach(row=>row.push(''));}
+      function removeTableColumn(index:number){const block=draft.value;if(!block||block.data.headers.length<=1)return;block.data.headers.splice(index,1);block.data.rows.forEach(row=>row.splice(index,1));}
+      function addTableRow(){const block=draft.value;if(block)block.data.rows.push(block.data.headers.map(()=>''));}
+      function render(block:EditorBlock){return JB.renderBlock(block,props.media);}
+      function label(type:string){return JB.CATALOG.find(x=>x.type===type)?.label||type;}
+      function isMediaType(type:string){return IMAGE_BLOCKS.includes(type);}
+      function ensureVisible(event?:FocusEvent){
+        const el=(event?.target||window.document.activeElement) as Element|null;if(!el)return;
         if(ensureTimer)clearTimeout(ensureTimer);
-        ensureTimer=setTimeout(()=>{
+        ensureTimer=window.setTimeout(()=>{
           ensureTimer=null;
           if(el.isConnected)el.scrollIntoView({block:'center',behavior:'smooth'});
         },120);
@@ -342,7 +393,7 @@
        * textarea 会随正文长高，元素本身可能跨过整个手机屏幕；只对元素做 scrollIntoView
        * 不能保证中间某一行的光标可见。用同样字号和宽度做一个隐藏镜像，算出真实光标行。
        */
-      function inlineCaretRect(textarea){
+      function inlineCaretRect(textarea:HTMLTextAreaElement){
         const style=window.getComputedStyle(textarea),rect=textarea.getBoundingClientRect();
         const mirror=window.document.createElement('div');
         Object.assign(mirror.style,{position:'fixed',left:'-10000px',top:'0',visibility:'hidden',
@@ -360,10 +411,10 @@
         return{top,bottom:top+lineHeight};
       }
       /** 键盘展开或光标移动后，把光标行放进顶栏与键盘/工具栏之间的可见区域。 */
-      function keepInlineCaretVisible(textarea,delay=0){
-        if(!textarea?.matches?.('[data-inline-input]'))return;
+      function keepInlineCaretVisible(textarea:HTMLTextAreaElement,delay=0){
+        if(!textarea.matches('[data-inline-input]'))return;
         if(caretTimer)clearTimeout(caretTimer);
-        caretTimer=setTimeout(()=>{
+        caretTimer=window.setTimeout(()=>{
           caretTimer=null;if(!textarea.isConnected||window.document.activeElement!==textarea)return;
           const vv=window.visualViewport,viewportTop=vv?.offsetTop||0;
           const viewportBottom=viewportTop+(vv?.height||window.innerHeight);
@@ -379,13 +430,13 @@
       }
       function onSelectionChange(){
         const active=window.document.activeElement;
-        if(active?.matches?.('[data-inline-input]'))keepInlineCaretVisible(active,60);
+        if(active instanceof HTMLTextAreaElement&&active.matches('[data-inline-input]'))keepInlineCaretVisible(active,60);
       }
       /** 下拉打开前记住所有祖先滚动区；选完后恢复，避免表单被顶上去后停在新位置。 */
-      function rememberSelectScroll(event){
-        const select=event.target.closest?.('.el-select');
+      function rememberSelectScroll(event:PointerEvent){
+        const select=(event.target as Element).closest('.el-select');
         if(!select)return;
-        const nodes=[];
+        const nodes:HTMLElement[]=[];
         for(let node=select.parentElement;node&&node!==window.document.body;node=node.parentElement){
           const overflow=window.getComputedStyle(node).overflowY;
           if(/auto|scroll/.test(overflow)&&!nodes.includes(node))nodes.push(node);
@@ -403,10 +454,11 @@
         };
         nextTick(()=>requestAnimationFrame(()=>{restore();setTimeout(restore,100);}));
       }
-      function onDocumentClick(event){
+      function onDocumentClick(event:MouseEvent){
         if(!selectScrollSnapshot)return;
-        if(event.target.closest?.('.el-select-dropdown__item'))restoreSelectScroll();
-        else if(!event.target.closest?.('.el-select,.el-select__popper'))restoreSelectScroll();
+        const target=event.target as Element;
+        if(target.closest('.el-select-dropdown__item'))restoreSelectScroll();
+        else if(!target.closest('.el-select,.el-select__popper'))restoreSelectScroll();
       }
       function applyViewport(){
         viewportFrame=null;
@@ -417,19 +469,20 @@
         window.document.documentElement.style.setProperty('--visual-viewport-height',(vv?vv.height:window.innerHeight)+'px');
         window.document.documentElement.style.setProperty('--browser-bottom-inset',bottom+'px');
         const active=window.document.activeElement;
-        if(active?.matches?.('[data-inline-input]'))keepInlineCaretVisible(active,40);
+        if(active instanceof HTMLTextAreaElement&&active.matches('[data-inline-input]'))keepInlineCaretVisible(active,40);
         else if(editorOpen.value&&active&&/INPUT|TEXTAREA/.test(active.tagName))ensureVisible();
       }
       function viewport(){if(viewportFrame==null)viewportFrame=requestAnimationFrame(applyViewport);}
-      function selectedMedia(item){
+      function selectedMedia(item:MediaView){
         if(!draft.value)return false;
         return draft.value.type==='gallery'?(draft.value.data.mediaIds||[]).includes(item.id):draft.value.data.mediaId===item.id;
       }
-      function toggleDraftMedia(item){
-        if(draft.value.type==='gallery'){
-          const ids=draft.value.data.mediaIds||[];
-          draft.value.data.mediaIds=ids.includes(item.id)?ids.filter(x=>x!==item.id):[...ids,item.id];
-        }else draft.value.data.mediaId=item.id;
+      function toggleDraftMedia(item:MediaView){
+        const block=draft.value;if(!block)return;
+        if(block.type==='gallery'){
+          const ids=block.data.mediaIds||[];
+          block.data.mediaIds=ids.includes(item.id)?ids.filter(x=>x!==item.id):[...ids,item.id];
+        }else block.data.mediaId=item.id;
       }
       /*
        * 拍完照片先在正文里占个位再传。
@@ -439,26 +492,26 @@
        * pendingKey 的区块显示本地缩略图和进度，上传成功再把 mediaId 填回去。
        * 存草稿时未完成的占位会被剔除，服务器上不会留半截图片块。
        */
-      function pendingUpload(key){return props.uploads.find(item=>item.key===key)||null;}
-      function isPending(block){
+      function pendingUpload(key:string){return props.uploads.find(item=>item.key===key)||null;}
+      function isPending(block:EditorBlock){
         return (block.type==='image'&&block.data.pendingKey&&!block.data.mediaId)
           ||(block.type==='gallery'&&block.data.pendingKeys?.length);
       }
-      function pendingKeysOf(block){return block.type==='gallery'?(block.data.pendingKeys||[]):[block.data.pendingKey];}
-      function pendingProgress(block){
-        const tasks=pendingKeysOf(block).map(pendingUpload).filter(Boolean);
+      function pendingKeysOf(block:EditorBlock):string[]{return block.type==='gallery'?(block.data.pendingKeys||[]):block.data.pendingKey?[block.data.pendingKey]:[];}
+      function pendingProgress(block:EditorBlock){
+        const tasks=pendingPreviews(block);
         if(!tasks.length)return 0;
         return Math.round(tasks.reduce((sum,task)=>sum+(task.status==='done'?100:task.progress||0),0)/tasks.length);
       }
-      function pendingFailed(block){return pendingKeysOf(block).map(pendingUpload).some(task=>task?.status==='failed');}
-      function pendingLabel(block){
-        const tasks=pendingKeysOf(block).map(pendingUpload).filter(Boolean);
+      function pendingFailed(block:EditorBlock){return pendingKeysOf(block).map(pendingUpload).some(task=>task?.status==='failed');}
+      function pendingLabel(block:EditorBlock){
+        const tasks=pendingPreviews(block);
         if(!tasks.length)return '准备中';
         if(tasks.some(task=>task.status==='failed'))return '有 '+tasks.filter(t=>t.status==='failed').length+' 张上传失败';
-        return tasks.length>1?('上传中 '+tasks.filter(t=>t.status==='done').length+'/'+tasks.length):(tasks[0].name||'上传中');
+        return tasks.length>1?('上传中 '+tasks.filter(t=>t.status==='done').length+'/'+tasks.length):(tasks[0]?.name||'上传中');
       }
-      function pendingPreviews(block){return pendingKeysOf(block).map(pendingUpload).filter(Boolean).slice(0,4);}
-      function insertPending(items){
+      function pendingPreviews(block:EditorBlock):BlockUpload[]{return pendingKeysOf(block).map(pendingUpload).filter((task):task is BlockUpload=>Boolean(task)).slice(0,4);}
+      function insertPending(items:BlockUpload[]){
         if(!items?.length)return;
         const at=focusedIndex.value>=0&&focusedIndex.value<document.value.blocks.length
           ? focusedIndex.value+1 : document.value.blocks.length;
@@ -466,20 +519,20 @@
         const block=items.length>1
           // pendingOrder 记住用户挑照片时的先后，上传是并发的、谁先传完不一定；
           // 没有它的话图片组会按上传完成顺序排，和相册里看到的顺序对不上
-          ? JB.createBlock('gallery',{mediaIds:[],pendingKeys:keys.slice(),pendingOrder:keys.slice(),pendingResolved:{}})
-          : JB.createBlock('image',{mediaId:null,pendingKey:keys[0]});
+          ? JB.createBlock('gallery',{mediaIds:[],pendingKeys:keys.slice(),pendingOrder:keys.slice(),pendingResolved:{}}) as EditorBlock
+          : JB.createBlock('image',{mediaId:null,pendingKey:keys[0]}) as EditorBlock;
         document.value.blocks.splice(at,0,block);
         focusedIndex.value=at;flushInline();
         nextTick(()=>window.document.querySelector('[data-editor-block-id="'+block.id+'"]')?.scrollIntoView({behavior:'smooth',block:'center'}));
       }
       /** 按 pendingOrder 把已完成的照片摆回原来的位置。 */
-      function rebuildGalleryOrder(block){
+      function rebuildGalleryOrder(block:EditorBlock){
         const resolved=block.data.pendingResolved||{};
         const order=block.data.pendingOrder||Object.keys(resolved);
         block.data.mediaIds=order.map(key=>resolved[key]).filter(id=>id!=null);
       }
       /** 某一张传完了，把真实 mediaId 填回占位它的那个区块。 */
-      function resolvePending(key,mediaId){
+      function resolvePending(key:string,mediaId:number){
         document.value.blocks.forEach(block=>{
           if(block.data.pendingKey===key){block.data.mediaId=mediaId;delete block.data.pendingKey;}
           if(Array.isArray(block.data.pendingKeys)&&block.data.pendingKeys.includes(key)){
@@ -494,7 +547,7 @@
         flushInline();
       }
       /** 放弃某张的占位（上传失败后选择删除），空掉的区块一并移除。 */
-      function dropPending(key){
+      function dropPending(key:string){
         document.value.blocks=document.value.blocks.filter(block=>{
           if(block.data.pendingKey===key)return false;
           if(Array.isArray(block.data.pendingKeys)&&block.data.pendingKeys.includes(key)){
@@ -511,14 +564,14 @@
         });
         flushInline();
       }
-      function retryPending(block){pendingKeysOf(block).forEach(key=>{if(pendingUpload(key)?.status==='failed')emit('retry-upload',key);});}
+      function retryPending(block:EditorBlock){pendingKeysOf(block).forEach(key=>{if(pendingUpload(key)?.status==='failed')emit('retry-upload',key);});}
       /** 作者放弃这张照片。除了移除占位块，还要让父组件把本机存的那份副本清掉。 */
-      function cancelPending(block){pendingKeysOf(block).forEach(key=>{if(!key)return;dropPending(key);emit('discard-upload',key);});}
-      function insertMedia(ids,preferredType){
+      function cancelPending(block:EditorBlock){pendingKeysOf(block).forEach(key=>{if(!key)return;dropPending(key);emit('discard-upload',key);});}
+      function insertMedia(ids:number|number[],preferredType?:string){
         const values=(Array.isArray(ids)?ids:[ids]).filter(Boolean);if(!values.length)return;
         insertAt.value=document.value.blocks.length;
         const type=preferredType||((values.length>1)?'gallery':'image');
-        draft.value=JB.createBlock(type,type==='gallery'?{mediaIds:values}:{mediaId:values[0]});
+        draft.value=JB.createBlock(type,type==='gallery'?{mediaIds:values}:{mediaId:values[0]}) as EditorBlock;
         editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
       }
       onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);
@@ -528,47 +581,47 @@
         if(ensureTimer)clearTimeout(ensureTimer);
         if(caretTimer)clearTimeout(caretTimer);
         if(viewportFrame!=null)cancelAnimationFrame(viewportFrame);
-        window.JournalMedia?.teardown(previewEl.value);
+        teardown(previewEl.value);
         window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
         window.document.removeEventListener('click',onDocumentClick,true);
         window.document.removeEventListener('selectionchange',onSelectionChange);
       });
-      expose({openCatalog,insertMedia,insertQuick,insertPending,resolvePending,dropPending,flushInline});
-      return{document,catalogOpen,editorOpen,draft,editIndex,query,activeCategory,imageTab,previewEl,categories,filtered,isImageBlock,draftPreview,
-        layoutUsesColumns,layoutUsesRatio,alignAvailable,imageModeHint,isLinkableBlock,hasTravelContext,dataBinding,relatedRecords,
-        catalogMode,catalogCount,quickItems,isInline,placeholderOf,inlineInput,inlineFocus,inlineBackspace,inlineArrow,startWriting,insertParagraph,setHeadingLevel,setCalloutTone,insertQuick,
-        openCatalog,choose,edit,editOnDoubleClick,backToCatalog,confirmEdit,remove,move,addRow,removeRow,addTableColumn,removeTableColumn,addTableRow,bindsWholeDay,
-        render,label,isMediaType,ensureVisible,rememberSelectScroll,selectedMedia,toggleDraftMedia,insertMedia,recordLabel,onBindingModeChange,onBindingSourceChange,refreshBinding,
-        isPending,pendingProgress,pendingFailed,pendingLabel,pendingPreviews,retryPending,cancelPending};
-    },
-    template:`
+      defineExpose<BlockEditorHandle>({openCatalog,insertMedia,insertQuick,insertPending,resolvePending,dropPending,flushInline});
+</script>
+
+<template>
       <div class="block-editor">
         <div v-if="!document.blocks.length" class="block-inline block-inline--ghost">
-          <textarea class="block-inline-input block-inline-input--paragraph" rows="1"
+          <textarea
+class="block-inline-input block-inline-input--paragraph" rows="1"
             placeholder="今天发生了什么？直接开始写，回车可以换行。" @input="startWriting"></textarea>
         </div>
         <template v-for="(block,index) in document.blocks" :key="block.id">
-          <div class="block-insert-line"><button type="button" @click="openCatalog(index)" aria-label="在这里添加内容">＋</button></div>
+          <div class="block-insert-line"><button type="button" aria-label="在这里添加内容" @click="openCatalog(index)">＋</button></div>
 
           <div v-if="isInline(block.type)" class="block-inline" :class="'block-inline--'+block.type" :data-editor-block-id="block.id">
-            <textarea v-grow v-model="block.data.text" :data-inline-input="block.id" rows="1"
+            <textarea
+v-model="block.data.text" v-grow :data-inline-input="block.id" rows="1"
               class="block-inline-input" :class="['block-inline-input--'+block.type,
                 block.type==='heading'?'is-h'+(block.data.level||2):'',
                 block.type==='paragraph'&&block.settings.style?'is-'+block.settings.style:'',
                 block.type==='callout'?'is-'+(block.data.tone||'note'):'']"
-              :style="{textAlign:block.settings.align||''}" :placeholder="placeholderOf(block)"
+              :style="{textAlign:(block.settings.align||'left') as 'left'|'center'|'right'}" :placeholder="placeholderOf(block)"
               @input="inlineInput" @focus="inlineFocus(index,$event)" @keydown.backspace="inlineBackspace($event,index)"
               @keydown.up="inlineArrow($event,index,-1)" @keydown.down="inlineArrow($event,index,1)"></textarea>
-            <input v-if="block.type==='quote'" v-model="block.data.source" class="block-inline-source"
+            <input
+v-if="block.type==='quote'" v-model="block.data.source" class="block-inline-source"
               placeholder="出处（可选）" @input="inlineInput">
             <div class="block-inline-bar">
               <div class="block-inline-variants">
                 <template v-if="block.type==='heading'">
-                  <button v-for="level in [2,3,4]" :key="level" type="button" :class="{active:(block.data.level||2)===level}"
+                  <button
+v-for="level in [2,3,4]" :key="level" type="button" :class="{active:(block.data.level||2)===level}"
                     @click="setHeadingLevel(block,level)">H{{level-1}}</button>
                 </template>
                 <template v-else-if="block.type==='callout'">
-                  <button v-for="tone in [['note','心得'],['tip','提示'],['warning','提醒'],['memory','记忆']]" :key="tone[0]"
+                  <button
+v-for="tone in CALLOUT_TONES" :key="tone[0]"
                     type="button" :class="{active:(block.data.tone||'note')===tone[0]}" @click="setCalloutTone(block,tone[0])">{{tone[1]}}</button>
                 </template>
               </div>
@@ -595,12 +648,16 @@
             </div>
           </article>
 
-          <article v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id"
+          <article
+v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id"
             title="双击打开编辑" @dblclick="editOnDoubleClick($event,index)">
             <header><span>{{label(block.type)}}</span><div>
               <button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><button type="button" :disabled="index===document.blocks.length-1" @click="move(index,1)">↓</button>
               <button type="button" @click="edit(index)">编辑</button><button type="button" class="danger" @click="remove(index)">删除</button>
-            </div></header><div class="journal-document block-editor-preview" v-html="render(block)"></div>
+            </div></header>
+            <!-- eslint-disable vue/no-v-html -- HTML 只来自 Journal Block 白名单渲染器。 -->
+            <div class="journal-document block-editor-preview" v-html="render(block)"></div>
+            <!-- eslint-enable vue/no-v-html -->
           </article>
         </template>
         <div v-if="document.blocks.length" class="block-insert-line block-insert-line--last"><button type="button" @click="openCatalog(document.blocks.length)">＋</button><span>添加内容</span></div>
@@ -619,12 +676,16 @@
           </template>
         </el-dialog>
 
-        <el-dialog v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
+        <el-dialog
+v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
           :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body align-center destroy-on-close :close-on-click-modal="false">
           <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock}">
             <aside v-if="isImageBlock" class="block-live-preview"><header><div><strong>正文效果</strong><small>模拟文章正文栏，不是单独放大的图片</small></div><span>文字栏宽度</span></header>
               <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>
-                <div class="journal-document" v-html="draftPreview"></div><div v-if="!draftPreview" class="block-preview-empty">选择图片后，这里会显示它在正文中的实际比例和占位</div>
+                <!-- eslint-disable vue/no-v-html -- HTML 只来自 Journal Block 白名单渲染器。 -->
+                <div class="journal-document" v-html="draftPreview"></div>
+                <!-- eslint-enable vue/no-v-html -->
+                <div v-if="!draftPreview" class="block-preview-empty">选择图片后，这里会显示它在正文中的实际比例和占位</div>
                 <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
             <div class="block-config-form" @pointerdown.capture="rememberSelectScroll" @focusin="ensureVisible">
               <label v-if="!['heading','divider'].includes(draft.type)">区块标题（可选）<el-input v-model="draft.title" placeholder="例如 今日路线"/></label>
@@ -655,16 +716,16 @@
               <template v-else-if="draft.type==='heading'"><label>标题<el-input v-model="draft.data.text" placeholder="章节标题"/></label><label>层级<el-radio-group v-model="draft.data.level"><el-radio-button :value="2">大标题</el-radio-button><el-radio-button :value="3">小标题</el-radio-button><el-radio-button :value="4">细分标题</el-radio-button></el-radio-group></label></template>
               <template v-else-if="draft.type==='quote'"><label>引用内容<el-input v-model="draft.data.text" type="textarea" :rows="6"/></label><label>出处（可选）<el-input v-model="draft.data.source"/></label></template>
               <template v-else-if="draft.type==='callout'"><div class="form-grid form-grid-2"><label>卡片类型<el-select v-model="draft.data.tone"><el-option label="旅途心得" value="note"/><el-option label="温馨提示" value="tip"/><el-option label="重要提醒" value="warning"/><el-option label="特别记忆" value="memory"/></el-select></label><label>图标（可选）<el-input v-model="draft.data.icon" maxlength="2" placeholder="例如 ✦"/></label></div><label>内容<el-input v-model="draft.data.text" type="textarea" :rows="5"/></label></template>
-              <template v-else-if="draft.type==='facts'"><div v-for="(item,i) in draft.data.items" :key="i" class="block-row"><el-input v-model="item.label" placeholder="名称"/><el-input v-model="item.value" placeholder="内容"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{label:'',value:''})">＋ 添加信息</el-button></template>
-              <template v-else-if="draft.type==='pros-cons'"><div class="block-dual-list"><section><strong>喜欢</strong><div v-for="(item,i) in draft.data.pros" :key="i" class="block-row"><el-input v-model="draft.data.pros[i]"/><button type="button" @click="removeRow('pros',i)">×</button></div><el-button plain @click="addRow('pros','')">＋ 添加</el-button></section><section><strong>遗憾</strong><div v-for="(item,i) in draft.data.cons" :key="i" class="block-row"><el-input v-model="draft.data.cons[i]"/><button type="button" @click="removeRow('cons',i)">×</button></div><el-button plain @click="addRow('cons','')">＋ 添加</el-button></section></div></template>
-              <template v-else-if="draft.type==='table'"><div class="block-table-editor"><div class="block-table-head"><div v-for="(head,i) in draft.data.headers" :key="i"><el-input v-model="draft.data.headers[i]" placeholder="列名"/><button type="button" @click="removeTableColumn(i)">×</button></div><el-button plain @click="addTableColumn">＋ 列</el-button></div><div v-for="(row,ri) in draft.data.rows" :key="ri" class="block-table-row"><el-input v-for="(_,ci) in draft.data.headers" :key="ci" v-model="row[ci]"/><button type="button" @click="removeRow('rows',ri)">删除</button></div></div><el-button plain @click="addTableRow">＋ 添加一行</el-button></template>
+              <template v-else-if="draft.type==='facts'"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-row"><el-input v-model="item.label" placeholder="名称"/><el-input v-model="item.value" placeholder="内容"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{label:'',value:''})">＋ 添加信息</el-button></template>
+              <template v-else-if="draft.type==='pros-cons'"><div class="block-dual-list"><section><strong>喜欢</strong><div v-for="(_,i) in draft.data.pros" :key="i" class="block-row"><el-input v-model="draft.data.pros[i]"/><button type="button" @click="removeRow('pros',i)">×</button></div><el-button plain @click="addRow('pros','')">＋ 添加</el-button></section><section><strong>遗憾</strong><div v-for="(_,i) in draft.data.cons" :key="i" class="block-row"><el-input v-model="draft.data.cons[i]"/><button type="button" @click="removeRow('cons',i)">×</button></div><el-button plain @click="addRow('cons','')">＋ 添加</el-button></section></div></template>
+              <template v-else-if="draft.type==='table'"><div class="block-table-editor"><div class="block-table-head"><div v-for="(_,i) in draft.data.headers" :key="i"><el-input v-model="draft.data.headers[i]" placeholder="列名"/><button type="button" @click="removeTableColumn(i)">×</button></div><el-button plain @click="addTableColumn">＋ 列</el-button></div><div v-for="(row,ri) in draft.data.rows" :key="ri" class="block-table-row"><el-input v-for="(_,ci) in draft.data.headers" :key="ci" v-model="row[ci]"/><button type="button" @click="removeRow('rows',ri)">删除</button></div></div><el-button plain @click="addTableRow">＋ 添加一行</el-button></template>
               <template v-else-if="draft.type==='link-card'"><label>链接地址<el-input v-model="draft.data.url" placeholder="https://"/></label><label>标题<el-input v-model="draft.data.title"/></label><label>简介<el-input v-model="draft.data.description" type="textarea" :rows="3"/></label></template>
               <template v-else-if="draft.type==='rating'"><label>评分<el-rate v-model="draft.data.score" :max="draft.data.max||5" show-score/></label><div class="form-grid form-grid-2"><label>满分<el-input-number v-model="draft.data.max" :min="3" :max="10"/></label><label>一句感受<el-input v-model="draft.data.comment"/></label></div></template>
-              <template v-else-if="['checklist','route'].includes(draft.type)"><div v-for="(item,i) in draft.data.items" :key="i" class="block-row"><el-checkbox v-if="draft.type==='checklist'" v-model="item.checked"/><el-input v-if="draft.type==='checklist'" v-model="item.text" placeholder="清单内容"/><el-input v-else v-model="draft.data.items[i]" placeholder="地点"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',draft.type==='checklist'?{text:'',checked:false}:'')">＋ 添加一项</el-button></template>
-              <template v-else-if="draft.type==='stats'"><div v-for="(item,i) in draft.data.items" :key="i" class="block-row"><el-input v-model="item.value" placeholder="数字，例如 18,642"/><el-input v-model="item.label" placeholder="说明，例如 步"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{value:'',label:''})">＋ 添加数字</el-button></template>
-              <template v-else-if="draft.type==='companions'"><div v-for="(item,i) in draft.data.items" :key="i" class="block-complex-row"><el-input v-model="item.name" placeholder="名字"/><el-input v-model="item.role" placeholder="关系或角色"/><el-input v-model="item.note" type="textarea" placeholder="想记住的小事"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{name:'',role:'',note:''})">＋ 添加同行者</el-button></template>
+              <template v-else-if="['checklist','route'].includes(draft.type)"><div v-for="(item,i) in (draft.type==='checklist'?objectItems(draft.data.items):draft.data.items)" :key="i" class="block-row"><template v-if="typeof item==='object'"><el-checkbox v-model="item.checked"/><el-input v-model="item.text" placeholder="清单内容"/></template><el-input v-else v-model="draft.data.items[i]" placeholder="地点"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',draft.type==='checklist'?{text:'',checked:false}:'')">＋ 添加一项</el-button></template>
+              <template v-else-if="draft.type==='stats'"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-row"><el-input v-model="item.value" placeholder="数字，例如 18,642"/><el-input v-model="item.label" placeholder="说明，例如 步"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{value:'',label:''})">＋ 添加数字</el-button></template>
+              <template v-else-if="draft.type==='companions'"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-complex-row"><el-input v-model="item.name" placeholder="名字"/><el-input v-model="item.role" placeholder="关系或角色"/><el-input v-model="item.note" type="textarea" placeholder="想记住的小事"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{name:'',role:'',note:''})">＋ 添加同行者</el-button></template>
               <template v-else-if="draft.type==='trip-info'"><div class="form-grid form-grid-2"><label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label><label>地点<el-input v-model="draft.data.city"/></label><label>旅行<el-input v-model="draft.data.tripTitle"/></label><label>天气<el-input v-model="draft.data.weather"/></label><label>心情<el-input v-model="draft.data.mood"/></label></div></template>
-              <template v-else-if="['itinerary','timeline'].includes(draft.type)"><div v-for="(item,i) in draft.data.items" :key="i" class="block-complex-row"><el-input v-model="item.time" placeholder="时间"/><el-input v-model="item.title" placeholder="发生了什么"/><el-input v-model="item.address" placeholder="地点（可选）"/><el-input v-if="draft.type==='timeline'" v-model="item.description" type="textarea" placeholder="补充描述"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{time:'',title:'',address:'',description:''})">＋ 添加行程</el-button></template>
+              <template v-else-if="['itinerary','timeline'].includes(draft.type)"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-complex-row"><el-input v-model="item.time" placeholder="时间"/><el-input v-model="item.title" placeholder="发生了什么"/><el-input v-model="item.address" placeholder="地点（可选）"/><el-input v-if="draft.type==='timeline'" v-model="item.description" type="textarea" placeholder="补充描述"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{time:'',title:'',address:'',description:''})">＋ 添加行程</el-button></template>
               <template v-else-if="draft.type==='expense-summary'"><div class="form-grid form-grid-2"><label>币种<el-input v-model="draft.data.currency"/></label><label>合计<el-input-number v-model="draft.data.total" :min="0"/></label></div><div v-for="(item,i) in draft.data.categories" :key="i" class="block-row"><el-input v-model="item.name" placeholder="分类"/><el-input-number v-model="item.amount" :min="0"/><button type="button" @click="removeRow('categories',i)">×</button></div><el-button plain @click="addRow('categories',{name:'',amount:0})">＋ 添加分类</el-button></template>
               <template v-else-if="draft.type==='location-card'"><label>地点名称<el-input v-model="draft.data.name"/></label><label>地址<el-input v-model="draft.data.address"/></label><div class="form-grid form-grid-2"><label>开放时间<el-input v-model="draft.data.hours"/></label><label>费用<el-input v-model="draft.data.cost"/></label></div><label>感受与建议<el-input v-model="draft.data.impression" type="textarea" :rows="4"/></label></template>
               <template v-else-if="draft.type==='food'"><div class="form-grid form-grid-2"><label>菜品<el-input v-model="draft.data.dish"/></label><label>店铺<el-input v-model="draft.data.restaurant"/></label><label>价格<el-input v-model="draft.data.price"/></label><label>评分<el-rate v-model="draft.data.rating"/></label></div><label>味道与感受<el-input v-model="draft.data.note" type="textarea" :rows="4"/></label></template>
@@ -675,7 +736,7 @@
                 <div class="form-grid form-grid-2"><label>城市<el-input v-model="draft.data.city" placeholder="东京"/></label><label>第几天<el-input v-model="draft.data.dayLabel" placeholder="Day 4"/></label>
                   <label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label><label>天气<el-input v-model="draft.data.weather" placeholder="晴"/></label></div>
                 <label>今天走过的地方</label>
-                <div v-for="(item,i) in draft.data.route" :key="i" class="block-row"><el-input v-model="draft.data.route[i]" placeholder="浅草"/><button type="button" @click="removeRow('route',i)">×</button></div>
+                <div v-for="(_,i) in draft.data.route" :key="i" class="block-row"><el-input v-model="draft.data.route[i]" placeholder="浅草"/><button type="button" @click="removeRow('route',i)">×</button></div>
                 <el-button plain @click="addRow('route','')">＋ 添加一站</el-button>
                 <label>关键数字</label>
                 <div v-for="(item,i) in draft.data.metrics" :key="'m'+i" class="block-row"><el-input v-model="item.value" placeholder="21,430"/><el-input v-model="item.label" placeholder="步"/><button type="button" @click="removeRow('metrics',i)">×</button></div>
@@ -688,7 +749,7 @@
               </template>
               <template v-else-if="draft.type==='day-summary'">
                 <p class="setting-explain">一天结束时回头看一眼。花费会自动带出来，其余几项写你自己的判断。</p>
-                <div v-for="(item,i) in draft.data.items" :key="i" class="block-complex-row"><el-input v-model="item.icon" maxlength="2" placeholder="🌟"/><el-input v-model="item.label" placeholder="今天最喜欢"/><el-input v-model="item.value" placeholder="浅草的清晨"/><button type="button" @click="removeRow('items',i)">删除</button></div>
+                <div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-complex-row"><el-input v-model="item.icon" maxlength="2" placeholder="🌟"/><el-input v-model="item.label" placeholder="今天最喜欢"/><el-input v-model="item.value" placeholder="浅草的清晨"/><button type="button" @click="removeRow('items',i)">删除</button></div>
                 <el-button plain @click="addRow('items',{icon:'',label:'',value:''})">＋ 添加一条</el-button>
               </template>
               <template v-else-if="draft.type==='weather'"><div class="form-grid form-grid-2"><label>天气<el-input v-model="draft.data.condition"/></label><label>温度<el-input v-model="draft.data.temperature" placeholder="26°C"/></label><label>体感<el-input v-model="draft.data.feelsLike"/></label><label>风力<el-input v-model="draft.data.wind"/></label></div><label>天气带来的感受<el-input v-model="draft.data.note" type="textarea" :rows="3"/></label></template>
@@ -720,6 +781,5 @@
           </div>
           <template #footer><div class="block-dialog-actions"><el-button v-if="editIndex<0" @click="backToCatalog">← 返回重选</el-button><span></span><el-button @click="editorOpen=false">取消</el-button><el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button></div></template>
         </el-dialog>
-      </div>`
-  };
-})();
+      </div>
+</template>

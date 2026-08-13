@@ -1,4 +1,3 @@
-import type { Component } from 'vue'
 import type { JournalDocument } from '@/types/journal-block'
 
 export interface BlockUpload {
@@ -19,9 +18,4 @@ export interface BlockEditorHandle {
   flushInline(): void
 }
 
-declare global {
-  interface Window { JournalBlockEditor: Component }
-}
-
-export const LegacyJournalBlockEditor = window.JournalBlockEditor
 export type { JournalDocument }

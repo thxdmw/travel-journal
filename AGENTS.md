@@ -36,7 +36,7 @@
 | API 类型 | `frontend/src/types/`，与后端 record / entity 对应 |
 | 旧脚本兼容层 | `frontend/src/legacy/travel-api-global.ts`，重建 `window.TravelApi` |
 | 日记 Block 渲染 | `frontend/src/journal/`（TS，已迁移） |
-| 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
+| 日记 Block 编辑 | `frontend/src/admin/JournalBlockEditor.vue`、`JournalEditorPage.vue` |
 | 日记媒体/灯箱 | `frontend/src/media/`、`frontend/src/public/pages/JournalDetailPage.vue` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
 | 主题设计器 | `admin/studio.js`、`theme-*.css` |
@@ -110,7 +110,7 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记媒体增强与灯箱分组 | `frontend/src/media/` | `static/js/dist/journal-media.js` |
 | 今日路线与回放 | `frontend/src/route/` | `static/js/dist/day-route.js` |
 
-公共层与公开端页面层已全部迁完。公开端由 `frontend/src/entries/public.ts` 直接装配 TS/SFC 页面、Vue Router、地图渲染和主题作用域，不再加载 `static/js/public-app.js`，生产清单也不再生成 `public-app-*.js`。Vite 继续以公开站/后台多页 ESM 构建，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。后台应用壳、路由和守卫已由 `frontend/src/entries/admin.ts` 直接装配，`static/js/admin-app.js` 已删除；后台页面已全部迁到 `frontend/src/admin/`，主题设计器的动态 token 表在 `theme-studio-config.ts`。页面通过 `#admin-app` 的 Symbol 注册表提供给入口，`trip-workspace.js`、`moments.js`、`studio.js` 和 `journal-editor.js` 只剩 SFC 装配桥。日记页面暂由 `legacy-block-editor.ts` 接入旧 `common/journal-block-editor.js`，下一阶段替换该 Block 内核；另有 `common/custom-cursor.js`、`common/pwa.js` 等共享 IIFE 待最后收口。
+公共层和页面层已全部迁完。公开端与后台由 `frontend/src/entries/` 直接装配 TypeScript/SFC 页面、Vue Router 及各运行时，Journal Block 编辑器位于 `frontend/src/admin/JournalBlockEditor.vue`。Vite 以公开站/后台两份 HTML 为多页入口，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。`static/js` 下只保留待收尾移除的兼容装配桥与渐进增强脚本；下一步清理全局兼容层、历史夹具并接入 CI。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 

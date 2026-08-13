@@ -1,7 +1,7 @@
 /*
  * 迁移兼容层：把 TS Block 模块重新拼成旧的 `window.JournalBlocks` 形状。
  *
- * 消费方是 admin/journal-editor.js、common/journal-block-editor.js 和 admin/studio.js，
+ * 消费方是尚未移除的后台兼容桥，
  * 负责编辑器建块和实时预览。
  *
  * TODO(迁移): 每有一个消费方迁到 SFC，就让它直接从 @/journal 导入；
