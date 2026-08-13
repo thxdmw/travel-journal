@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/publish-app.mjs",
-    "build:legacy": "node scripts/build-legacy-bundles.mjs",
     "typecheck": "vue-tsc --noEmit",
     "test:unit": "vitest run",
     "test:watch": "vitest",

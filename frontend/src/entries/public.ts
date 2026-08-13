@@ -1,11 +1,4 @@
-/* 公开站正式 ESM 入口：兼容全局先为后台旧脚本保留，公开页面与启动装配全部使用 TS/SFC。 */
-import '@/legacy/travel-theme-global'
-import '@/legacy/theme-effects-global'
-import '@/legacy/travel-api-global'
-import '@/legacy/travel-map-global'
-import '@/legacy/journal-media-global'
-import '@/legacy/journal-blocks-global'
-import '@/legacy/day-route-global'
+/* 公开站正式 ESM 入口：页面与运行时全部直接使用 TypeScript 模块。 */
 import { createApp } from 'vue'
 import { createRouter, createWebHashHistory, type PublicRouteRecord } from '@/vendor/vue-router-global'
 import { destroy as destroyMap, create as createMap } from '@/map'
