@@ -24,20 +24,11 @@
     return base + '/thumbnail 480w, ' + base + '/medium 768w, ' + url + ' 1280w';
   }
 
-  const JournalCard = {
-    props: ['item'],
-    setup() { return { coverSrcset }; },
-    template: `
-      <router-link class="journal-card" :to="'/journals/' + item.slug">
-        <img v-if="item.coverUrl" class="card-photo" :src="item.coverUrl" :srcset="coverSrcset(item.coverUrl)" sizes="(max-width: 700px) 92vw, (max-width: 1100px) 46vw, 31vw" loading="lazy" :alt="item.title">
-        <div v-else class="card-photo placeholder">远行手记</div>
-        <div class="card-body">
-          <h3>{{ item.title }}</h3>
-          <p>{{ item.excerpt || '这段旅程，值得慢慢写下来。' }}</p>
-          <div class="card-meta"><span>◷ {{ item.occurredOn }}</span><span v-if="item.cityName||item.tripTitle">⌖ {{ item.cityName || item.tripTitle }}</span><span v-else>✎ 独立日记</span></div>
-        </div>
-      </router-link>`
-  };
+  const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
+  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips) {
+    throw new Error('公开站 SFC 页面注册不完整');
+  }
+  const JournalCard = publicPages.JournalCard;
 
   /**
    * 地图渲染的统一入口：内部走 TravelMap（AUTO/AMAP/OSM），不再直接碰 Leaflet 或高德 API。
@@ -256,8 +247,6 @@
   };
 
   // 页面层渐进迁移桥：SFC 由 ESM 入口注册到 #app，不新增 window.* 全局。
-  const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.Trips) throw new Error('公开站缺少 Trips SFC 注册');
   const Trips = publicPages.Trips;
 
   const TripDetail = {
@@ -300,51 +289,7 @@
       </main><div v-else class="loading">正在读取旅行记录…</div>`
   };
 
-  const Journals = {
-    components: { JournalCard },
-    setup() {
-      const route = VueRouter.useRoute(), router = VueRouter.useRouter();
-      const data = ref(null), tags = ref([]), loading = ref(false);
-      // 关键词和标签都放在 URL 里，这样搜索结果可以直接分享，前进后退也符合预期
-      const keyword = ref(route.query.q || '');
-      const activeTag = computed(() => route.query.tag || '');
-
-      async function load() {
-        loading.value = true;
-        try { data.value = await api.journals(1, 12, route.query.q || undefined, route.query.tag || undefined); }
-        catch (_) { data.value = { items: [] }; }
-        finally { loading.value = false; }
-      }
-      function search() {
-        const query = {};
-        if (keyword.value.trim()) query.q = keyword.value.trim();
-        if (activeTag.value) query.tag = activeTag.value;
-        router.push({ path: '/journals', query });
-      }
-      function pickTag(slug) {
-        const query = {};
-        if (keyword.value.trim()) query.q = keyword.value.trim();
-        if (slug !== activeTag.value) query.tag = slug;   // 再点一次同一个标签就是取消
-        router.push({ path: '/journals', query });
-      }
-      function reset() { keyword.value = ''; router.push({ path: '/journals' }); }
-
-      watch(() => route.query, load);
-      onMounted(async () => {
-        await load();
-        try { tags.value = await api.tags(); } catch (_) { tags.value = []; }
-      });
-      return { data, tags, loading, keyword, activeTag, search, pickTag, reset };
-    },
-    template: `<main class="page"><div class="page-title"><span class="eyebrow">STORIES ON THE ROAD</span><h1>旅行日记</h1><p>风景会远去，文字让当时的心情重新回来。</p></div>
-      <div class="journal-filters">
-        <div class="search-box"><input v-model="keyword" type="search" placeholder="搜索标题、摘要或正文…" @keyup.enter="search"><button type="button" @click="search">搜索</button></div>
-        <div v-if="tags.length" class="tag-cloud"><button v-for="t in tags" :key="t.slug" type="button" class="tag-chip" :class="{active:activeTag===t.slug}" @click="pickTag(t.slug)">{{t.name}}<i>{{t.journalCount}}</i></button></div>
-      </div>
-      <div v-if="loading" class="empty">正在查找…</div>
-      <div v-else-if="data?.items?.length" class="card-grid"><journal-card v-for="item in data.items" :key="item.id" :item="item"/></div>
-      <div v-else class="empty">没有找到匹配的日记。<button type="button" class="text-link-btn" @click="reset">清空筛选</button></div></main>`
-  };
+  const Journals = publicPages.Journals;
 
   /** 年度回顾：把一年的旅行聚合成几个数字，配一份城市清单。 */
   const YearReview = {

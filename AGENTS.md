@@ -110,7 +110,7 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记媒体增强与灯箱分组 | `frontend/src/media/` | `static/js/dist/journal-media.js` |
 | 今日路线与回放 | `frontend/src/route/` | `static/js/dist/day-route.js` |
 
-公共层已全部迁完。Vite 已切换为公开站/后台多页 ESM 构建，产物以 hash 命名并由 `app-manifest.json` 接入 Service Worker 缓存升级。公开端「旅行列表」已迁到 `frontend/src/public/pages/TripsPage.vue`；其余页面与编辑器 IIFE 仍由 `frontend/src/entries/` 按原顺序引入：`public-app.js`、`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步继续在这两个入口内逐页替换为 SFC。
+公共层已全部迁完。Vite 已切换为公开站/后台多页 ESM 构建，产物以 hash 命名并由 `app-manifest.json` 接入 Service Worker 缓存升级。公开端「旅行列表」「日记列表」及共享日记卡片已迁到 `frontend/src/public/`；其余页面与编辑器 IIFE 仍由 `frontend/src/entries/` 按原顺序引入：`public-app.js`、`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步继续在这两个入口内逐页替换为 SFC。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 

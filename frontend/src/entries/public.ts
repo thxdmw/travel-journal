@@ -11,6 +11,8 @@ import '@/legacy/travel-map-global'
 import '@/legacy/journal-media-global'
 import '@/legacy/journal-blocks-global'
 import '@/legacy/day-route-global'
+import JournalCard from '@/public/components/JournalCard.vue'
+import JournalsPage from '@/public/pages/JournalsPage.vue'
 import TripsPage from '@/public/pages/TripsPage.vue'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
@@ -20,7 +22,7 @@ const pagesKey = Symbol.for('travel-journal.public-pages')
 Object.defineProperty(appRoot, pagesKey, {
   configurable: false,
   enumerable: false,
-  value: Object.freeze({ Trips: TripsPage }),
+  value: Object.freeze({ JournalCard, Journals: JournalsPage, Trips: TripsPage }),
 })
 
 async function bootstrap() {

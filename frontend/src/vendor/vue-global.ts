@@ -28,5 +28,9 @@ export const {
   renderList,
   resolveComponent,
   toDisplayString,
+  vModelText,
+  watch,
   withCtx,
+  withDirectives,
+  withKeys,
 } = window.Vue
