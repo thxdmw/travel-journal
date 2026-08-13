@@ -25,7 +25,7 @@
   }
 
   const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.JournalCard || !publicPages?.MapProviderSwitch || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createJournalDetailPage || !publicPages?.createTripDetailPage) {
+  if (!publicPages?.JournalCard || !publicPages?.MapProviderSwitch || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createJournalDetailPage || !publicPages?.createPublicAppShell || !publicPages?.createTripDetailPage) {
     throw new Error('公开站 SFC 页面注册不完整');
   }
   const JournalCard = publicPages.JournalCard;
@@ -335,61 +335,12 @@
     scrollBehavior: () => ({ top: 0 })
   });
 
-  const App = {
-    setup() {
-      const menu = ref(false);
-      const profile = ref({ displayName:'旅行者', avatarUrl:null, themeKey:'travel-classic' });
-      watch(() => router.currentRoute.value.fullPath, () => menu.value = false);
-      /**
-       * 设计器改了某个设置时，除了推新主题，还会顺带说「大概改的是哪块」（一个 CSS
-       * selector）。找到就短暂加个高亮边框，900ms 后自动摘掉——用户不用来回猜。
-       */
-      function highlightPreviewTarget(selector){
-        if(!selector)return;
-        document.querySelectorAll(selector).forEach(el=>{
-          el.classList.remove('tj-preview-highlight');
-          void el.offsetWidth;
-          el.classList.add('tj-preview-highlight');
-          setTimeout(()=>el.classList.remove('tj-preview-highlight'),900);
-        });
-      }
-      function previewTheme(event){
-        if(event.origin!==location.origin)return;
-        if(event.data?.type==='travel-theme-preview')applyTheme(event.data.theme,{persist:false});
-        else if(event.data?.type==='travel-theme-highlight')highlightPreviewTarget(event.data.selector);
-      }
-      // 菜单现在是浮层，点旁边任何地方都该收起来；Esc 同理
-      function closeMenuOutside(event){ if(menu.value && !event.target.closest('.public-nav, .mobile-menu')) menu.value = false; }
-      function closeMenuOnEsc(event){ if(event.key === 'Escape') menu.value = false; }
-      onMounted(async () => {
-        window.addEventListener('message',previewTheme);
-        document.addEventListener('click',closeMenuOutside);
-        window.addEventListener('keydown',closeMenuOnEsc);
-        if(!isThemePreview)try {
-          profile.value = await api.profile();
-          setSiteTheme(profile.value.theme||profile.value.themeKey);
-        } catch (_) { }
-      });
-      onBeforeUnmount(()=>{
-        window.removeEventListener('message',previewTheme);
-        document.removeEventListener('click',closeMenuOutside);
-        window.removeEventListener('keydown',closeMenuOnEsc);
-      });
-      return { menu, profile, isThemePreview };
-    },
-    template: `
-      <div class="public-shell">
-        <header v-if="!isThemePreview" class="public-header"><div class="header-inner"><router-link class="brand" to="/">远行手记</router-link>
-          <button class="mobile-menu" type="button" :aria-expanded="menu" aria-label="打开前台导航" @click="menu=!menu">☰</button>
-          <nav class="public-nav" :class="{open:menu}"><router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link><router-link to="/years">年度回顾</router-link></nav>
-          <a class="admin-link" href="/admin/" :title="profile.displayName + ' · 管理后台'" aria-label="进入管理后台"><img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="管理员头像"><span v-else>旅</span></a>
-        </div></header>
-        <header v-else class="public-header theme-preview-header" aria-label="固定示例站点导航"><div class="header-inner"><span class="brand">远行手记</span><nav class="public-nav"><span>首页</span><span>旅行</span><span>日记</span><span>足迹地图</span><span>年度回顾</span></nav><span class="admin-link" aria-hidden="true"><span>示</span></span></div></header>
-        <span v-if="isThemePreview" class="theme-preview-fixed-badge" aria-hidden="true">固定示例 · 不读取站点内容</span>
-        <router-view></router-view>
-        <footer class="public-footer">远行手记 · {{isThemePreview?'固定主题示例':'把走过的路写成自己的故事'}}</footer>
-      </div>`
-  };
+  const App = publicPages.createPublicAppShell({
+    isThemePreview,
+    currentPath: () => router.currentRoute.value.fullPath,
+    setSiteTheme,
+    applyTheme
+  });
 
   createApp(App).use(router).component('JournalCard', JournalCard).mount('#app');
 })();
