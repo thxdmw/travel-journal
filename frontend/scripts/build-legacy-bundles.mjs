@@ -57,6 +57,13 @@ const bundles = [
     globalName: 'LocalDraftBundle',
     external: {},
   },
+  {
+    entry: 'src/legacy/travel-map-global.ts',
+    fileName: 'travel-map.js',
+    globalName: 'TravelMapBundle',
+    // Leaflet 由页面上的 vendor/leaflet.js 提供，适配层只从 window.L 取
+    external: {},
+  },
 ]
 
 for (const bundle of bundles) {

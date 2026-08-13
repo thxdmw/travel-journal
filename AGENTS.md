@@ -43,7 +43,7 @@
 | 主题特效运行时 | `frontend/src/effects/`（TS，已迁移） |
 | 本机草稿与离线队列 | `frontend/src/draft/`（TS，已迁移） |
 | 主题 token 应用 | `frontend/src/theme/`（TS，已迁移） |
-| 地图适配层 | `common/travel-map.js`、`common/day-route.js` |
+| 地图适配层 | `frontend/src/map/`（TS，已迁移）、`common/day-route.js` |
 | 地图后端 | `map/controller/PublicMapController.java`、`map/service/MapLocationService.java` |
 | E2E | `e2e/*.spec.ts`、`playwright.config.ts` |
 
@@ -106,8 +106,9 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记 Block 目录与渲染 | `frontend/src/journal/` | `static/js/dist/journal-blocks.js` |
 | 主题特效运行时 | `frontend/src/effects/` | `static/js/dist/theme-effects.js` |
 | 本机草稿仓库 | `frontend/src/draft/` | `static/js/dist/local-draft.js` |
+| 地图 Provider 适配层 | `frontend/src/map/` | `static/js/dist/travel-map.js` |
 
-`day-route.js` 仍是旧脚本，它读 `TravelTheme.mapTokens()`，这条契约在它迁移前不能动。
+`day-route.js` 仍是旧脚本，它读 `TravelTheme.mapTokens()` 并使用 `TravelMap` 实例，这两条契约在它迁移前不能动。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 

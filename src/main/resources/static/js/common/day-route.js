@@ -51,7 +51,7 @@
   /**
    * 在地图上画出一天的路线。
    *
-   * @param map TravelMap 实例（见 common/travel-map.js），由调用方创建并传进来
+   * @param map TravelMap 实例（见 frontend/src/map/），由调用方创建并传进来
    * @returns 一个控制器：play() 开始回放，stop() 停下，destroy() 清理
    */
   function render(map, points, options) {

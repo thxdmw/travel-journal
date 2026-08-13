@@ -40,6 +40,8 @@ const EXPECTED = {
   draftKeys:
     'dropPendingMoment,dropPhoto,get,pendingMoment,pendingMoments,pendingPhotos,pointer,put,queueMoment,queuePhoto,remove,updatePendingMoment',
   draftStores: 'drafts,pending-moments,photos',
+  mapKeys:
+    'create,destroy,gcj02ToWgs84,manualProvider,providerUsable,resolveProvider,runtime,setManualProvider,wgs84ToGcj02',
 }
 
 const server = createServer(async (request, response) => {
@@ -239,6 +241,70 @@ const effects = await page.evaluate(async () => {
   return { ...on, ...off }
 })
 
+/*
+ * 地图适配层。这里用真正的 Leaflet 建一次图——jsdom 里那份是替身，验不出
+ * 「容器已初始化」这类只有真库才会抛的错。高德不验：它要联网加载 SDK 和真 Key。
+ */
+const map = await page.evaluate(async () => {
+  const api = window.TravelMap
+  // 固定成 OSM，避开需要 Key 和外网的高德
+  api.setManualProvider('OSM')
+
+  const host = document.createElement('div')
+  host.style.cssText = 'width:400px;height:300px'
+  document.body.appendChild(host)
+
+  const beijing = [39.9042, 116.4074]
+  const instance = await api.create(host, { center: beijing, zoom: 8 })
+
+  // 两种标记都建一遍：带自定义 HTML 的是业务实际用法，不带的走 Leaflet 默认图钉
+  const marker = instance.addMarker(beijing, { popup: '天安门' })
+  const htmlMarker = instance.addMarker(beijing, { html: '<i class="pin"></i>' })
+  const position = marker.getPosition()
+  instance.setRoute([beijing, [31.2304, 121.4737]], { color: '#123456' })
+
+  // 同容器并发建图：真 Leaflet 会在这里抛「Map container already initialized」
+  let concurrentError = null
+  try {
+    await Promise.all([api.create(host), api.create(host)])
+  } catch (error) {
+    concurrentError = error.message
+  }
+
+  const gcj = api.wgs84ToGcj02(beijing[0], beijing[1])
+  const back = api.gcj02ToWgs84(gcj[0], gcj[1])
+
+  const result = {
+    globalExists: typeof api === 'object' && api !== null,
+    keys: Object.keys(api).sort().join(','),
+    provider: instance.provider,
+    // Leaflet 真的往容器里塞了瓦片层
+    tilesRendered: host.querySelectorAll('.leaflet-tile-pane').length > 0,
+    zoomReadable: instance.getZoom() === 8,
+    /*
+     * 两种标记都建得出来、句柄可用。
+     *
+     * 不验 DOM 细节：默认图钉的渲染依赖 Icon.Default 的图片探测，headless 下
+     * 不保证出图。真正要守的是「不带 html 的调用不再直接抛 createIcon of
+     * undefined」——能执行到这一行就说明那条路通了。
+     */
+    bothMarkersUsable:
+      Number.isFinite(marker.getPosition()[0]) && Number.isFinite(htmlMarker.getPosition()[0]),
+    // OSM 不转坐标，marker 位置应当原样返回
+    markerRoundTrip: Math.abs(position[0] - beijing[0]) < 1e-9,
+    concurrentError,
+    // 转换函数在真实环境里也是这套语义
+    gcjShifted: Math.abs(gcj[0] - beijing[0]) > 1e-6,
+    gcjRoundTrip: Math.abs(back[0] - beijing[0]) < 1e-4,
+  }
+
+  api.destroy(host)
+  const afterDestroy = host.querySelectorAll('.leaflet-tile-pane').length
+  host.remove()
+  api.setManualProvider(null)
+  return { ...result, destroyedCleanly: afterDestroy === 0 }
+})
+
 // 正常路径不应留下任何 console error；下面故意造 500，先把这一刻的快照留住
 const cleanRun = [...consoleErrors]
 
@@ -375,6 +441,16 @@ const checks = [
   ['照片存回来仍是 Blob，没被转成 base64', draft.photoIsBlob],
   ['照片内容逐字节完好', draft.photoContentIntact],
   ['离线随手记入队', draft.momentQueued],
+
+  ['TravelMap 全局契约已建立', map.globalExists],
+  ['TravelMap 方法集与旧实现一致', map.keys === EXPECTED.mapKeys],
+  ['真实 Leaflet 建出 OSM 地图并渲染瓦片层', map.provider === 'OSM' && map.tilesRendered],
+  ['地图选项生效', map.zoomReadable],
+  ['带与不带自定义 HTML 的标记都建得出来', map.bothMarkersUsable],
+  ['OSM 下标记位置原样往返', map.markerRoundTrip],
+  ['同容器并发建图不抛容器已初始化', map.concurrentError === null],
+  ['GCJ-02 转换在真实环境同样生效', map.gcjShifted && map.gcjRoundTrip],
+  ['destroy 后容器被清空', map.destroyedCleanly],
 
   ['正常路径没有 console error', cleanRun.length === 0],
 ]
