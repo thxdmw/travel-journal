@@ -13,16 +13,18 @@ export interface SiteThemeState {
 }
 
 export interface ThemeRequest {
-  themeKey?: string
-  name?: string
+  name: string
   description?: string
   baseThemeKey?: string
+  previewImageUrl?: string | null
   /**
    * 用户改动。builtin 主题只写进 override_json，官方默认不会被覆盖；
    * 还原默认要清空它，不要在前端重建一份官方 JSON。
    */
-  definitionJson?: JsonObject
+  definitionJson: JsonObject
   enabled?: boolean
+  /** 系统主题只保存本次真正改动的 token 路径。 */
+  changedPaths?: string[]
 }
 
 export const themeApi = {
