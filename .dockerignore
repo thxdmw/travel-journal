@@ -5,9 +5,13 @@ target
 *.log
 docs
 node_modules
+frontend/node_modules
+frontend/dist
+src/main/resources/static
 test-results
 playwright-report
-e2e
-package.json
-package-lock.json
-playwright.config.ts
+/frontend/e2e
+/frontend/playwright.config.ts
+/package.json
+/package-lock.json
+/playwright.config.ts

@@ -42,7 +42,7 @@
 - Spring Security Session、BCrypt、CSRF
 - MyBatis-Plus、PostgreSQL、Flyway
 - MinIO Java SDK、Thumbnailator、Apache Tika
-- Vue 3、Vue Router、Element Plus、Axios、Leaflet 浏览器版（全部随 Jar 发布，不走 CDN）
+- Vue 3、Vue Router、Element Plus、Axios、Leaflet npm 依赖（由 Vite 打包后随 Jar 发布，不走 CDN）
 - Anthropic Java SDK（仅在配置了 API Key 时才建客户端；不配就不启用 AI 整理）
 - Maven、Docker 多阶段构建
 
@@ -106,6 +106,13 @@ APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。�
 
 确保 JAVA_HOME 指向 JDK 21。
 
+首次运行或修改前端后，先构建前端部署目录：
+
+~~~bash
+npm ci --prefix frontend
+npm run build --prefix frontend
+~~~
+
 Linux/macOS：
 
 ~~~bash
@@ -117,9 +124,13 @@ Windows PowerShell：
 
 ~~~powershell
 $env:JAVA_HOME = "D:\java\environment\jdk21"
+npm ci --prefix frontend
+npm run build --prefix frontend
 mvn clean test
 mvn spring-boot:run
 ~~~
+
+`frontend/` 是唯一前端源码目录。`src/main/resources/static/` 仅保存构建后的部署文件，禁止直接编辑；每次 `npm run build --prefix frontend` 都会用 `frontend/dist/` 完整替换该目录。生产 Docker 镜像与 Drone CI 会先重建前端，再打包 Spring Boot Jar。
 
 访问：
 
@@ -391,17 +402,17 @@ npm run lint --prefix frontend
 npm run typecheck --prefix frontend
 npm run test:unit --prefix frontend
 npm run build --prefix frontend
-npm run check:js
+npm run verify:build --prefix frontend
 ~~~
 
 移动端布局还有一套 Playwright 端到端测试，覆盖 iPhone 13、Pixel 7 和桌面 Chrome。完整套件是开发依赖，**不参与 Maven 打包和 Docker 镜像构建**；Drone 只在部署前运行标记为 `@smoke` 的 4 条关键路径。日常运行项目仍然不需要 Node.js。完整测试需要一个已经跑起来的应用实例：
 
 ~~~bash
-npm install && npx playwright install chromium
-E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=你的密码 npx playwright test
+npm ci --prefix frontend && npx --prefix frontend playwright install chromium
+E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=你的密码 npm run e2e --prefix frontend
 ~~~
 
-用例位于 `e2e/`：除独立日记新建、旅行日记兼容、连续写作、刷新恢复、发布和手机端布局外，还覆盖快捷组件弹出软键盘后的光标可见性、图片设置四个 Tab 的底部可达性、下拉关闭后的滚动复位、工作台无横向溢出、预算全部保存，以及“白天整理、晚上追加”仍写入同一篇日记。
+用例位于 `frontend/e2e/`：除独立日记新建、旅行日记兼容、连续写作、刷新恢复、发布和手机端布局外，还覆盖快捷组件弹出软键盘后的光标可见性、图片设置四个 Tab 的底部可达性、下拉关闭后的滚动复位、工作台无横向溢出、预算全部保存，以及“白天整理、晚上追加”仍写入同一篇日记。
 
 ## 项目结构
 

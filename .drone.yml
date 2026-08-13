@@ -16,16 +16,6 @@ services:
       POSTGRES_PASSWORD: travel_journal
 
 steps:
-  - name: verify-backend
-    image: maven:3.9.11-eclipse-temurin-21
-    environment:
-      FLYWAY_TEST_JDBC_URL: jdbc:postgresql://postgres:5432/travel_journal
-      FLYWAY_TEST_DB_USERNAME: travel_journal
-      FLYWAY_TEST_DB_PASSWORD: travel_journal
-    commands:
-      # package 会先跑完整测试，再留下供 Playwright 启动的可执行 jar。
-      - mvn package -B -ntp
-
   - name: verify-frontend
     image: node:22-bookworm-slim
     commands:
@@ -34,13 +24,24 @@ steps:
       - npm run typecheck --prefix frontend
       - npm run test:unit --prefix frontend
       - npm run build --prefix frontend
-      - npm run check:js
+      - npm run verify:build --prefix frontend
+
+  - name: verify-backend
+    image: maven:3.9.11-eclipse-temurin-21
+    depends_on:
+      - verify-frontend
+    environment:
+      FLYWAY_TEST_JDBC_URL: jdbc:postgresql://postgres:5432/travel_journal
+      FLYWAY_TEST_DB_USERNAME: travel_journal
+      FLYWAY_TEST_DB_PASSWORD: travel_journal
+    commands:
+      # 前一步已完整重建 static；此处打包的 Jar 与浏览器回归使用同一份前端产物。
+      - mvn package -B -ntp
 
   - name: verify-mobile-smoke
     image: mcr.microsoft.com/playwright:v1.49.0-noble
     depends_on:
       - verify-backend
-      - verify-frontend
     environment:
       SPRING_PROFILES_ACTIVE: dev
       DB_HOST: postgres
@@ -65,7 +66,7 @@ steps:
     commands:
       - apt-get update
       - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-21-jre-headless
-      - npm install --no-audit --no-fund
+      - npm ci --prefix frontend --no-audit --no-fund
       - |
         set -eu
         java -jar target/travel-journal.jar >/tmp/travel-journal-e2e.log 2>&1 &
@@ -83,7 +84,7 @@ steps:
           cat /tmp/travel-journal-e2e.log
           exit 1
         fi
-        npm run e2e -- --project=iphone-13 --grep @smoke
+        npm run e2e --prefix frontend -- --project=iphone-13 --grep @smoke
 
   - name: deploy-from-gitee
     image: appleboy/drone-ssh

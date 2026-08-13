@@ -15,9 +15,9 @@
 
 - Java 21、Spring Boot 3.5、Maven、Spring Security Session、MyBatis-Plus。
 - PostgreSQL + Flyway；媒体使用 MinIO。
-- 前端是随 Jar 发布的 Vue 3 + TypeScript SFC，使用 Vue Router、Element Plus、Axios、Leaflet 本地资源。
+- 前端是随 Jar 发布的 Vue 3 + TypeScript SFC，使用 Vue Router、Element Plus、Axios、Leaflet npm 依赖。
 - 前端已统一为 `frontend/` 下的 Vite + TypeScript + Vue SFC，多页产物随 Jar 发布。
-- 不要引入 React 或大型状态管理。Maven / Docker 使用已提交的 hash 产物，Drone 会重建并校验产物。
+- 不要引入 React 或大型状态管理。Docker 与 Drone 必须先构建前端，再打包 Jar。
 - 新代码一律写在 `frontend/src/`，用 ESM 和 TypeScript；不要恢复 IIFE 或 `window.*` 业务全局。
 - 依赖和静态资源原则上本地托管，不新增 CDN 依赖。
 - 密钥只允许来自环境变量；不得提交数据库、MinIO、高德或 AI 的真实凭据。
@@ -29,7 +29,7 @@
 | 后端模块 | `src/main/java/com/thx/traveljournal/<领域>/` |
 | 配置 | `config/AppProperties.java`、`src/main/resources/application.yml`、`.env.example` |
 | 数据库迁移 | `src/main/resources/db/migration/` |
-| 公开站点 | `frontend/index.html`、`frontend/src/entries/public.ts`、`frontend/src/public/`、`static/css/public.css` |
+| 公开站点 | `frontend/index.html`、`frontend/src/entries/public.ts`、`frontend/src/public/`、`frontend/src/styles/public.css` |
 | 后台入口 | `frontend/admin/index.html`、`frontend/src/entries/admin.ts`、`frontend/src/admin/AdminAppShell.vue` |
 | API 客户端 | `frontend/src/api/`（TS，已迁移）；拦截器会解开 `ApiResponse.data` |
 | API 类型 | `frontend/src/types/`，与后端 record / entity 对应 |
@@ -37,13 +37,13 @@
 | 日记 Block 编辑 | `frontend/src/admin/JournalBlockEditor.vue`、`JournalEditorPage.vue` |
 | 日记媒体/灯箱 | `frontend/src/media/`、`frontend/src/public/pages/JournalDetailPage.vue` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
-| 主题设计器 | `admin/studio.js`、`theme-*.css` |
+| 主题设计器 | `frontend/src/admin/pages/ThemeStudioPage.vue`、`frontend/src/styles/theme-*.css` |
 | 主题特效运行时 | `frontend/src/effects/`（TS，已迁移） |
 | 本机草稿与离线队列 | `frontend/src/draft/`（TS，已迁移） |
 | 主题 token 应用 | `frontend/src/theme/`（TS，已迁移） |
 | 地图适配层 | `frontend/src/map/`、`frontend/src/route/`（TS，已迁移） |
 | 地图后端 | `map/controller/PublicMapController.java`、`map/service/MapLocationService.java` |
-| E2E | `e2e/*.spec.ts`、`playwright.config.ts` |
+| E2E | `frontend/e2e/*.spec.ts`、`frontend/playwright.config.ts` |
 
 Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路径为 `src/main/resources/static/`，上表省略了这些公共前缀。
 
@@ -84,12 +84,14 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 - 涉及历史数据时优先增加元数据并兼容读取，不做不可逆迁移，除非任务明确要求且来源已核实。
 - MinIO 只保存媒体对象，不保存地图瓦片或主题定义。
 
-## 前端静态资源版本
+## 前端构建产物
 
-- 修改被 HTML 引用的 JS/CSS 后，同步提高对应 `?v=`：公开端看 `static/index.html`，后台看 `static/admin/index.html`。
-- 同步更新 `static/service-worker.js` 的同一资源地址，并提高其中的 `VERSION`，避免 PWA 继续使用旧缓存。
-- 运行中的 Spring Boot 通常从 `target/classes/static` 提供资源。源码改完但页面仍旧时，先执行 `mvn process-resources`，不要误判为代码没有生效。
-- `static/app-assets/`、`static/app-manifest.json` 和两份运行 HTML 由 `frontend/` 构建生成，不要手改。改了 `frontend/src` 或页面入口必须 `npm run build`（在 `frontend/` 下），产物和源码要一起提交。
+- `frontend/` 是唯一前端源码目录：业务代码在 `src/`，稳定 URL 的原样资源在 `public/`。
+- `src/main/resources/static/` 是纯部署产物目录，禁止手改其中任何文件；`npm run build` 会先生成完整 `frontend/dist/`，再整体替换它。
+- `npm run build:dist` 只生成可直接部署的 `frontend/dist/`；`npm run publish` 将已生成的 dist 原子发布到 Spring Boot static。
+- CSS、JS 和由模块引用的资源均由 Vite 生成内容 hash；`app-manifest.json` 根据整个部署目录的路径和内容生成版本，不再维护 `?v=`。
+- 运行中的 Spring Boot 通常从 `target/classes/static` 提供资源。前端源码改完后先执行 `npm run build`，再执行 `mvn process-resources` 或重新打 Jar。
+- Docker 和 Drone 都必须先构建前端再打包 Jar，避免把仓库中上一次提交的产物误当成当前构建结果。
 
 ## 前端迁移状态
 
@@ -108,15 +110,15 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记媒体增强与灯箱分组 | `frontend/src/media/` |
 | 今日路线与回放 | `frontend/src/route/` |
 
-公开端与后台由 `frontend/src/entries/` 直接装配 TypeScript/SFC 页面、Vue Router 及各运行时，Journal Block 编辑器位于 `frontend/src/admin/JournalBlockEditor.vue`。Vite 以公开站/后台两份 HTML 为多页入口，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。迁移期兼容层、回滚产物和历史对拍夹具均已删除。
+公开端与后台由 `frontend/src/entries/` 直接装配 TypeScript/SFC 页面、Vue Router 及各运行时，Journal Block 编辑器位于 `frontend/src/admin/JournalBlockEditor.vue`。Vite 以公开站、后台和主题卡片三份 HTML 为多页入口，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。迁移期兼容层、回滚产物和历史对拍夹具均已删除。
 
 `frontend/src/draft/schema.ts` 里的每个字符串都对应用户机器上已有的数据。库名、store 名、keyPath、索引名、版本号、localStorage 的键，改一个字符就是一次没有提示的数据丢失。真要改结构必须写 `onupgradeneeded` 的迁移分支并验证旧数据读得出来。
 
 前端构建机制：
 
-- `frontend/vite.config.ts` 以公开站和后台两份 HTML 为多页入口；`frontend/scripts/publish-app.mjs` 将 hash 产物、HTML 和清单回填 `static/`。
-- 产物提交进 git，Maven / Docker 直接打包这些产物；Drone 会重新构建并运行前端校验。
-- `axios`、`vue` 等仍由 `static/vendor/` 的全局版提供，构建时按 external 处理，不重复打包。
+- `frontend/vite.config.ts` 管理三个 HTML 入口；`finalize-dist.mjs` 生成完整部署目录与清单，`publish-app.mjs` 原子替换 `static/`。
+- Vue、Vue Router、Axios、Element Plus、Leaflet 均由 npm 锁定并进入 Vite 模块图，不再使用浏览器全局 vendor。
+- 产物提交进 git用于源码检出后的直接 Maven 开发体验；Docker 与 Drone 会无条件重建，不信任已提交产物。
 
 写新前端代码时：一律放 `frontend/src/`，禁止新增 `window.*` 全局，禁止 `any` 和 `@ts-ignore`（ESLint 已设为 error）。
 
@@ -135,9 +137,6 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 # Java 单测；交付前涉及后端时推荐 clean test
 mvn -q test
 
-# 剩余非模块浏览器脚本语法检查
-npm run check:js
-
 # 改动 frontend/ 时（在 frontend/ 目录下执行）
 npm run lint
 npm run typecheck
@@ -145,7 +144,7 @@ npm run test:unit
 npm run build
 
 # ESM 产物与 PWA 的浏览器冒烟验证，不需要后端
-npm run verify:bundles
+npm run verify:build
 
 # 检查空白错误
 git diff --check
