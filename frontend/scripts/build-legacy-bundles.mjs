@@ -51,6 +51,12 @@ const bundles = [
     globalName: 'ThemeEffectsBundle',
     external: {},
   },
+  {
+    entry: 'src/legacy/local-draft-global.ts',
+    fileName: 'local-draft.js',
+    globalName: 'LocalDraftBundle',
+    external: {},
+  },
 ]
 
 for (const bundle of bundles) {

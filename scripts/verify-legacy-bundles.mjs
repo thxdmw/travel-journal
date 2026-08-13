@@ -37,6 +37,9 @@ const EXPECTED = {
   themeKeys: 'apply,current,mapTokens,normalize,stored,supportedBases',
   blockKeys: 'CATALOG,createBlock,emptyDocument,normalize,render,renderBlock,sampleDocument,textContent,wordCount',
   catalogSize: 29,
+  draftKeys:
+    'dropPendingMoment,dropPhoto,get,pendingMoment,pendingMoments,pendingPhotos,pointer,put,queueMoment,queuePhoto,remove,updatePendingMoment',
+  draftStores: 'drafts,pending-moments,photos',
 }
 
 const server = createServer(async (request, response) => {
@@ -239,6 +242,73 @@ const effects = await page.evaluate(async () => {
 // 正常路径不应留下任何 console error；下面故意造 500，先把这一刻的快照留住
 const cleanRun = [...consoleErrors]
 
+/*
+ * 草稿仓库只在后台页面加载，所以单独开一页。
+ *
+ * 这里验的是 jsdom 到不了的地方：真实 IndexedDB 的事务与索引，以及照片 Blob
+ * 原样往返。jsdom 的 Blob 不被 Node 的结构化克隆支持，单元测试里存回来是个空
+ * 对象——「没有被转成 base64」这条只能在真浏览器里证。
+ */
+const adminPage = await browser.newPage()
+await adminPage.route('**/api/**', route =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 'OK', message: 'success', requestId: 'verify', data: null }),
+  }),
+)
+await adminPage.goto(base + '/admin/index.html', { waitUntil: 'domcontentloaded' })
+await adminPage.waitForFunction(() => typeof window.LocalDraft === 'object')
+
+const draft = await adminPage.evaluate(async () => {
+  const api = window.LocalDraft
+  const bytes = '原始照片字节 with binary  ÿ'
+
+  await api.put(4242, { title: '真机草稿', blocks: [1, 2, 3] })
+  const stored = await api.get(4242)
+
+  const blob = new Blob([bytes], { type: 'image/jpeg' })
+  await api.queuePhoto(4242, 'verify-key', blob, 'DSC001.jpg')
+  const photos = await api.pendingPhotos(4242)
+  const restored = photos[0]?.blob
+
+  await api.queueMoment({ clientId: 'verify-c1', tripId: 77, content: '离线记的' })
+  const moment = await api.pendingMoment('verify-c1')
+
+  // 直接开库检查结构，确认建的就是既有用户机器上那一套
+  const db = await new Promise(done => {
+    const request = indexedDB.open('travel-journal')
+    request.onsuccess = () => done(request.result)
+  })
+  const schema = {
+    version: db.version,
+    stores: [...db.objectStoreNames].sort().join(','),
+  }
+  db.close()
+
+  const result = {
+    globalExists: typeof api === 'object' && api !== null,
+    keys: Object.keys(api).sort().join(','),
+    draftRoundTrip: JSON.stringify(stored?.form) === JSON.stringify({ title: '真机草稿', blocks: [1, 2, 3] }),
+    pointerKept: api.pointer()?.journalId === 4242,
+    photoQueued: photos.length === 1 && photos[0]?.name === 'DSC001.jpg',
+    // 关键一条：存回来的仍是 Blob，且内容逐字节相同
+    photoIsBlob: restored instanceof Blob,
+    photoContentIntact: restored instanceof Blob ? (await restored.text()) === bytes : false,
+    momentQueued: moment?.content === '离线记的' && moment?.state === 'pending',
+    schemaVersion: schema.version,
+    schemaStores: schema.stores,
+  }
+
+  // 收拾干净，别把验证数据留在浏览器 profile 里
+  await api.remove(4242)
+  await api.dropPhoto('verify-key')
+  await api.dropPendingMoment('verify-c1')
+  return result
+})
+
+await adminPage.close()
+
 await page.route('**/api/public/trips', route =>
   route.fulfill({
     status: 500,
@@ -295,6 +365,16 @@ const checks = [
   ['锚定型贴纸挂到了内容宿主上', effects.stickerAnchored],
   ['切走主题后画布被移除', effects.canvasRemoved],
   ['切走主题后贴纸与锚点标记都清干净', effects.stickersRemoved && effects.anchorCleared],
+
+  ['LocalDraft 全局契约已建立', draft.globalExists],
+  ['LocalDraft 方法集与旧实现一致', draft.keys === EXPECTED.draftKeys],
+  ['IndexedDB 版本与 store 与既有用户一致', draft.schemaVersion === 3 && draft.schemaStores === EXPECTED.draftStores],
+  ['正文草稿往返无损', draft.draftRoundTrip],
+  ['最近编辑指针被维护', draft.pointerKept],
+  ['照片入队并按日记查得到', draft.photoQueued],
+  ['照片存回来仍是 Blob，没被转成 base64', draft.photoIsBlob],
+  ['照片内容逐字节完好', draft.photoContentIntact],
+  ['离线随手记入队', draft.momentQueued],
 
   ['正常路径没有 console error', cleanRun.length === 0],
 ]

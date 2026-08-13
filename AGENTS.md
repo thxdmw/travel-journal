@@ -39,7 +39,9 @@
 | 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
 | 日记媒体/灯箱 | `common/journal-media.js`、`public-app.js` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
-| 主题设计器 | `admin/studio.js`、`theme-effects.js`、`theme-*.css` |
+| 主题设计器 | `admin/studio.js`、`theme-*.css` |
+| 主题特效运行时 | `frontend/src/effects/`（TS，已迁移） |
+| 本机草稿与离线队列 | `frontend/src/draft/`（TS，已迁移） |
 | 主题 token 应用 | `frontend/src/theme/`（TS，已迁移） |
 | 地图适配层 | `common/travel-map.js`、`common/day-route.js` |
 | 地图后端 | `map/controller/PublicMapController.java`、`map/service/MapLocationService.java` |
@@ -102,10 +104,17 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | API 客户端与领域类型 | `frontend/src/api/`、`frontend/src/types/` | `static/js/dist/travel-api.js` |
 | 主题 token 应用 | `frontend/src/theme/` | `static/js/dist/travel-theme.js` |
 | 日记 Block 目录与渲染 | `frontend/src/journal/` | `static/js/dist/journal-blocks.js` |
+| 主题特效运行时 | `frontend/src/effects/` | `static/js/dist/theme-effects.js` |
+| 本机草稿仓库 | `frontend/src/draft/` | `static/js/dist/local-draft.js` |
 
-`theme-effects.js` 仍是旧脚本，它读 `TravelTheme.current()` 拿贴纸配置；`day-route.js` 读 `mapTokens()`。这两条契约在它们迁移前不能动。
+`day-route.js` 仍是旧脚本，它读 `TravelTheme.mapTokens()`，这条契约在它迁移前不能动。
 
-`frontend/tests/fixtures/legacy-journal-blocks.js` 是 Block 渲染迁移前的历史快照，只供对拍用例逐字节比对输出，不参与运行，也不要跟着新需求改。
+`frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
+
+两条迁移期的坑，新增产物时注意：
+
+- **产物之间不共享模块实例。** 每个 IIFE 各自打包一份依赖，A 产物里 `import` 来的模块状态和 B 产物里的是两个对象。跨产物读状态必须走 `window.*`，或者由入口注入——`src/effects/runtime.ts` 的 `currentDefinition` 就是后者。单元测试发现不了这类问题，因为测试里它们本来就是同一实例。
+- **`frontend/src/draft/schema.ts` 里的每个字符串都对应用户机器上已有的数据。** 库名、store 名、keyPath、索引名、版本号、localStorage 的键，改一个字符就是一次没有提示的数据丢失。真要改结构必须写 `onupgradeneeded` 的迁移分支并验证旧数据读得出来。
 
 迁移期的机制：
 
