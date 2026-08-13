@@ -33,6 +33,7 @@ export const {
   onBeforeUnmount,
   onMounted,
   openBlock,
+  reactive,
   ref,
   renderList,
   resolveComponent,

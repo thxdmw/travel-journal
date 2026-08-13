@@ -7,6 +7,7 @@ import '@/legacy/local-draft-global'
 import '@/legacy/journal-media-global'
 import '@/legacy/journal-blocks-global'
 import '@/legacy/day-route-global'
+import '@/admin/register-pages'
 
 import '../../../src/main/resources/static/js/common/journal-block-editor.js'
 import '../../../src/main/resources/static/js/admin/shared.js'
