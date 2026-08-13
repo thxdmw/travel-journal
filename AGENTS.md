@@ -30,14 +30,14 @@
 | 后端模块 | `src/main/java/com/thx/traveljournal/<领域>/` |
 | 配置 | `config/AppProperties.java`、`src/main/resources/application.yml`、`.env.example` |
 | 数据库迁移 | `src/main/resources/db/migration/` |
-| 公开站点 | `frontend/index.html`、`frontend/src/entries/public.ts`、`static/js/public-app.js`、`static/css/public.css` |
+| 公开站点 | `frontend/index.html`、`frontend/src/entries/public.ts`、`frontend/src/public/`、`static/css/public.css` |
 | 后台入口 | `frontend/admin/index.html`、`frontend/src/entries/admin.ts`、`static/js/admin-app.js`、`static/js/admin/` |
 | API 客户端 | `frontend/src/api/`（TS，已迁移）；拦截器会解开 `ApiResponse.data` |
 | API 类型 | `frontend/src/types/`，与后端 record / entity 对应 |
 | 旧脚本兼容层 | `frontend/src/legacy/travel-api-global.ts`，重建 `window.TravelApi` |
 | 日记 Block 渲染 | `frontend/src/journal/`（TS，已迁移） |
 | 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
-| 日记媒体/灯箱 | `frontend/src/media/`（TS，已迁移）、`public-app.js` |
+| 日记媒体/灯箱 | `frontend/src/media/`、`frontend/src/public/pages/JournalDetailPage.vue` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
 | 主题设计器 | `admin/studio.js`、`theme-*.css` |
 | 主题特效运行时 | `frontend/src/effects/`（TS，已迁移） |
@@ -110,7 +110,7 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 日记媒体增强与灯箱分组 | `frontend/src/media/` | `static/js/dist/journal-media.js` |
 | 今日路线与回放 | `frontend/src/route/` | `static/js/dist/day-route.js` |
 
-公共层已全部迁完。Vite 已切换为公开站/后台多页 ESM 构建，产物以 hash 命名并由 `app-manifest.json` 接入 Service Worker 缓存升级。公开端全部业务页面、主题固定预览、应用壳及共享日记卡片、地图 Provider 切换器已迁到 `frontend/src/public/`；`public-app.js` 只剩路由、地图渲染和启动装配。后台页面与编辑器 IIFE 仍由 `frontend/src/entries/` 按原顺序引入：`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步迁走公开端最后的启动装配，再逐页迁移后台。
+公共层与公开端页面层已全部迁完。公开端由 `frontend/src/entries/public.ts` 直接装配 TS/SFC 页面、Vue Router、地图渲染和主题作用域，不再加载 `static/js/public-app.js`，生产清单也不再生成 `public-app-*.js`。Vite 继续以公开站/后台多页 ESM 构建，hash 产物由 `app-manifest.json` 接入 Service Worker 缓存升级。后台页面与编辑器 IIFE 仍由 `frontend/src/entries/admin.ts` 按原顺序引入：`admin-app.js`、`admin/*`、`common/journal-block-editor.js`、`common/custom-cursor.js`、`common/pwa.js`。下一步逐页迁移后台。
 
 `frontend/tests/fixtures/` 下是各模块迁移前的历史快照，只供对拍用例比对，不参与运行，也不要跟着新需求改。
 

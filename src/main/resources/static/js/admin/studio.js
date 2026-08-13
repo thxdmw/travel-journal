@@ -81,7 +81,7 @@
       // 手机必须给高度：机身比例是固定的，只按宽度缩放会把 390×844 压成 390×610。
       const PREVIEW_VIEWPORTS={desktop:{width:1280,height:null},mobile:{width:390,height:844}};
       // 三个固定预览场景：首页、日记、地图。三者已经覆盖绝大多数 Theme Token 的
-      // 实际落点，不需要更多页面；场景数据在 public-app.js 里写死，不依赖真实数据库内容。
+      // 实际落点，不需要更多页面；场景数据在公开端 SFC Fixture 中固定，不依赖真实数据库内容。
       const previewScene=ref('home');
       const previewSrc=computed(()=>'/?theme-preview=1&scene='+previewScene.value+'#/theme-preview-scene');
       const previewWrap=ref(null);

@@ -1,9 +1,4 @@
-/*
- * 公开站多页入口。
- *
- * 这里的顺序就是迁移前 index.html 的脚本顺序。兼容层先建立 window.* 契约，
- * 页面 IIFE 再创建 Vue 应用；后续迁 SFC 时从本文件逐个替换即可。
- */
+/* 公开站正式 ESM 入口：兼容全局先为后台旧脚本保留，公开页面与启动装配全部使用 TS/SFC。 */
 import '@/legacy/travel-theme-global'
 import '@/legacy/theme-effects-global'
 import '@/legacy/travel-api-global'
@@ -11,44 +6,94 @@ import '@/legacy/travel-map-global'
 import '@/legacy/journal-media-global'
 import '@/legacy/journal-blocks-global'
 import '@/legacy/day-route-global'
-import JournalCard from '@/public/components/JournalCard.vue'
+import { createApp } from 'vue'
+import { createRouter, createWebHashHistory, type PublicRouteRecord } from '@/vendor/vue-router-global'
+import { destroy as destroyMap, create as createMap } from '@/map'
+import { apply, mapTokens, stored } from '@/theme/theme'
 import MapProviderSwitch from '@/public/components/MapProviderSwitch.vue'
+import JournalCard from '@/public/components/JournalCard.vue'
 import JournalsPage from '@/public/pages/JournalsPage.vue'
 import TripsPage from '@/public/pages/TripsPage.vue'
 import YearReviewPage from '@/public/pages/YearReviewPage.vue'
-import { createTripDetailPage } from '@/public/factories/trip-detail'
-import { createHomePage } from '@/public/factories/home'
 import { createFootprintMapPage } from '@/public/factories/footprint-map'
+import { createHomePage } from '@/public/factories/home'
 import { createJournalDetailPage } from '@/public/factories/journal-detail'
 import { createPublicAppShell } from '@/public/factories/app-shell'
 import { createThemePreviewScene } from '@/public/factories/theme-preview'
+import { createTripDetailPage } from '@/public/factories/trip-detail'
+import { createPublicMap } from '@/public/map-renderer'
+import type { ThemeInput } from '@/types/theme'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
 
-const pagesKey = Symbol.for('travel-journal.public-pages')
-Object.defineProperty(appRoot, pagesKey, {
-  configurable: false,
-  enumerable: false,
-  value: Object.freeze({
-    JournalCard,
-    MapProviderSwitch,
-    Journals: JournalsPage,
-    Trips: TripsPage,
-    YearReview: YearReviewPage,
-    createFootprintMapPage,
-    createHomePage,
-    createJournalDetailPage,
-    createPublicAppShell,
-    createThemePreviewScene,
-    createTripDetailPage,
-  }),
+const isThemePreview = new URLSearchParams(location.search).has('theme-preview')
+let siteTheme: ThemeInput = isThemePreview ? 'travel-classic' : stored()
+let scopedTheme: ThemeInput = null
+
+function setSiteTheme(theme: ThemeInput) {
+  siteTheme = theme
+  if (!scopedTheme) apply(theme)
+}
+
+function setScopedTheme(theme: ThemeInput) {
+  scopedTheme = theme
+  apply(theme)
+}
+
+function clearScopedTheme() {
+  scopedTheme = null
+  apply(siteTheme)
+}
+
+apply(siteTheme)
+
+const sharedMapDeps = {
+  mapProviderSwitch: MapProviderSwitch,
+  createMap: createPublicMap,
+  destroyMap,
+}
+const Home = createHomePage(sharedMapDeps)
+const FootprintMap = createFootprintMapPage(sharedMapDeps)
+const TripDetail = createTripDetailPage({ ...sharedMapDeps, setScopedTheme, clearScopedTheme })
+const JournalDetail = createJournalDetailPage({ ...sharedMapDeps, setScopedTheme, clearScopedTheme })
+const ThemePreviewScene = createThemePreviewScene({
+  createMap: (element, options) => createMap(element, options),
+  destroyMap,
+  mapTokens,
 })
 
-async function bootstrap() {
-  await import('../../../src/main/resources/static/js/public-app.js')
+const routes: PublicRouteRecord[] = isThemePreview
+  ? [{ path: '/:pathMatch(.*)*', component: ThemePreviewScene }]
+  : [
+      { path: '/', component: Home },
+      { path: '/trips', component: TripsPage },
+      { path: '/trips/:slug', component: TripDetail },
+      { path: '/journals', component: JournalsPage },
+      { path: '/journals/:slug', component: JournalDetail },
+      { path: '/preview/:token', component: JournalDetail, props: { preview: true } },
+      { path: '/years', component: YearReviewPage },
+      { path: '/years/:year', component: YearReviewPage },
+      { path: '/map', component: FootprintMap },
+    ]
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes,
+  scrollBehavior: () => ({ top: 0 }),
+})
+const App = createPublicAppShell({
+  isThemePreview,
+  currentPath: () => router.currentRoute.value.fullPath,
+  setSiteTheme,
+  applyTheme: apply,
+})
+
+createApp(App).use(router).component('JournalCard', JournalCard).mount(appRoot)
+
+async function loadEnhancements() {
   await import('../../../src/main/resources/static/js/common/custom-cursor.js')
   await import('../../../src/main/resources/static/js/common/pwa.js')
 }
 
-void bootstrap()
+void loadEnhancements()

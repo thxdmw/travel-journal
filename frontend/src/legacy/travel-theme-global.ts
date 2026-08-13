@@ -1,7 +1,7 @@
 /*
  * 迁移兼容层：把 TS 主题模块重新拼成旧的 `window.TravelTheme` 形状。
  *
- * 消费方目前有 public-app.js、admin/shared.js、admin/studio.js、theme-effects.js、
+ * 消费方目前有 admin/shared.js、admin/studio.js、theme-effects.js、
  * day-route.js。其中 theme-effects.js 读的是 `current()?.definitionJson.stickers`，
  * day-route.js 读 `mapTokens()`——两者都还没迁，契约必须原样保留。
  *

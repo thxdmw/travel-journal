@@ -140,6 +140,7 @@ const pwa = await page.evaluate(async () => {
   return {
     version: manifest.version,
     assetCount: manifest.assets.length,
+    hasLegacyPublicApp: manifest.assets.some(asset => /\/public-app-[^/]+\.js$/.test(asset)),
     scriptUrl: registration.active?.scriptURL ?? '',
     cacheExists: (await caches.keys()).includes(cacheName),
     missing,
@@ -552,9 +553,10 @@ server.close()
 
 const checks = [
   ['Vite 产物清单带内容版本', /^[a-f0-9]{12}$/.test(pwa.version) && pwa.assetCount > 0],
+  ['公开端不再生成 public-app 兼容产物', !pwa.hasLegacyPublicApp],
   ['PWA 注册 URL 携带本次产物版本', pwa.scriptUrl.includes('build=' + pwa.version)],
   ['Service Worker 预缓存全部 hash 产物', pwa.cacheExists && pwa.missing.length === 0],
-  ['Trips SFC 已挂载到旧公开端路由', tripsPage.title === '旅行' && tripsPage.link === '#/trips/iceland'],
+  ['Trips SFC 已挂载到公开端 ESM 路由', tripsPage.title === '旅行' && tripsPage.link === '#/trips/iceland'],
   ['Trips SFC 在真浏览器按年份筛选', tripsPage.years.includes('2026') && tripsPage.years.includes('2025') && tripsPage.visibleCards.join(',') === '冰岛环岛'],
   ['TravelApi 全局契约已建立', shape.exists],
   ['TravelApi 顶层 key 与旧 api.js 一致', shape.root === EXPECTED.root],

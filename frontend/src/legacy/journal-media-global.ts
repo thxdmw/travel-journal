@@ -1,7 +1,7 @@
 /*
  * 迁移兼容层：Block 图片组件的运行时增强。
  *
- * 消费方是 public-app.js、admin/journal-editor.js 和 common/journal-block-editor.js。
+ * 消费方是 admin/journal-editor.js 和 common/journal-block-editor.js。
  * MEDIA_SELECTOR 是灯箱收图的唯一依据，被 admin/shared.js 直接读取。
  *
  * TODO(迁移): 消费方迁到 SFC 后改为直接 import @/media，删除本文件。

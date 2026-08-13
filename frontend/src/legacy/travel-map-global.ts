@@ -1,7 +1,7 @@
 /*
  * 迁移兼容层：地图适配层。
  *
- * 消费方是 public-app.js、admin/trip-workspace.js 和 common/day-route.js。
+ * 消费方是 admin/trip-workspace.js 和后台路线相关脚本。
  *
  * TODO(迁移): 消费方迁到 SFC 后改为直接 import @/map，删除本文件。
  */

@@ -1,7 +1,7 @@
 /*
  * 迁移兼容层：今日路线与回放。
  *
- * 消费方是 public-app.js（日记详情的当日路线）和 admin/moments.js（随手记回放）。
+ * 消费方是 admin/moments.js（随手记回放）。
  *
  * 主题 token 和建图都从 window 取，不直接 import：地图和主题各自是独立产物，
  * import 会在本 bundle 里再打包一份模块实例——地图那份还带着自己的容器队列，

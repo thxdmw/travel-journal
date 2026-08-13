@@ -16,6 +16,7 @@ export const {
   Fragment,
   Teleport,
   computed,
+  createApp,
   createBlock,
   createCommentVNode,
   createElementBlock,

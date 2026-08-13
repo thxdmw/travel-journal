@@ -1,7 +1,7 @@
 /*
  * 迁移兼容层：把 TS API 层重新拼成旧的 `window.TravelApi` 形状。
  *
- * 存在的唯一理由是让 static/js 下还没迁移的 IIFE 脚本（public-app.js、
+ * 存在的唯一理由是让 static/js 下还没迁移的后台与编辑器 IIFE 脚本（
  * admin/shared.js、trip-workspace.js）在完全不改动的前提下换上新实现。
  * 每个 key 都必须和原 js/common/api.js 逐条等价——名字、参数顺序、默认值、
  * HTTP 方法都不能变，否则受影响的是线上正在编辑的日记。
