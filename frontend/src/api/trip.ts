@@ -1,7 +1,7 @@
 import { del, get, post, put, upload, withParams } from './client'
-import type { JsonObject, PageResponse } from '@/types/common'
+import type { PageResponse } from '@/types/common'
 import type { MediaView } from '@/types/media'
-import type { StopRequest, Trip, TripRequest, TripStop, TripStatus } from '@/types/trip'
+import type { StopRequest, Trip, TripDashboard, TripRequest, TripStop, TripStatus } from '@/types/trip'
 
 export interface TripListParams {
   page?: number
@@ -21,12 +21,7 @@ export const tripApi = {
   changeStatus: (id: number, status: TripStatus) =>
     put<Trip>('/admin/trips/' + id + '/status', { status }),
 
-  /*
-   * 旅行工作台的汇总数据。后端返回的是 Map<String,Object>，聚合了行程、预算、
-   * 日记等多个模块的统计。等工作台本身迁到 SFC 时再连同它的消费方一起建模。
-   * TODO(迁移): 迁移 trip-workspace 时把 dashboard 收窄成显式结构。
-   */
-  dashboard: (id: number) => get<JsonObject>('/admin/trips/' + id + '/dashboard'),
+  dashboard: (id: number) => get<TripDashboard>('/admin/trips/' + id + '/dashboard'),
 
   uploadCover: (id: number, form: FormData) =>
     upload<MediaView>('/admin/trips/' + id + '/cover', form),

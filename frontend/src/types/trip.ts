@@ -26,6 +26,18 @@ export interface Trip {
   themeKey: string | null
 }
 
+/** 旅行工作台概览接口的聚合结果。 */
+export interface TripDashboard {
+  trip: Trip
+  stopCount: number
+  itineraryCount: number
+  draftCount: number
+  publishedCount: number
+  budgetTotal: Decimal
+  actualExpense: Decimal
+  remainingBudget: Decimal
+}
+
 /** 后台的停靠点实体。坐标按 `coordinateSystem` 解释，不要假定一定是 WGS84。 */
 export interface TripStop {
   id: number
