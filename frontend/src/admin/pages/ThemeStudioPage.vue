@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { authApi } from '@/api/auth'
 import { themeApi, type SiteThemeState, type ThemeRequest } from '@/api/theme'
+import { createThemeCardPreviewMessage } from '@/admin/theme-card-preview-message'
 import { apply } from '@/theme/theme'
 import type { AdminInfo } from '@/types/auth'
 import type { JsonObject, JsonValue } from '@/types/common'
@@ -144,7 +145,7 @@ function postPreview() {
 }
 function postCardPreview(event: Event, item: ThemeView) {
   const frame = event.currentTarget instanceof HTMLIFrameElement ? event.currentTarget.contentWindow : null
-  try { frame?.postMessage({ type: 'travel-theme-preview', theme: { themeKey: item.themeKey, baseThemeKey: item.baseThemeKey, definitionJson: item.definitionJson } }, location.origin) } catch { /* iframe 仍在换页 */ }
+  try { frame?.postMessage(createThemeCardPreviewMessage(item), location.origin) } catch { /* iframe 仍在换页 */ }
 }
 function sendPreviewHighlight(selector: string | null) {
   void nextTick(() => { try { previewFrame.value?.contentWindow?.postMessage({ type: 'travel-theme-highlight', selector }, location.origin) } catch { /* iframe 仍在换页 */ } })
