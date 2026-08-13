@@ -25,7 +25,7 @@
   }
 
   const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview) {
+  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createTripDetailPage) {
     throw new Error('公开站 SFC 页面注册不完整');
   }
   const JournalCard = publicPages.JournalCard;
@@ -249,45 +249,13 @@
   // 页面层渐进迁移桥：SFC 由 ESM 入口注册到 #app，不新增 window.* 全局。
   const Trips = publicPages.Trips;
 
-  const TripDetail = {
-    components: { JournalCard, MapProviderSwitch },
-    setup() {
-      const route = VueRouter.useRoute();
-      const data = ref(null);
-      const mapEl = ref(null);
-      let map = null, mapToken = 0;
-      async function renderMap() {
-        if (!data.value) return;
-        const token = ++mapToken;
-        map?.destroy(); map = null;
-        const created = await createMap(mapEl.value, data.value.stops, { fit:true, route:true, maxZoom:10 });
-        if (token !== mapToken || !mapEl.value?.isConnected) created?.destroy(); else map = created;
-      }
-      onMounted(async () => {
-        data.value = await api.trip(route.params.slug);
-        setScopedTheme(data.value.theme);
-        await nextTick();
-        await renderMap();
-      });
-      onBeforeUnmount(() => { mapToken++; map?.destroy(); window.TravelMap?.destroy(mapEl.value); clearScopedTheme(); });
-      return { data, mapEl, renderMap };
-    },
-    template: `
-      <main v-if="data" class="page">
-        <section class="trip-banner">
-          <div class="trip-banner-copy"><small>{{data.trip.startDate}} — {{data.trip.endDate}}</small><h1>{{data.trip.title}}</h1><p>{{data.trip.summary}}</p><div>{{data.trip.cities.join(' · ')}}</div></div>
-          <img v-if="data.trip.coverUrl" class="trip-banner-photo" :src="data.trip.coverUrl"><div v-else class="hero-placeholder">旅行的章节</div>
-        </section>
-        <section class="section map-stats">
-          <div><div class="section-head"><h2 class="section-title">旅行时间线</h2></div>
-            <div class="timeline"><router-link v-for="item in data.journals" :key="item.id" class="timeline-item" :to="'/journals/'+item.slug">
-              <small>{{item.occurredOn}} · {{item.cityName || data.trip.title}}</small><h3>{{item.title}}</h3><p>{{item.excerpt}}</p>
-            </router-link></div>
-          </div>
-          <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">城市足迹</h2><map-provider-switch @change="renderMap"/><div ref="mapEl" class="map-box"></div></div>
-        </section>
-      </main><div v-else class="loading">正在读取旅行记录…</div>`
-  };
+  const TripDetail = publicPages.createTripDetailPage({
+    mapProviderSwitch: MapProviderSwitch,
+    createMap,
+    destroyMap: element => window.TravelMap?.destroy(element),
+    setScopedTheme,
+    clearScopedTheme
+  });
 
   const Journals = publicPages.Journals;
 

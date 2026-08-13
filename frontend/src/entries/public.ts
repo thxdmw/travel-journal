@@ -15,6 +15,7 @@ import JournalCard from '@/public/components/JournalCard.vue'
 import JournalsPage from '@/public/pages/JournalsPage.vue'
 import TripsPage from '@/public/pages/TripsPage.vue'
 import YearReviewPage from '@/public/pages/YearReviewPage.vue'
+import { createTripDetailPage } from '@/public/factories/trip-detail'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
@@ -28,6 +29,7 @@ Object.defineProperty(appRoot, pagesKey, {
     Journals: JournalsPage,
     Trips: TripsPage,
     YearReview: YearReviewPage,
+    createTripDetailPage,
   }),
 })
 
