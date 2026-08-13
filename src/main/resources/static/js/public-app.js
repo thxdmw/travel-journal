@@ -25,7 +25,7 @@
   }
 
   const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.JournalCard || !publicPages?.MapProviderSwitch || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createJournalDetailPage || !publicPages?.createPublicAppShell || !publicPages?.createTripDetailPage) {
+  if (!publicPages?.JournalCard || !publicPages?.MapProviderSwitch || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createJournalDetailPage || !publicPages?.createPublicAppShell || !publicPages?.createThemePreviewScene || !publicPages?.createTripDetailPage) {
     throw new Error('公开站 SFC 页面注册不完整');
   }
   const JournalCard = publicPages.JournalCard;
@@ -185,133 +185,11 @@
     clearScopedTheme
   });
 
-  // ------------------------------------------------------------ 主题设计器：三场景预览
-  // 主题设置分布在首页、日记正文和地图三处，右侧预览用固定的示例数据分别渲染这三个场景，
-  // 不依赖当前数据库里有没有足够内容——这样一个设置改了没生效，还是当前场景本来就没有
-  // 对应元素，用户能立刻分清楚。三个场景已经覆盖绝大多数 Theme Token 的实际落点。
-  const THEME_PREVIEW_IMAGE = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><rect width="900" height="600" fill="#d8cbb4"/>' +
-    '<path d="M0 470L230 250l160 150 140-110 370 310H0z" fill="#8da091"/><circle cx="690" cy="150" r="58" fill="#f7e3a1"/></svg>');
-  const THEME_PREVIEW_HOME_JOURNALS = ['京都的第三个清晨', '青城山下的一整天', '冰岛公路上的极光', '清迈夜市的一碗面', '威尼斯的水上巴士', '东京深夜的居酒屋']
-    .map((title, index) => ({
-      id: 'preview-' + index, slug: 'preview', title,
-      excerpt: '风景会远去，文字让当时的心情重新回来。这一段还在等待被慢慢写完。',
-      occurredOn: '2026-0' + (index % 9 + 1) + '-12', cityName: ['京都', '成都', '雷克雅未克', '清迈', '威尼斯', '东京'][index],
-      coverUrl: THEME_PREVIEW_IMAGE
-    }));
-  // 覆盖全部可主题化 Journal Block：开场、章节、标题、正文、引用、提示卡、地点卡、
-  // 时间线、数字亮点、单图、图片组、分隔线、今日小结。目的不是模拟真实内容，
-  // 是把能主题化的区块全部露出来，改一个设置就能立刻在这里看到。
-  const THEME_PREVIEW_JOURNAL_DOCUMENT = {
-    schemaVersion: 1,
-    blocks: [
-      { id: 'preview-day-opener', type: 'day-opener', version: 1, title: '', data: { city: '成都', dayLabel: 'Day 2', date: '2026-08-10', weather: '晴', route: ['成都', '都江堰', '青城山'], metrics: [{ value: '21,430', label: '步' }, { value: '¥ 420', label: '花费' }] }, settings: {} },
-      { id: 'preview-chapter', type: 'chapter', version: 1, title: '', data: { time: '08:30', title: '清晨出发', note: '从成都出发，一路向西' }, settings: {} },
-      { id: 'preview-heading', type: 'heading', version: 1, title: '', data: { text: '都江堰的水声', level: 2 }, settings: {} },
-      { id: 'preview-paragraph', type: 'paragraph', version: 1, title: '', data: { text: '站在鱼嘴分水堤上，能听见很远就传来的水声。两千多年前的工程，到现在还在按原来的方式分水。' }, settings: { style: 'normal', align: 'left' } },
-      { id: 'preview-quote', type: 'quote', version: 1, title: '', data: { text: '有些风景，只有慢下来才看得见。', source: '旅途手记' }, settings: {} },
-      { id: 'preview-callout', type: 'callout', version: 1, title: '', data: { tone: 'tip', icon: '✦', text: '下午三点后人会少很多，适合拍照。' }, settings: {} },
-      { id: 'preview-location', type: 'location-card', version: 1, title: '', data: { name: '青城山', address: '成都市都江堰市青城山镇', hours: '08:00–17:30', cost: '80 元', impression: '树荫很多，山路不算陡，适合慢慢走完一整圈。' }, settings: {} },
-      { id: 'preview-timeline', type: 'timeline', version: 1, title: '', data: { items: [{ time: '09:30', title: '进入山门', description: '买了一份地图，沿着主路上山' }, { time: '11:50', title: '到达上清宫', description: '在这里歇脚吃了午饭' }, { time: '15:20', title: '下山回到街子古镇', description: '喝了一下午的茶' }] }, settings: {} },
-      { id: 'preview-stats', type: 'stats', version: 1, title: '', data: { items: [{ value: '18,642', label: '步' }, { value: '12.8 km', label: '路程' }, { value: '86', label: '张照片' }] }, settings: {} },
-      // 不写区块级 size/layout/columns override，专门展示当前主题的图片与 Gallery 默认值。
-      { id: 'preview-image', type: 'image', version: 1, title: '', data: { previewUrl: THEME_PREVIEW_IMAGE, caption: '山间的一刻' }, settings: {} },
-      { id: 'preview-gallery', type: 'gallery', version: 1, title: '', data: { previewUrls: [THEME_PREVIEW_IMAGE, THEME_PREVIEW_IMAGE, THEME_PREVIEW_IMAGE], caption: '这一天拍的照片' }, settings: {} },
-      { id: 'preview-divider', type: 'divider', version: 1, title: '', data: {}, settings: {} },
-      { id: 'preview-day-summary', type: 'day-summary', version: 1, title: '', data: { items: [{ icon: '🌟', label: '今天最喜欢', value: '都江堰的水声' }, { icon: '💴', label: '今日花费', value: '¥ 420' }] }, settings: {} }
-    ]
-  };
-  // 固定的四点路线：成都 → 都江堰 → 青城山 → 成都。source:'moment' 让它按「实际走过」
-  // 画成实线，视觉上比计划路线的虚线更接近真实回放效果。
-  const THEME_PREVIEW_ROUTE_POINTS = [
-    { order: 1, time: '09:00', title: '成都', note: '从市区出发', latitude: 30.6598, longitude: 104.0633, photos: [] },
-    { order: 2, time: '10:30', title: '都江堰', note: '看鱼嘴分水堤', latitude: 31.0044, longitude: 103.6053, photos: [] },
-    { order: 3, time: '12:00', title: '青城山', note: '爬到上清宫', latitude: 30.9021, longitude: 103.5678, photos: [] },
-    { order: 4, time: '17:00', title: '成都', note: '回到市区', latitude: 30.6598, longitude: 104.0633, photos: [] }
-  ];
-
-  const ThemePreviewScene = {
-    components: { JournalCard },
-    setup() {
-      const requestedScene = new URLSearchParams(location.search).get('scene') || 'home';
-      const scene = ['home','journal','map'].includes(requestedScene) ? requestedScene : 'home';
-      const journalArticle = ref(null);
-      const mapEl = ref(null);
-      let routeMap = null, routeControl = null, tornDown = false;
-      function refreshMapTheme() {
-        if (scene !== 'map') return;
-        const theme = window.TravelTheme?.mapTokens?.() || {};
-        routeMap?.setStyle?.(theme.style);
-        routeControl?.refreshTheme?.();
-      }
-      function refreshJournalMedia() {
-        if (scene !== 'journal' || !journalArticle.value) return;
-        window.JournalMedia.teardown(journalArticle.value);
-        window.JournalMedia.enhance(journalArticle.value);
-      }
-      function refreshSceneTheme() { refreshMapTheme(); refreshJournalMedia(); }
-      onMounted(async () => {
-        window.addEventListener('travel-theme-applied', refreshSceneTheme);
-        await nextTick();
-        if (scene === 'journal') window.JournalMedia.enhance(journalArticle.value);
-        if (scene === 'map') {
-          // Studio 的地图是固定 Fixture：使用本地 Leaflet 资源，不依赖访客地区、
-          // localStorage 或高德 Key；真实页面仍按 AUTO / AMAP / OSM 选择。
-          const map = await window.TravelMap.create(mapEl.value, {
-            provider:'OSM', zoom:8, style:window.TravelTheme?.mapTokens?.().style
-          });
-          if (tornDown || !map) { map?.destroy(); return; }
-          routeMap = map;
-          routeControl = window.DayRoute?.render(routeMap, THEME_PREVIEW_ROUTE_POINTS, { source: 'moment' });
-        }
-      });
-      onBeforeUnmount(() => { tornDown = true; window.removeEventListener('travel-theme-applied', refreshSceneTheme); window.JournalMedia.teardown(journalArticle.value); routeControl?.destroy(); routeMap?.destroy(); window.TravelMap?.destroy(mapEl.value); });
-      return {
-        scene, journalArticle, mapEl,
-        homeJournals: THEME_PREVIEW_HOME_JOURNALS,
-        journalHtml: window.JournalBlocks.render(THEME_PREVIEW_JOURNAL_DOCUMENT, [])
-      };
-    },
-    template: `
-      <main v-if="scene==='home'" class="home-page-shell theme-preview-scene" data-theme-preview-fixture="home">
-        <section class="hero">
-          <div class="hero-copy">
-            <span class="hero-kicker">PERSONAL TRAVEL JOURNAL</span>
-            <h1>把走过的路，<br>写成自己的故事</h1>
-            <p>记录城市、光影和旅途中那些不愿忘记的时刻。这里没有攻略排名，只有属于自己的远方。</p>
-            <a class="primary-btn" href="javascript:void(0)">浏览旅行日记</a>
-          </div>
-          <div class="hero-photo home-hero-photo" role="img" aria-label="示例封面"></div>
-        </section>
-        <div class="page home-page">
-          <section class="section">
-            <div class="section-head"><h2 class="section-title">最近的旅行日记</h2><a class="text-link" href="javascript:void(0)">查看全部 ›</a></div>
-            <div class="card-grid"><journal-card v-for="item in homeJournals" :key="item.id" :item="item"/></div>
-          </section>
-          <section class="section map-stats">
-            <div class="map-panel"><h2 class="section-title" style="font-size:21px;margin-bottom:18px">我的足迹地图</h2><div class="map-box theme-preview-map-placeholder">地图场景请切到「地图」预览</div></div>
-            <div class="stats-panel">
-              <h2 class="section-title" style="font-size:21px;margin-bottom:18px">旅行数据</h2>
-              <div class="stats-grid">
-                <div class="stat"><strong>12</strong><span>去过的旅行</span></div>
-                <div class="stat"><strong>48</strong><span>旅行日记</span></div>
-                <div class="stat"><strong>26</strong><span>打卡城市</span></div>
-                <div class="stat"><strong>1,280</strong><span>旅行照片</span></div>
-              </div>
-              <p class="quote">"世界很大，而你的故事，值得被记录。"</p>
-            </div>
-          </section>
-        </div>
-      </main>
-      <main v-else-if="scene==='journal'" class="page article theme-preview-scene" data-theme-preview-fixture="journal">
-        <header class="article-head"><div class="hero-kicker">示例旅行 · 成都</div><h1>都江堰与青城山的一天</h1><p class="article-excerpt">这是主题设计器的固定示例日记，用来展示日记正文里所有可主题化的内容块。</p><div class="article-meta">2026-08-10 · 约 4 分钟阅读</div></header>
-        <article ref="journalArticle" class="journal-document" v-html="journalHtml"></article>
-      </main>
-      <main v-else class="page theme-preview-scene" data-theme-preview-fixture="map">
-        <div class="page-title"><span class="eyebrow">ROUTE PREVIEW</span><h1>示例路线</h1><p>成都 → 都江堰 → 青城山 → 成都，用来展示地图相关的主题设置。</p></div>
-        <div class="map-panel"><div ref="mapEl" class="map-box" style="height:520px"></div></div>
-      </main>`
-  };
+  const ThemePreviewScene = publicPages.createThemePreviewScene({
+    createMap: (element, options) => window.TravelMap.create(element, options),
+    destroyMap: element => window.TravelMap?.destroy(element),
+    mapTokens: () => window.TravelTheme?.mapTokens?.() || {}
+  });
 
   // 预览模式只注册固定 Fixture 路由。这样旧入口 `/?theme-preview=1`、Studio 当前带 hash
   // 的入口，以及误带其它 hash 的入口都不可能落到真实 Home/Journal/Trip 组件，也就不会

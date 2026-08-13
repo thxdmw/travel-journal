@@ -21,6 +21,7 @@ import { createHomePage } from '@/public/factories/home'
 import { createFootprintMapPage } from '@/public/factories/footprint-map'
 import { createJournalDetailPage } from '@/public/factories/journal-detail'
 import { createPublicAppShell } from '@/public/factories/app-shell'
+import { createThemePreviewScene } from '@/public/factories/theme-preview'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
@@ -39,6 +40,7 @@ Object.defineProperty(appRoot, pagesKey, {
     createHomePage,
     createJournalDetailPage,
     createPublicAppShell,
+    createThemePreviewScene,
     createTripDetailPage,
   }),
 })

@@ -20,6 +20,7 @@ export const {
   createCommentVNode,
   createElementBlock,
   createElementVNode,
+  createStaticVNode,
   createTextVNode,
   createVNode,
   defineComponent,
