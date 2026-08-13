@@ -186,6 +186,56 @@ const blocks = await page.evaluate(() => {
   return result
 })
 
+/*
+ * 特效运行时。这一块 jsdom 验不了：canvas 拿不到 2d 上下文，MutationObserver
+ * 驱动的「主题一变就重新同步」也要真实事件循环才跑得起来。
+ */
+const effects = await page.evaluate(async () => {
+  const settle = () => new Promise(done => setTimeout(done, 60))
+  document.body.innerHTML += '<footer></footer>'
+
+  window.TravelTheme.apply(
+    {
+      themeKey: 'verify-winter',
+      baseThemeKey: 'travel-classic',
+      definitionJson: {
+        effects: { particles: 'snow' },
+        stickers: { density: 'light', items: [{ asset: 'winter-snowflake', area: 'footer' }] },
+      },
+    },
+    { persist: false },
+  )
+  await settle()
+
+  const layer = document.querySelector('.tj-effect-layer')
+  const canvas = document.querySelector('.tj-particle-canvas')
+  const sticker = document.querySelector('.tj-sticker')
+  const on = {
+    globalExists: typeof window.TravelThemeEffects === 'object',
+    hasSync: typeof window.TravelThemeEffects?.sync === 'function',
+    layerCreated: !!layer,
+    canvasCreated: !!canvas,
+    canvasSized: canvas ? canvas.width > 0 && canvas.height > 0 : false,
+    stickerCreated: !!sticker,
+    // 硬约束：贴纸必须是非 img，否则灯箱会把装饰当成正文照片收进去
+    stickerIsNotImage: sticker ? sticker.tagName === 'SPAN' : false,
+    stickerHasBackground: sticker ? sticker.style.backgroundImage.includes('winter-snowflake.svg') : false,
+    stickerAnchored: !!document.querySelector('footer .tj-sticker'),
+    noImagesInLayer: layer ? layer.querySelectorAll('img').length === 0 : false,
+  }
+
+  // 切回不带特效的主题，画布和贴纸都要收干净
+  window.TravelTheme.apply('travel-classic', { persist: false })
+  await settle()
+  const off = {
+    canvasRemoved: !document.querySelector('.tj-particle-canvas'),
+    stickersRemoved: document.querySelectorAll('.tj-sticker').length === 0,
+    anchorCleared: document.querySelectorAll('.tj-sticker-anchor').length === 0,
+  }
+
+  return { ...on, ...off }
+})
+
 // 正常路径不应留下任何 console error；下面故意造 500，先把这一刻的快照留住
 const cleanRun = [...consoleErrors]
 
@@ -236,6 +286,15 @@ const checks = [
   ['javascript: 链接被白名单挡成 #', blocks.linkHref === '#'],
   ['标题层级按 level 输出', blocks.headingLevel === 'H2'],
   ['字数统计可用', blocks.wordCount > 0],
+
+  ['TravelThemeEffects 全局契约已建立', effects.globalExists && effects.hasSync],
+  ['视口特效层被创建', effects.layerCreated],
+  ['粒子画布被创建并按视口定尺寸', effects.canvasCreated && effects.canvasSized],
+  ['贴纸按主题生成', effects.stickerCreated && effects.stickerHasBackground],
+  ['贴纸是非 img 元素', effects.stickerIsNotImage && effects.noImagesInLayer],
+  ['锚定型贴纸挂到了内容宿主上', effects.stickerAnchored],
+  ['切走主题后画布被移除', effects.canvasRemoved],
+  ['切走主题后贴纸与锚点标记都清干净', effects.stickersRemoved && effects.anchorCleared],
 
   ['正常路径没有 console error', cleanRun.length === 0],
 ]

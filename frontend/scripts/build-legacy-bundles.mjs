@@ -45,6 +45,12 @@ const bundles = [
     globalName: 'JournalBlocksBundle',
     external: {},
   },
+  {
+    entry: 'src/legacy/theme-effects-global.ts',
+    fileName: 'theme-effects.js',
+    globalName: 'ThemeEffectsBundle',
+    external: {},
+  },
 ]
 
 for (const bundle of bundles) {
