@@ -37,6 +37,7 @@ export const {
   ref,
   renderList,
   resolveComponent,
+  resolveDirective,
   resolveDynamicComponent,
   toDisplayString,
   unref,
