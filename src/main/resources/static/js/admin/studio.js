@@ -5,7 +5,8 @@
     tripStatusOptions, itineraryTypeOptions, journalStatusLabels, statusLabel, itineraryTypeLabel,
     shortTime, timeRange, IMAGE_TYPES, TAB_ORDER, renderTemplateSample,
     required, check, slugRule, validateForm, fillForm } = window.AdminShared;
-  const TemplateManager = {
+  // 仅在主题页迁移前保留的不可达旧定义；路由已使用下方注册的 TemplateManager SFC。
+  const LegacyTemplateManager = {
     setup() {
       const items=ref([]),loading=ref(false),dialog=ref(false),editing=ref(null);
       const previewDialog=ref(false),previewing=ref(null),previewEl=ref(null),builderPreviewEl=ref(null);
@@ -635,7 +636,13 @@
   };
 
   const adminPages = document.getElementById('admin-app')?.[Symbol.for('travel-journal.admin-pages')];
-  if (!adminPages?.createProfilePage || !adminPages.createTagManagerPage) throw new Error('后台 SFC 页面注册不完整');
+  if (!adminPages?.createProfilePage || !adminPages.createTagManagerPage || !adminPages.createTemplateManagerPage) throw new Error('后台 SFC 页面注册不完整');
+  const TemplateManager = adminPages.createTemplateManagerPage({
+    message,
+    warning: text => ElementPlus.ElMessage.warning(text),
+    fail,
+    confirm
+  });
   const Profile = adminPages.createProfilePage({
     session,
     updateUser: user => { session.user = user; },
