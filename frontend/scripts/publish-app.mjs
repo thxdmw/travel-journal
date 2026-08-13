@@ -35,6 +35,7 @@ await mkdir(targetAssets, { recursive: true })
 await cp(resolve(dist, 'app-assets'), targetAssets, { recursive: true })
 await cp(resolve(dist, 'index.html'), resolve(staticRoot, 'index.html'))
 await cp(resolve(dist, 'admin/index.html'), resolve(staticRoot, 'admin/index.html'))
+await cp(resolve(dist, 'theme-card-preview.html'), resolve(staticRoot, 'theme-card-preview.html'))
 await writeFile(
   resolve(staticRoot, 'app-manifest.json'),
   JSON.stringify({ version, assets: assetList }, null, 2) + '\n',

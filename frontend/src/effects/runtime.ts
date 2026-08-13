@@ -24,10 +24,8 @@ import type { ThemeDefinition } from '@/types/theme'
 /**
  * 当前主题定义的来源，由 install() 注入。
  *
- * 特效运行时刻意不自己去 import 主题模块：迁移期主题和特效是两个独立的 IIFE
- * 产物，各自会打包一份模块实例，直接 import 拿到的是本 bundle 里那个从未被
- * 赋值的 active，贴纸永远生成不出来。让调用方决定从哪里取，同时也让这一层
- * 在测试里可以喂任意定义。
+ * 特效运行时不直接依赖主题状态，由每个页面入口注入当前定义。这样预览页可以
+ * 使用独立主题，运行时也能在测试里接收任意定义。
  */
 export type DefinitionProvider = () => ThemeDefinition | null | undefined
 

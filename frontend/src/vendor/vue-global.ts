@@ -1,6 +1,6 @@
 /*
- * SFC 迁移期的 Vue ESM 桥。HTML 会先加载本地 vendor/vue 全局版，
- * Vite 将生产构建中的 `vue` 导入指向本文件，使 SFC 和旧 IIFE 共用同一实例。
+ * 本地 vendor/vue 的 ESM 桥。HTML 先加载浏览器全局版，Vite 中的 `vue`
+ * 导入统一指向本文件，既保持依赖本地托管，也避免重复打包运行时。
  */
 import type * as VueRuntime from 'vue'
 
