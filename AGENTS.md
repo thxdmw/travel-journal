@@ -39,7 +39,8 @@
 | 日记 Block 编辑 | `common/journal-block-editor.js`、`admin/journal-editor.js` |
 | 日记媒体/灯箱 | `common/journal-media.js`、`public-app.js` |
 | 主题后端 | `theme/ThemePresetService.java`、`AdminThemePresetController.java` |
-| 主题设计器 | `admin/studio.js`、`theme.js`、`theme-effects.js`、`theme-*.css` |
+| 主题设计器 | `admin/studio.js`、`theme-effects.js`、`theme-*.css` |
+| 主题 token 应用 | `frontend/src/theme/`（TS，已迁移） |
 | 地图适配层 | `common/travel-map.js`、`common/day-route.js` |
 | 地图后端 | `map/controller/PublicMapController.java`、`map/service/MapLocationService.java` |
 | E2E | `e2e/*.spec.ts`、`playwright.config.ts` |
@@ -99,6 +100,9 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 | 模块 | 新位置 | 产物 |
 | --- | --- | --- |
 | API 客户端与领域类型 | `frontend/src/api/`、`frontend/src/types/` | `static/js/dist/travel-api.js` |
+| 主题 token 应用 | `frontend/src/theme/` | `static/js/dist/travel-theme.js` |
+
+`theme-effects.js` 仍是旧脚本，它读 `TravelTheme.current()` 拿贴纸配置；`day-route.js` 读 `mapTokens()`。这两条契约在它们迁移前不能动。
 
 迁移期的机制：
 
@@ -133,8 +137,8 @@ npm run typecheck
 npm run test:unit
 npm run build
 
-# API 客户端产物的浏览器冒烟验证，不需要后端
-npm run verify:api-bundle
+# 迁移产物的浏览器冒烟验证，不需要后端
+npm run verify:bundles
 
 # 检查空白错误
 git diff --check

@@ -1,12 +1,14 @@
 /*
- * API 客户端产物的冒烟验证，不需要后端。
+ * 迁移产物的冒烟验证，不需要后端。
  *
  * 迁移期最怕的是「产物构建出来了，但在真实浏览器里没建立起全局契约」——单元测试
- * 跑在 jsdom 上，验证不了 IIFE 的加载顺序、external axios 是否真的接上、旧脚本
- * 拿不拿得到 window.TravelApi。这里用静态服务器提供 static/，拦截 /api/** 返回
- * 固定 JSON，在真浏览器里把这几件事走一遍。
+ * 跑在 jsdom 上，验证不了 IIFE 的加载顺序、external 的全局依赖是否真的接上、
+ * 尚未迁移的旧脚本拿不拿得到那些 window.* 对象。这里用静态服务器提供 static/，
+ * 拦截 /api/** 返回固定 JSON，在真浏览器里把这几件事走一遍。
  *
- *   node scripts/verify-api-bundle.mjs
+ *   node scripts/verify-legacy-bundles.mjs
+ *
+ * 每迁移一个模块，就在下面补一组对应的断言。
  *
  * 需要 Playwright 浏览器。缺自带 Chromium 时可以复用本机 Edge：
  *   $env:E2E_BROWSER_CHANNEL = 'msedge'
@@ -26,8 +28,14 @@ const TYPES = {
   '.png': 'image/png',
 }
 
-/** 旧 js/common/api.js 的分组规模。逐条比对由 frontend 的 vitest 契约用例负责。 */
-const EXPECTED = { root: 'admin,auth,ensureCsrf,http,public', public: 11, auth: 8, admin: 80 }
+/** 迁移前各全局对象的形状基线。逐条比对由 frontend 的 vitest 契约用例负责。 */
+const EXPECTED = {
+  root: 'admin,auth,ensureCsrf,http,public',
+  public: 11,
+  auth: 8,
+  admin: 80,
+  themeKeys: 'apply,current,mapTokens,normalize,stored,supportedBases',
+}
 
 const server = createServer(async (request, response) => {
   let path = decodeURIComponent(new URL(request.url, 'http://x').pathname)
@@ -97,6 +105,50 @@ const unwrapped = await page.evaluate(async () => {
   return { hasBusinessField: 'tripCount' in home, envelopeStripped: !('data' in home) }
 })
 
+/*
+ * 主题产物。这里验的是 jsdom 覆盖不到的那一半：主题在首屏同步铺开、真实 CSSOM
+ * 把变量算了出来，以及尚未迁移的 theme-effects.js 仍能通过 current() 拿到贴纸配置。
+ */
+const theme = await page.evaluate(() => {
+  const applied = window.TravelTheme.apply(
+    {
+      themeKey: 'verify-autumn',
+      baseThemeKey: 'travel-classic',
+      definitionJson: {
+        colors: { accent: '#C97B3F', primary: '#264A3D' },
+        map: { routeWidth: 5 },
+        effects: { particles: 'leaves' },
+        stickers: { density: 'light', items: [{ asset: 'autumn-leaf', area: 'footer' }] },
+      },
+    },
+    { persist: false },
+  )
+  const root = document.documentElement
+  const computed = getComputedStyle(root)
+  return {
+    globalExists: typeof window.TravelTheme === 'object' && window.TravelTheme !== null,
+    keys: Object.keys(window.TravelTheme).sort().join(','),
+    returnedKey: applied.themeKey,
+    // 走真实 CSSOM，而不是读回自己刚写进 style 属性的字符串
+    accent: computed.getPropertyValue('--tj-accent').trim(),
+    dataParticles: root.dataset.effectsParticles,
+    routeWidth: window.TravelTheme.mapTokens().width,
+    routeColor: window.TravelTheme.mapTokens().color,
+    // theme-effects.js 读的就是这一条，迁移后必须还在
+    stickerAsset: window.TravelTheme.current()?.definitionJson?.stickers?.items?.[0]?.asset,
+  }
+})
+
+// 切回内置主题必须把上一套的枚举清干净，否则会残留玻璃卡片、雪花特效之类
+const switched = await page.evaluate(() => {
+  window.TravelTheme.apply('travel-classic', { persist: false })
+  const root = document.documentElement
+  return {
+    particlesCleared: root.dataset.effectsParticles === undefined,
+    accentCleared: getComputedStyle(root).getPropertyValue('--tj-accent').trim() !== '#C97B3F',
+  }
+})
+
 // 正常路径不应留下任何 console error；下面故意造 500，先把这一刻的快照留住
 const cleanRun = [...consoleErrors]
 
@@ -120,14 +172,24 @@ await browser.close()
 server.close()
 
 const checks = [
-  ['全局契约已建立', shape.exists],
-  ['顶层 key 与旧 api.js 一致', shape.root === EXPECTED.root],
-  ['public 分组条数一致', shape.public === EXPECTED.public],
-  ['auth 分组条数一致', shape.auth === EXPECTED.auth],
-  ['admin 分组条数一致', shape.admin === EXPECTED.admin],
+  ['TravelApi 全局契约已建立', shape.exists],
+  ['TravelApi 顶层 key 与旧 api.js 一致', shape.root === EXPECTED.root],
+  ['TravelApi public 分组条数一致', shape.public === EXPECTED.public],
+  ['TravelApi auth 分组条数一致', shape.auth === EXPECTED.auth],
+  ['TravelApi admin 分组条数一致', shape.admin === EXPECTED.admin],
   ['响应外壳被剥掉', unwrapped.hasBusinessField && unwrapped.envelopeStripped],
   ['失败被包成带 status/network 的 Error', failure.threw && failure.status === 500 && failure.network === false],
   ['服务端 message 透传给业务层', failure.message === '服务器开小差'],
+
+  ['TravelTheme 全局契约已建立', theme.globalExists],
+  ['TravelTheme 方法集与旧 theme.js 一致', theme.keys === EXPECTED.themeKeys],
+  ['apply 返回归一化后的主题', theme.returnedKey === 'verify-autumn'],
+  ['颜色变量进了真实 CSSOM', theme.accent === '#C97B3F'],
+  ['枚举 token 铺成 data-* 属性', theme.dataParticles === 'leaves'],
+  ['mapTokens 读出路线宽度与颜色', theme.routeWidth === 5 && theme.routeColor === '#C97B3F'],
+  ['current 仍供得出贴纸配置', theme.stickerAsset === 'autumn-leaf'],
+  ['切主题后枚举与变量都被清干净', switched.particlesCleared && switched.accentCleared],
+
   ['正常路径没有 console error', cleanRun.length === 0],
 ]
 

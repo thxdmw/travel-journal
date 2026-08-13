@@ -33,6 +33,12 @@ const bundles = [
     // axios 由页面上的 vendor/axios.min.js 提供，不重复打进产物
     external: { axios: 'axios' },
   },
+  {
+    entry: 'src/legacy/travel-theme-global.ts',
+    fileName: 'travel-theme.js',
+    globalName: 'TravelThemeBundle',
+    external: {},
+  },
 ]
 
 for (const bundle of bundles) {
