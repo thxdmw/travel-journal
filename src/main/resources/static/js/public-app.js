@@ -25,7 +25,7 @@
   }
 
   const publicPages = document.getElementById('app')?.[Symbol.for('travel-journal.public-pages')];
-  if (!publicPages?.JournalCard || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createTripDetailPage) {
+  if (!publicPages?.JournalCard || !publicPages?.MapProviderSwitch || !publicPages?.Journals || !publicPages?.Trips || !publicPages?.YearReview || !publicPages?.createFootprintMapPage || !publicPages?.createHomePage || !publicPages?.createTripDetailPage) {
     throw new Error('公开站 SFC 页面注册不完整');
   }
   const JournalCard = publicPages.JournalCard;
@@ -148,47 +148,7 @@
     return link;
   }
 
-  /**
-   * 手动切换地图 Provider：自动（按访客网络地区判断）/ 高德 / OSM。选择记在
-   * localStorage，优先级高于 AUTO 判定。切换后当前地图需要重新创建才能生效，
-   * 具体怎么重渲染交给宿主页面（emit('change')），这个组件只管选择本身。
-   */
-  const MapProviderSwitch = {
-    emits: ['change'],
-    setup(_, { emit }) {
-      const current = ref(window.TravelMap?.manualProvider() || 'AUTO');
-      const amapEnabled = ref(true);
-      // AUTO 模式下额外标出「按访客地区判断，目前实际用的是哪个」，不是显示一个空泛的「自动」
-      const autoResolved = ref('');
-      window.TravelMap?.runtime?.().then(runtime=>{
-        amapEnabled.value=window.TravelMap?.providerUsable?.('AMAP',runtime)!==false;
-      }).catch(()=>{amapEnabled.value=false;});
-      function refreshAutoProvider() {
-        return window.TravelMap?.resolveProvider?.()
-          .then(r => { if (current.value === 'AUTO') autoResolved.value = r.provider; })
-          .catch(() => { if (current.value === 'AUTO') autoResolved.value = ''; });
-      }
-      if (current.value === 'AUTO') refreshAutoProvider();
-      const autoLabel = computed(() => '自动' + (autoResolved.value ? '（' + (autoResolved.value === 'AMAP' ? '高德' : 'OSM') + '）' : ''));
-      function select(value) {
-        if (current.value === value) return;
-        if (value === 'AMAP' && !amapEnabled.value) return;
-        current.value = value;
-        window.TravelMap?.setManualProvider(value === 'AUTO' ? null : value);
-        if (value === 'AUTO') {
-          autoResolved.value = '';
-          refreshAutoProvider();
-        }
-        emit('change');
-      }
-      return { current, select, autoLabel, amapEnabled };
-    },
-    template: `<div class="map-provider-switch" role="group" aria-label="地图 Provider">
-      <button type="button" :class="{active:current==='AUTO'}" @click="select('AUTO')">{{autoLabel}}</button>
-      <button type="button" :class="{active:current==='AMAP'}" :disabled="!amapEnabled" :title="amapEnabled?'':'未配置高德 Web端(JS API) Key'" @click="select('AMAP')">高德</button>
-      <button type="button" :class="{active:current==='OSM'}" @click="select('OSM')">OSM</button>
-    </div>`
-  };
+  const MapProviderSwitch = publicPages.MapProviderSwitch;
 
   const Home = publicPages.createHomePage({
     mapProviderSwitch: MapProviderSwitch,

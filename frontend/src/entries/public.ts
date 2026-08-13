@@ -12,6 +12,7 @@ import '@/legacy/journal-media-global'
 import '@/legacy/journal-blocks-global'
 import '@/legacy/day-route-global'
 import JournalCard from '@/public/components/JournalCard.vue'
+import MapProviderSwitch from '@/public/components/MapProviderSwitch.vue'
 import JournalsPage from '@/public/pages/JournalsPage.vue'
 import TripsPage from '@/public/pages/TripsPage.vue'
 import YearReviewPage from '@/public/pages/YearReviewPage.vue'
@@ -28,6 +29,7 @@ Object.defineProperty(appRoot, pagesKey, {
   enumerable: false,
   value: Object.freeze({
     JournalCard,
+    MapProviderSwitch,
     Journals: JournalsPage,
     Trips: TripsPage,
     YearReview: YearReviewPage,
