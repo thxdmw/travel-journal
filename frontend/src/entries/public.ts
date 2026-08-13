@@ -1,4 +1,13 @@
 /* 公开站正式 ESM 入口：页面与运行时全部直接使用 TypeScript 模块。 */
+import 'element-plus/dist/index.css'
+import 'leaflet/dist/leaflet.css'
+import '@/styles/themes/travel-classic.css'
+import '@/styles/public.css'
+import '@/styles/theme-tokens.css'
+import '@/styles/theme-pack.css'
+import '@/styles/journal-media.css'
+import '@/styles/journal-blocks.css'
+import '@/styles/custom-cursor.css'
 import { createApp } from 'vue'
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { destroy as destroyMap, create as createMap } from '@/map'

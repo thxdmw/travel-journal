@@ -1,0 +1,20 @@
+{
+  "name": "远行手记",
+  "short_name": "远行手记",
+  "description": "一个会随四季变化、帮你随手记录并重新回到旅途现场的个人旅行日记",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F7F2E8",
+  "theme_color": "#264A3D",
+  "icons": [
+    { "src": "/img/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/img/app-icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "写今天的日记", "short_name": "写日记", "url": "/admin/#/journals/new" },
+    { "name": "随手记", "short_name": "随手记", "url": "/admin/#/moments" }
+  ]
+}

@@ -1,3 +1,8 @@
+import '@/styles/themes/travel-classic.css'
+import '@/styles/theme-tokens.css'
+import '@/styles/public.css'
+import '@/styles/journal-blocks.css'
+import '@/styles/theme-pack.css'
 import { render } from '@/journal/render'
 import { apply, current } from '@/theme/theme'
 import { install as installThemeEffects, sync as syncThemeEffects } from '@/effects/runtime'
