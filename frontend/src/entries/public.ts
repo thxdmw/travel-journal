@@ -16,6 +16,8 @@ import { createThemePreviewScene } from '@/public/factories/theme-preview'
 import { createTripDetailPage } from '@/public/factories/trip-detail'
 import { createPublicMap } from '@/public/map-renderer'
 import type { ThemeInput } from '@/types/theme'
+import { installCustomCursor } from '@/enhancements/custom-cursor'
+import { installPwa } from '@/enhancements/pwa'
 
 const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
@@ -84,9 +86,5 @@ const App = createPublicAppShell({
 
 createApp(App).use(router).component('JournalCard', JournalCard).mount(appRoot)
 
-async function loadEnhancements() {
-  await import('../../../src/main/resources/static/js/common/custom-cursor.js')
-  await import('../../../src/main/resources/static/js/common/pwa.js')
-}
-
-void loadEnhancements()
+installCustomCursor()
+installPwa()

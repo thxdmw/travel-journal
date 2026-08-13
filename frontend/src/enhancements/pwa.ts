@@ -5,8 +5,9 @@
  * 旅行中信号断断续续是常态，作者需要知道「现在写的东西存在哪」，
  * 而不是对着一个安静的页面猜。
  */
-(function () {
-  'use strict';
+interface AppManifest { version?: string }
+
+export function installPwa(): void {
   if (!('serviceWorker' in navigator)) return;
   const DISMISSED_KEY = 'travel-journal.offline-banner-dismissed';
 
@@ -14,11 +15,11 @@
     try {
       const response = await fetch('/app-manifest.json', { cache: 'no-store' });
       if (!response.ok) return '/service-worker.js';
-      const manifest = await response.json();
+      const manifest = await response.json() as AppManifest;
       return manifest.version
         ? '/service-worker.js?build=' + encodeURIComponent(manifest.version)
         : '/service-worker.js';
-    } catch (_) {
+    } catch {
       return '/service-worker.js';
     }
   }
@@ -34,7 +35,7 @@
 
   /** 断网横幅。挂在 body 上，不参与各页面的布局，也就不会把内容顶下去。 */
   function banner() {
-    let element = document.querySelector('.tj-offline-banner');
+    let element = document.querySelector<HTMLElement>('.tj-offline-banner');
     if (!element) {
       element = document.createElement('div');
       element.className = 'tj-offline-banner';
@@ -48,8 +49,8 @@
       close.setAttribute('aria-label', '关闭离线提示');
       close.textContent = '×';
       close.addEventListener('click', () => {
-        try { sessionStorage.setItem(DISMISSED_KEY, '1'); } catch (_) {}
-        element.classList.remove('is-visible');
+        try { sessionStorage.setItem(DISMISSED_KEY, '1'); } catch { /* 隐私模式可能禁用存储 */ }
+        banner().classList.remove('is-visible');
       });
       element.append(text, close);
       document.body.appendChild(element);
@@ -60,12 +61,12 @@
   function sync() {
     if (!document.body) return;
     if (navigator.onLine) {
-      try { sessionStorage.removeItem(DISMISSED_KEY); } catch (_) {}
+      try { sessionStorage.removeItem(DISMISSED_KEY); } catch { /* 隐私模式可能禁用存储 */ }
       banner().classList.remove('is-visible');
       return;
     }
     let dismissed = false;
-    try { dismissed = sessionStorage.getItem(DISMISSED_KEY) === '1'; } catch (_) {}
+    try { dismissed = sessionStorage.getItem(DISMISSED_KEY) === '1'; } catch { /* 隐私模式可能禁用存储 */ }
     banner().classList.toggle('is-visible', !dismissed);
   }
 
@@ -73,4 +74,4 @@
   window.addEventListener('offline', sync);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync);
   else sync();
-})();
+}

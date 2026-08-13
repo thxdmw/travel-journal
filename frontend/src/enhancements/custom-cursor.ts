@@ -1,6 +1,4 @@
-(() => {
-  'use strict';
-
+export function installCustomCursor(): void {
   const STORAGE_KEY = 'travel-journal.custom-cursor';
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -8,9 +6,9 @@
   const adminMode = Boolean(document.getElementById('admin-app'));
   let enabled = readPreference();
   let active = false;
-  let cursor;
-  let toggle;
-  let label;
+  let cursor: HTMLDivElement;
+  let toggle: HTMLButtonElement;
+  let label: HTMLElement;
   let pointerX = 0;
   let pointerY = 0;
   let lastX = 0;
@@ -19,12 +17,12 @@
   let animationFrame = 0;
   let settleTimer = 0;
   let lastTrailAt = 0;
-  let pendingTarget = null;
+  let pendingTarget: EventTarget | null = null;
 
   function readPreference() {
     try {
       return localStorage.getItem(STORAGE_KEY) !== 'off';
-    } catch (_) {
+    } catch {
       return true;
     }
   }
@@ -32,7 +30,7 @@
   function savePreference() {
     try {
       localStorage.setItem(STORAGE_KEY, enabled ? 'on' : 'off');
-    } catch (_) { }
+    } catch { /* 隐私模式可能禁用存储 */ }
   }
 
   function buildUi() {
@@ -52,7 +50,9 @@
     toggle.type = 'button';
     toggle.className = 'travel-cursor-toggle';
     toggle.innerHTML = '<span class="travel-cursor-toggle__icon" aria-hidden="true">✥</span><span class="travel-cursor-toggle__label"></span>';
-    label = toggle.querySelector('.travel-cursor-toggle__label');
+    const labelElement = toggle.querySelector<HTMLElement>('.travel-cursor-toggle__label');
+    if (!labelElement) throw new Error('自定义光标开关缺少标签')
+    label = labelElement;
     toggle.addEventListener('click', () => {
       enabled = !enabled;
       savePreference();
@@ -78,7 +78,7 @@
     }
   }
 
-  function stateFor(target) {
+  function stateFor(target: EventTarget | null) {
     if (!(target instanceof Element)) return 'compass';
     if (target.closest('.leaflet-container, .map-box')) return 'map';
     if (target.closest('input, textarea, [contenteditable="true"]')) return 'writing';
@@ -90,11 +90,11 @@
 
   function applyTargetState() {
     const state = stateFor(pendingTarget);
-    cursor.dataset.state = state === 'native' ? 'compass' : state;
-    cursor.classList.toggle('is-suppressed', state === 'native');
+    cursor.dataset.state = state;
+    cursor.classList.remove('is-suppressed');
   }
 
-  function onPointerMove(event) {
+  function onPointerMove(event: PointerEvent) {
     if (!active || event.pointerType === 'touch') return;
     pointerX = event.clientX;
     pointerY = event.clientY;
@@ -102,7 +102,7 @@
     if (!animationFrame) animationFrame = requestAnimationFrame(renderPointer);
   }
 
-  function renderPointer(timestamp) {
+  function renderPointer(timestamp: number) {
     animationFrame = 0;
     const dx = hasPosition ? pointerX - lastX : 0;
     const dy = hasPosition ? pointerY - lastY : 0;
@@ -124,7 +124,7 @@
     hasPosition = true;
   }
 
-  function addTrail(x, y) {
+  function addTrail(x: number, y: number) {
     const dot = document.createElement('i');
     dot.className = 'travel-cursor-trail';
     dot.style.left = `${x}px`;
@@ -133,7 +133,7 @@
     window.setTimeout(() => dot.remove(), 460);
   }
 
-  function addRipple(event) {
+  function addRipple(event: PointerEvent) {
     if (reducedMotion.matches || cursor.classList.contains('is-suppressed') || cursor.dataset.state === 'map') return;
     const ripple = document.createElement('i');
     ripple.className = 'travel-cursor-ripple';
@@ -147,7 +147,7 @@
     document.querySelectorAll('.travel-cursor-trail, .travel-cursor-ripple').forEach(element => element.remove());
   }
 
-  function onPointerDown(event) {
+  function onPointerDown(event: PointerEvent) {
     if (!active || event.pointerType === 'touch') return;
     pendingTarget = event.target;
     applyTargetState();
@@ -159,7 +159,7 @@
     cursor.classList.remove('is-clicking');
   }
 
-  function onPointerLeave(event) {
+  function onPointerLeave(event: PointerEvent) {
     if (!event.relatedTarget) cursor.classList.remove('is-visible');
   }
 
@@ -180,4 +180,4 @@
   } else {
     mount();
   }
-})();
+}

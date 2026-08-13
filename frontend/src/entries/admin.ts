@@ -16,6 +16,8 @@ import { createTripWorkspacePage } from '@/admin/factories/trip-workspace'
 import { createRouter, createWebHashHistory, type PublicRouteRecord } from '@/vendor/vue-router-global'
 import { apply, stored } from '@/theme/theme'
 import type { AdminInfo } from '@/types/auth'
+import { installCustomCursor } from '@/enhancements/custom-cursor'
+import { installPwa } from '@/enhancements/pwa'
 
 interface ElementPlusRuntime {
   ElMessage: { success(text:string):void; warning(text:string):void; error(text:string):void; info(text:string):void }
@@ -76,5 +78,5 @@ async function logout(){try{await authApi.logout()}catch(cause){if(!(cause insta
 const appRoot=document.querySelector<HTMLElement>('#admin-app');if(!appRoot)throw new Error('后台缺少 #admin-app 根节点')
 createApp(AdminAppShell,{session,logout}).use(router).use(elementPlus,{locale}).mount(appRoot)
 
-async function loadEnhancements(){await import('../../../src/main/resources/static/js/common/custom-cursor.js');await import('../../../src/main/resources/static/js/common/pwa.js')}
-void loadEnhancements()
+installCustomCursor()
+installPwa()
