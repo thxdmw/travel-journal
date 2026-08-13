@@ -12,7 +12,7 @@ export interface PublicRouteLocation {
 
 export interface PublicRouter {
   push(location: string | { path: string; query?: Record<string, string> }): Promise<unknown>
-  replace(location: string): Promise<unknown>
+  replace(location: string | { path: string; query?: Record<string, string> }): Promise<unknown>
 }
 
 export interface PublicRouteRecord {

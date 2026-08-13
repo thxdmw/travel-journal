@@ -22,7 +22,17 @@ export interface PendingPhoto {
   queuedAt: number
 }
 
-export type PendingMomentState = 'pending' | 'uploading' | 'failed'
+import type { MomentRequest } from './moment'
+
+export type PendingMomentState = 'pending' | 'syncing' | 'failed'
+
+export interface PendingMomentPhoto {
+  clientId: string
+  name: string
+  type: string
+  blob: Blob
+  uploaded: boolean
+}
 
 /**
  * 离线随手记。整条当作一个可重放命令保存。
@@ -37,6 +47,10 @@ export interface PendingMoment {
   retryCount: number
   createdAt: number
   updatedAt: number
+  payload: MomentRequest
+  photos: PendingMomentPhoto[]
+  serverId?: number
+  error?: string | null
   [key: string]: unknown
 }
 
@@ -44,5 +58,7 @@ export interface PendingMoment {
 export interface PendingMomentInput {
   clientId: string
   tripId: number
+  payload?: MomentRequest
+  photos?: PendingMomentPhoto[]
   [key: string]: unknown
 }
