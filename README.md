@@ -106,7 +106,7 @@ APP_ADMIN_PASSWORD 只在 admin_user 表为空时用于创建初始管理员。�
 
 确保 JAVA_HOME 指向 JDK 21。
 
-首次运行或修改前端后，先构建前端部署目录：
+首次运行或修改前端后，先构建 Vite 部署目录：
 
 ~~~bash
 npm ci --prefix frontend
@@ -130,7 +130,7 @@ mvn clean test
 mvn spring-boot:run
 ~~~
 
-`frontend/` 是唯一前端源码目录。`src/main/resources/static/` 仅保存构建后的部署文件，禁止直接编辑；每次 `npm run build --prefix frontend` 都会用 `frontend/dist/` 完整替换该目录。生产 Docker 镜像与 Drone CI 会先重建前端，再打包 Spring Boot Jar。
+`frontend/` 是唯一前端源码目录。`src/main/resources/static/` 不再保存或跟踪任何文件；`npm run build --prefix frontend` 只生成被 Git 忽略的 `frontend/dist/`，Maven 在打包时把它复制到 `target/classes/static/`。生产 Docker 镜像与 Drone CI 会先重建前端，再打包 Spring Boot Jar。
 
 访问：
 
@@ -263,13 +263,13 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 
 贯穿整套设计的原则是：这些东西用来**填补页面的空旷感，不是用来填满页面**。透明度都压得很低，手机上只保留两张贴纸——正文永远比装饰重要。
 
-素材全部是 SVG（`static/assets/themes/stickers/`）：体积小、高清、容易换颜色，手机上也清晰。
+素材全部是 SVG（`frontend/public/assets/themes/stickers/`）：体积小、高清、容易换颜色，手机上也清晰。
 
 后台“主题外观”可以直接使用系统预设，也可以复制或新建个人主题。设计器支持上述全部区块，并提供真实网站的桌面和手机实时预览、撤销/重做、阅读对比度提醒以及 JSON 导入导出。个人主题只保存受控的语义化设计 Token，不接受任意 CSS、JavaScript 或远程脚本。
 
 ## 前端说明
 
-前端源码位于 `frontend/`，使用 Vite、TypeScript 和 Vue SFC。完整构建结果发布到 `src/main/resources/static/` 并随 Jar 提交和分发，运行应用不依赖 Node.js。
+前端源码位于 `frontend/`，使用 Vite、TypeScript 和 Vue SFC。完整构建结果只生成在 `frontend/dist/`，Maven 打包时将其放入 Jar 的 `BOOT-INF/classes/static/`；运行已经构建好的 Jar 不依赖 Node.js。
 
 主要入口：
 

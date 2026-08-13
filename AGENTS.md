@@ -45,7 +45,7 @@
 | 地图后端 | `map/controller/PublicMapController.java`、`map/service/MapLocationService.java` |
 | E2E | `frontend/e2e/*.spec.ts`、`frontend/playwright.config.ts` |
 
-Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路径为 `src/main/resources/static/`，上表省略了这些公共前缀。
+Java 包根路径为 `src/main/java/com/thx/traveljournal/`；前端稳定资源位于 `frontend/public/`，最终部署资源只在构建后的 `frontend/dist/` 与 `target/classes/static/` 中出现。
 
 ## 不可破坏的领域边界
 
@@ -87,10 +87,10 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 ## 前端构建产物
 
 - `frontend/` 是唯一前端源码目录：业务代码在 `src/`，稳定 URL 的原样资源在 `public/`。
-- `src/main/resources/static/` 是纯部署产物目录，禁止手改其中任何文件；`npm run build` 会先生成完整 `frontend/dist/`，再整体替换它。
-- `npm run build:dist` 只生成可直接部署的 `frontend/dist/`；`npm run publish` 将已生成的 dist 原子发布到 Spring Boot static。
+- `src/main/resources/static/` 必须保持为空且已被 Git 忽略；禁止向这里添加源码或提交构建产物。
+- `npm run build` / `npm run build:dist` 只生成可直接部署且被忽略的 `frontend/dist/`；Maven `process-resources` 会把它复制到 `target/classes/static/`。
 - CSS、JS 和由模块引用的资源均由 Vite 生成内容 hash；`app-manifest.json` 根据整个部署目录的路径和内容生成版本，不再维护 `?v=`。
-- 运行中的 Spring Boot 通常从 `target/classes/static` 提供资源。前端源码改完后先执行 `npm run build`，再执行 `mvn process-resources` 或重新打 Jar。
+- 运行中的 Spring Boot 从 `target/classes/static` 提供资源。前端源码改完后先执行 `npm run build`，再执行 `mvn process-resources` 或重新打 Jar。
 - Docker 和 Drone 都必须先构建前端再打包 Jar，避免把仓库中上一次提交的产物误当成当前构建结果。
 
 ## 前端迁移状态
@@ -116,9 +116,9 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；静态资源根路
 
 前端构建机制：
 
-- `frontend/vite.config.ts` 管理三个 HTML 入口；`finalize-dist.mjs` 生成完整部署目录与清单，`publish-app.mjs` 原子替换 `static/`。
+- `frontend/vite.config.ts` 管理三个 HTML 入口；`finalize-dist.mjs` 生成完整部署目录与清单，Maven 再把 `frontend/dist/` 复制进最终 Jar。
 - Vue、Vue Router、Axios、Element Plus、Leaflet 均由 npm 锁定并进入 Vite 模块图，不再使用浏览器全局 vendor。
-- 产物提交进 git用于源码检出后的直接 Maven 开发体验；Docker 与 Drone 会无条件重建，不信任已提交产物。
+- 构建产物不提交 Git。Docker 与 Drone 会先执行前端构建；本地首次运行也必须先生成 `frontend/dist/`。
 
 写新前端代码时：一律放 `frontend/src/`，禁止新增 `window.*` 全局，禁止 `any` 和 `@ts-ignore`（ESLint 已设为 error）。
 

@@ -35,7 +35,7 @@ steps:
       FLYWAY_TEST_DB_USERNAME: travel_journal
       FLYWAY_TEST_DB_PASSWORD: travel_journal
     commands:
-      # 前一步已完整重建 static；此处打包的 Jar 与浏览器回归使用同一份前端产物。
+      # 前一步已生成 frontend/dist；Maven 会把它复制进 Jar 的 classes/static。
       - mvn package -B -ntp
 
   - name: verify-mobile-smoke

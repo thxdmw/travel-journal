@@ -8,6 +8,9 @@ out/
 # 端到端测试（可选的开发依赖，不参与生产构建）
 node_modules/
 frontend/dist/
+# 前端部署文件只由 Vite 构建并在 Maven 打包时写入 target/classes/static。
+# Java 源码树不再跟踪或接收任何前端构建产物。
+/src/main/resources/static/
 test-results/
 playwright-report/
 frontend/test-results/

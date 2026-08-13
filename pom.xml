@@ -54,6 +54,21 @@
   </dependencies>
   <build>
     <finalName>travel-journal</finalName>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <excludes>
+          <!-- static 是本地构建目录且不进 Git，避免误把残留文件打进 Jar。 -->
+          <exclude>static/**</exclude>
+        </excludes>
+      </resource>
+      <resource>
+        <!-- Vite 完整产物在 process-resources 阶段进入 target/classes/static。 -->
+        <directory>frontend/dist</directory>
+        <targetPath>static</targetPath>
+        <filtering>false</filtering>
+      </resource>
+    </resources>
     <plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins>
   </build>
 </project>

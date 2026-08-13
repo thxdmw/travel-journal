@@ -36,7 +36,8 @@ RUN --mount=type=cache,target=/root/.m2/repository \
 
 # 复制源代码
 COPY src ./src
-COPY --from=frontend-builder /build/frontend/dist ./src/main/resources/static
+# Maven 从 frontend/dist 复制资源到 target/classes/static，源码 static 始终为空。
+COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 
 # 构建项目
 RUN --mount=type=cache,target=/root/.m2/repository \
