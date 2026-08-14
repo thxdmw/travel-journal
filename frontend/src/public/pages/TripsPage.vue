@@ -46,7 +46,7 @@ onMounted(async () => {
         class="journal-card"
         :to="`/trips/${trip.slug}`"
       >
-        <img v-if="trip.coverUrl" class="card-photo" :src="trip.coverUrl" :alt="trip.title">
+        <img v-if="trip.coverUrl" class="card-photo" :src="trip.coverUrl" loading="lazy" decoding="async" :alt="trip.title">
         <div v-else class="card-photo placeholder">{{ trip.cities[0] || '旅行' }}</div>
         <div class="card-body">
           <h3>{{ trip.title }}</h3>

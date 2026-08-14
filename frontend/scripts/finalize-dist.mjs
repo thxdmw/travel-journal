@@ -34,6 +34,17 @@ const deployedFiles = (await files(dist))
   .filter(file => file !== resolve(dist, 'app-manifest.json'))
   .sort()
 const assetList = deployedFiles.map(file => '/' + relative(dist, file).split(sep).join('/'))
+/*
+ * 装 PWA 时该预先抓下来的东西。
+ *
+ * 以前是把整个部署目录都塞给 install，其中包括 2.7MB 的首页大图和 1.9MB 的主题预览图——
+ * 用户点一下「添加到桌面」就得先下几兆用不上的图片，手机流量下尤其难受。应用壳
+ * （HTML、带 hash 的 js/css、图标、字体）才是「离线也要打得开」真正需要的，
+ * 图片按需在运行时缓存就够。
+ */
+const PRECACHE_SKIP = /\.(png|jpe?g|webp|gif|avif|mp4|webm)$/i
+const precacheList = assetList.filter(asset => !PRECACHE_SKIP.test(asset))
+
 const hash = createHash('sha256')
 for (let index = 0; index < deployedFiles.length; index += 1) {
   hash.update(assetList[index]).update('\0').update(await readFile(deployedFiles[index])).update('\0')
@@ -45,4 +56,4 @@ await writeFile(
   'utf8',
 )
 
-console.log(`已整理 ${assetList.length} 个可部署文件（${version}）`)
+console.log(`已整理 ${assetList.length} 个可部署文件，其中 ${precacheList.length} 个进入 PWA 预缓存（${version}）`)

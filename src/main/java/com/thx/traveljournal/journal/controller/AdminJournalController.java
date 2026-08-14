@@ -1,23 +1,32 @@
 package com.thx.traveljournal.journal.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.api.PageResponse;
+import com.thx.traveljournal.common.api.Pagination;
+import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.service.JournalService;
 import com.thx.traveljournal.journal.service.JournalPreviewService;
 import com.thx.traveljournal.journal.service.JournalTagService;
 import com.thx.traveljournal.theme.service.ThemePresetService;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
+import jakarta.validation.Validator;
 import jakarta.validation.constraints.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 后台日记接口：日记的增删改查、发布与撤回。
@@ -32,6 +41,8 @@ public class AdminJournalController {
     private final ThemePresetService themePresetService;
     private final JournalTagService tagService;
     private final JournalPreviewService previewService;
+    private final ObjectMapper objectMapper;
+    private final Validator validator;
 
     /**
      * 日记新建和更新的请求体。
@@ -84,7 +95,13 @@ public class AdminJournalController {
                                       Integer templateVersion,
                                       List<String> tags,
                                       /** true 表示明确解除旅行归属；省略时仍保留部分更新语义 */
-                                      Boolean detachFromTrip) {}
+                                      Boolean detachFromTrip,
+                                      /**
+                                       * 客户端手上那份草稿的版本号。带上它，服务端才分得清
+                                       * 「这是基于最新内容的保存」还是「一个绕了远路才到的旧请求」。
+                                       * 省略表示不做并发检查。
+                                       */
+                                      Integer expectedRevision) {}
 
     @GetMapping
     public ApiResponse<PageResponse<JournalEntry>> list(@RequestParam(defaultValue="1") long page,
@@ -92,14 +109,14 @@ public class AdminJournalController {
                                                         @RequestParam(required=false) Long tripId,
                                                         @RequestParam(required=false) String status,
                                                         @RequestParam(required=false) String keyword) {
-        return ApiResponse.ok(service.list(page, Math.min(pageSize, 100), tripId, status, keyword));
+        Pagination.check(page, pageSize);
+        Pagination.checkKeyword(keyword);
+        return ApiResponse.ok(service.list(page, pageSize, tripId, status, keyword));
     }
     @PostMapping
     public ApiResponse<JournalEntry> create(@Valid @RequestBody JournalRequest request) {
-        JournalEntry created = service.create(toEntity(request));
-        tagService.replaceTags(created.getId(), request.tags());
-        created.setTags(tagService.namesOf(created.getId()));
-        return ApiResponse.ok(created);
+        // 正文和标签在服务层同一个事务里写，避免出现「内容存了、标签没存」的半成品
+        return ApiResponse.ok(service.createWithTags(toEntity(request), request.tags()));
     }
     /** 开一篇空草稿并立刻返回 id，编辑器据此挂上自动保存和图片上传。 */
     @PostMapping("/draft")
@@ -110,14 +127,41 @@ public class AdminJournalController {
         return ApiResponse.ok(created);
     }
 
-    /** 草稿自动保存。只对 DRAFT 状态开放，公开文章的改动仍然要走 {@link #update}。 */
+    /**
+     * 草稿自动保存。只对 DRAFT 状态开放，公开文章的改动仍然要走 {@link #update}。
+     *
+     * <p>这里收的是原始 JSON 而不是直接绑定 record：PATCH 必须分得清「没传这个字段」和
+     * 「把这个字段显式设成 null」——前者沿用旧值，后者是作者把封面撤了、把摘要清空了。
+     * 绑定完的 record 里两者都是 null，再也分不出来。</p>
+     */
     @PatchMapping("/{id}/draft")
-    public ApiResponse<JournalEntry> saveDraft(@PathVariable Long id,
-                                               @Valid @RequestBody JournalDraftRequest request) {
-        JournalEntry updated = service.updateDraft(id, toEntity(request), Boolean.TRUE.equals(request.detachFromTrip()));
-        if (request.tags() != null) tagService.replaceTags(id, request.tags());
-        updated.setTags(tagService.namesOf(id));
-        return ApiResponse.ok(updated);
+    public ApiResponse<JournalEntry> saveDraft(@PathVariable Long id, @RequestBody JsonNode raw) {
+        JournalDraftRequest request = readDraft(raw);
+        JournalService.DraftPatch patch = new JournalService.DraftPatch(presentFields(raw),
+                Boolean.TRUE.equals(request.detachFromTrip()), request.expectedRevision());
+        return ApiResponse.ok(service.updateDraftWithTags(id, toEntity(request), patch, request.tags()));
+    }
+
+    /** 请求体里真正出现过的字段名。 */
+    private Set<String> presentFields(JsonNode raw) {
+        if (raw == null || !raw.isObject()) return Set.of();
+        Set<String> names = new LinkedHashSet<>();
+        raw.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
+    /** 手动绑定加校验：@Valid 用不上了，长度这类约束还是要照常拦。 */
+    private JournalDraftRequest readDraft(JsonNode raw) {
+        if (raw == null || !raw.isObject()) throw BusinessException.badRequest("请求体必须是 JSON 对象");
+        JournalDraftRequest request;
+        try {
+            request = objectMapper.treeToValue(raw, JournalDraftRequest.class);
+        } catch (JsonProcessingException e) {
+            throw BusinessException.badRequest("请求体格式不正确：" + e.getOriginalMessage());
+        }
+        Set<ConstraintViolation<JournalDraftRequest>> violations = validator.validate(request);
+        if (!violations.isEmpty()) throw new ConstraintViolationException(violations);
+        return request;
     }
 
     /**
@@ -138,10 +182,7 @@ public class AdminJournalController {
     }
     @PutMapping("/{id}")
     public ApiResponse<JournalEntry> update(@PathVariable Long id, @Valid @RequestBody JournalRequest request) {
-        JournalEntry updated = service.update(id, toEntity(request));
-        tagService.replaceTags(id, request.tags());
-        updated.setTags(tagService.namesOf(id));
-        return ApiResponse.ok(updated);
+        return ApiResponse.ok(service.updateWithTags(id, toEntity(request), request.tags()));
     }
 
     /** 日记下的图片张数，前端删除前调用，用于在确认弹窗里说明会连带删除多少张图。 */

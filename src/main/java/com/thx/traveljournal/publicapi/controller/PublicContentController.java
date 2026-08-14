@@ -2,6 +2,7 @@ package com.thx.traveljournal.publicapi.controller;
 
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.api.PageResponse;
+import com.thx.traveljournal.common.api.Pagination;
 import com.thx.traveljournal.journal.service.JournalTagService;
 import com.thx.traveljournal.publicapi.service.PublicContentService;
 import com.thx.traveljournal.publicapi.service.YearReviewService;
@@ -37,7 +38,10 @@ public class PublicContentController {
     public ApiResponse<PageResponse<PublicContentService.JournalCard>> journals(
             @RequestParam(defaultValue="1") long page, @RequestParam(defaultValue="12") long pageSize,
             @RequestParam(required=false) String keyword, @RequestParam(required=false) String tag) {
-        return ApiResponse.ok(service.journals(page, Math.min(pageSize, 100), keyword, tag));
+        Pagination.check(page, pageSize);
+        Pagination.checkKeyword(keyword);
+        Pagination.checkKeyword(tag);
+        return ApiResponse.ok(service.journals(page, pageSize, keyword, tag));
     }
 
     /** 标签云，只统计已发布日记。 */

@@ -160,7 +160,7 @@ onBeforeUnmount(releasePreview)
   <div><div class="page-head"><div><h2>旅行管理</h2><p>从计划到完成，集中整理每一次出发。</p></div><el-button type="primary" @click="open()">新建旅行</el-button></div>
     <div class="panel"><div class="toolbar"><el-input v-model="keyword" clearable placeholder="搜索旅行" style="max-width: 280px" @keyup.enter="load" /><el-button @click="load">查询</el-button></div>
     <div class="panel-pad"><div v-loading="loading" class="trip-list"><article v-for="item in data" :key="item.id" class="admin-trip-card" @click="router.push('/trips/' + item.id)">
-      <img v-if="item.coverMediaId" class="trip-card-cover" :src="`/api/media/${item.coverMediaId}/thumbnail`" :alt="item.title">
+      <img v-if="item.coverMediaId" class="trip-card-cover" :src="`/api/media/${item.coverMediaId}/thumbnail`" loading="lazy" decoding="async" :alt="item.title">
       <div v-else class="trip-card-cover trip-card-cover-empty" aria-hidden="true"><span>还没有封面</span></div>
       <span class="status">{{ statusLabel(item.status) }}</span><h3>{{ item.title }}</h3><p>{{ item.summary || '还没有旅行简介' }}</p><footer><span>{{ item.startDate }} — {{ item.endDate }}</span><el-button link @click.stop="open(item)">编辑</el-button></footer>
     </article></div><el-empty v-if="!data.length && !loading" description="还没有旅行" /></div></div>

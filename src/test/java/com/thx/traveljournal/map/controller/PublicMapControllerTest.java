@@ -27,7 +27,7 @@ class PublicMapControllerTest {
     }
 
     private PublicMapController controllerWith(AppProperties.MapSettings settings) {
-        return new PublicMapController(new AppProperties(null, null, null, null, settings, null, null),
+        return new PublicMapController(new AppProperties(null, null, null, null, settings, null, null, null),
                 mock(RestClient.Builder.class));
     }
 

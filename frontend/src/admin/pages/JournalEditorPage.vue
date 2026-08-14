@@ -6,12 +6,13 @@ import { journalApi } from '@/api/journal'
 import { mediaApi } from '@/api/media'
 import { templateApi, type JournalTemplate } from '@/api/template'
 import { themeApi } from '@/api/theme'
-import { tripApi } from '@/api/trip'
+import { tripApi, type TripOption } from '@/api/trip'
 import * as localDraft from '@/draft/drafts'
-import { dropPhoto, pendingPhotos, queuePhoto } from '@/draft/photos'
+import { dropPhoto, pendingPhotos, queuePhoto, reassignPhotos } from '@/draft/photos'
 import { emptyDocument, normalize, wordCount } from '@/journal/document'
 import { render as renderDocument } from '@/journal/render'
 import { enhance, teardown } from '@/media/enhance'
+import { createLocalPreview, releaseLocalPreview } from '@/media/local-preview'
 import type { JsonObject } from '@/types/common'
 import type { JournalEditorDraftRequest, JournalEntry, JournalStatus } from '@/types/journal'
 import type { JournalBlock, JournalDocument } from '@/types/journal-block'
@@ -42,10 +43,28 @@ interface TravelContext { trip: Trip | null, stop: TripStop | null, stops: TripS
 
 const props = defineProps<JournalEditorPageDeps>()
 const route = useRoute(); const router = useRouter()
-const routeId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
-const id = ref<number | null>(routeId === 'new' ? null : Number(routeId))
-const queryTripId = typeof route.query.tripId === 'string' ? Number(route.query.tripId) : null
-const trips = ref<Trip[]>([]); const stops = ref<TripStop[]>([]); const media = ref<MediaView[]>([])
+function routeId() { const value = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id; return value === 'new' ? null : Number(value) }
+function queryTripId() { return typeof route.query.tripId === 'string' ? Number(route.query.tripId) : null }
+const id = ref<number | null>(routeId())
+/*
+ * 本机临时草稿 id。
+ *
+ * 打开「写日记」不再立刻去服务端开一篇空草稿——那样每点一次侧边栏就多一条垃圾记录。
+ * 但作者在地铁里断着网也可能直接开始写，这时正文和照片必须先有个地方落脚，于是用一个
+ * 负数当本机 id：负数不会和服务端主键撞车，photos 索引的 Number(journalId) 也照常工作。
+ * 联网后创建真正的草稿，再把这一份整体改挂到真实 id 上。
+ */
+const localDraftId = ref<number | null>(null)
+/*
+ * 服务端那份草稿的版本号。
+ *
+ * 前端那条串行队列只管得住当前这个标签页。换台设备、多开一个标签页，或者 pagehide 的
+ * keepalive 请求和正在路上的自动保存撞在一起，晚到的旧正文就会盖掉新写的那一段。
+ * 每次保存都带上它，服务端认出版本对不上就返回 409，而不是默默覆盖。
+ */
+const revision = ref<number | null>(null)
+const conflicted = ref(false)
+const trips = ref<TripOption[]>([]); const currentTrip = ref<Trip | null>(null); const stops = ref<TripStop[]>([]); const media = ref<MediaView[]>([])
 const templates = ref<JournalTemplate[]>([]); const themes = ref<ThemeView[]>([])
 const linkedItinerary = ref<ItineraryItem[]>([]); const linkedExpenses = ref<Expense[]>([]); const linkedBudget = ref<BudgetSummary | null>(null)
 const pageLoading = ref(true); const saving = ref(false); const uploading = ref(false); const dirty = ref(false)
@@ -57,7 +76,7 @@ const metaCollapsed = ref(localStorage.getItem('travel-journal.editor-meta-colla
 const templateDialog = ref(false); const selectedTemplate = ref<JournalTemplate | null>(null); const templateData = ref<Record<string, TemplateInput>>({}); const generating = ref(false)
 const previewLink = ref(''); const autoSaveState = ref(''); const tagInput = ref(''); const previewOpen = ref(false); const articlePreviewEl = ref<HTMLElement | null>(null)
 const allowTextInput = !window.matchMedia?.('(pointer: coarse)').matches
-const form = reactive<JournalForm>({ tripId: queryTripId, tripStopId: null, title: '', slug: '', excerpt: '', contentJson: emptyDocument(), occurredOn: '', coverMediaId: null, status: 'DRAFT', themeKey: null, templateId: null, templateVersion: null, tags: [] })
+const form = reactive<JournalForm>({ tripId: queryTripId(), tripStopId: null, title: '', slug: '', excerpt: '', contentJson: emptyDocument(), occurredOn: '', coverMediaId: null, status: 'DRAFT', themeKey: null, templateId: null, templateVersion: null, tags: [] })
 const required = (message: string, trigger = 'blur') => ({ required: true, message, trigger })
 const rules = { title: [required('请填写日记标题')], slug: [required('请填写 Slug'), { pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, message: '只能使用小写字母、数字和短横线', trigger: 'blur' }], occurredOn: [required('请选择发生日期', 'change')] }
 const saveLabels: Record<string, string> = { saving: '保存中…', saved: '已保存', offline: '离线 · 待同步', failed: '保存失败 · 点击重试', local: '修改已暂存于本机' }
@@ -68,53 +87,125 @@ const excerptHint = computed(() => autoExcerpt.value ? `留空则用开头：${a
 const previewHtml = computed(() => previewOpen.value ? renderDocument(form.contentJson, media.value) : '')
 const allSelected = computed(() => media.value.length > 0 && selectedMedia.value.length === media.value.length)
 const templateBlocks = computed(() => Array.isArray(selectedTemplate.value?.definitionJson.blocks) ? selectedTemplate.value.definitionJson.blocks as unknown as Array<Record<string, unknown>> : [])
-const travelContext = computed<TravelContext>(() => ({ trip: trips.value.find(item => item.id === form.tripId) || null, stop: stops.value.find(item => item.id === form.tripStopId) || null, stops: stops.value, itinerary: linkedItinerary.value, expenses: linkedExpenses.value, budget: linkedBudget.value, occurredOn: form.occurredOn }))
+const travelContext = computed<TravelContext>(() => ({ trip: currentTrip.value, stop: stops.value.find(item => item.id === form.tripStopId) || null, stops: stops.value, itinerary: linkedItinerary.value, expenses: linkedExpenses.value, budget: linkedBudget.value, occurredOn: form.occurredOn }))
 let travelDataRequest = 0; let localTimer: number | null = null; let remoteTimer: number | null = null; let fallbackTimer: number | null = null; let uploadSeq = 0
 let saveChain: Promise<unknown> = Promise.resolve()
+/** 首次输入、模板生成和图片上传可能同时到达；共享同一个创建 Promise，保证只开一篇草稿。 */
+let draftCreation: Promise<boolean> | null = null
+let userEdited = false
+
+/** 本机快照和待上传照片挂在哪个 id 下：真实 id 优先，没有就用本机临时 id。 */
+function storageId() { return id.value ?? localDraftId.value }
+function ensureLocalDraft() { if (id.value == null && localDraftId.value == null) localDraftId.value = -Date.now(); return storageId() }
+/** 上次没写完的本机临时草稿（指针记的是负数才算）。 */
+function pendingLocalDraftId() { const last = localDraft.pointer(); const value = last == null ? NaN : Number(last.journalId); return Number.isFinite(value) && value < 0 ? value : null }
 
 function today() { return new Date().toLocaleDateString('sv-SE') }
 function statusLabel(status: JournalStatus) { return status === 'PUBLISHED' ? '已发布' : '草稿' }
 function stopOfDay(day: string) { return stops.value.find(item => (!item.arrivalDate || item.arrivalDate <= day) && (!item.departureDate || item.departureDate >= day)) || null }
 async function loadTravelData(value: number | null) {
   const request = ++travelDataRequest
-  if (!value) { form.tripStopId = null; stops.value = []; linkedItinerary.value = []; linkedExpenses.value = []; linkedBudget.value = null; return }
-  const result = await Promise.all([tripApi.stops(value), itineraryApi.list(value), budgetApi.expenses(value), budgetApi.summary(value)])
+  if (!value) { form.tripStopId = null; stops.value = []; currentTrip.value = null; linkedItinerary.value = []; linkedExpenses.value = []; linkedBudget.value = null; return }
+  // 下拉只需要标题，但区块的数据关联要完整旅行（币种、日期等），单独取这一场就够
+  const result = await Promise.all([tripApi.stops(value), itineraryApi.list(value), budgetApi.expenses(value), budgetApi.summary(value), tripApi.get(value)])
   if (request !== travelDataRequest) return
-  ;[stops.value, linkedItinerary.value, linkedExpenses.value, linkedBudget.value] = result
+  ;[stops.value, linkedItinerary.value, linkedExpenses.value, linkedBudget.value, currentTrip.value] = result
   if (!stops.value.some(item => item.id === form.tripStopId)) form.tripStopId = null
 }
 function applyEntry(entry: JournalEntry) {
+  revision.value = entry.revision ?? null
   Object.assign(form, { ...entry, excerpt: entry.excerpt || '', contentJson: normalize(entry.contentJson), occurredOn: entry.occurredOn || '', tags: entry.tags || [] })
 }
-async function ensureDraft() {
+/**
+ * 保证服务端已经有这篇草稿。
+ *
+ * 打开页面不再调它——只有作者真的写了点什么（标题、正文、摘要、旅行、日期、标签、主题、
+ * 图片、模板、手动保存、预览链接、发布）才需要一个服务端 id。首次输入、模板生成和图片上传
+ * 常常在同一瞬间到达，所以共用一个创建 Promise，避免开出好几篇。
+ *
+ * @return 服务端草稿是否已就绪；离线或创建失败时返回 false，但本机那份不会丢
+ */
+async function ensureDraft(): Promise<boolean> {
   if (id.value) return true
+  ensureLocalDraft()
+  if (!navigator.onLine) { autoSaveState.value = 'offline'; return false }
+  if (!draftCreation) {
+    const task = createServerDraft()
+    draftCreation = task
+    const release = () => { if (draftCreation === task) draftCreation = null }
+    void task.then(release, release)
+  }
+  return draftCreation
+}
+async function createServerDraft(): Promise<boolean> {
   try {
     const created = await journalApi.createDraft({ tripId: form.tripId, occurredOn: form.occurredOn || today() })
-    id.value = created.id; applyEntry(created)
+    // 只取服务端才有资格决定的字段。整份 applyEntry 会把刚敲进去的标题和正文用空白响应盖掉。
+    id.value = created.id
+    revision.value = created.revision ?? null
+    if (!form.slug) form.slug = created.slug
+    await adoptLocalDraft(created.id)
     const from = typeof route.query.from === 'string' ? route.query.from : undefined
-    await router.replace({ path: `/journals/${created.id}`, query: from ? { from } : {} }); autoSaveState.value = 'saved'; return true
-  } catch (error) { props.fail(error); return false }
+    await router.replace({ path: `/journals/${created.id}`, query: from ? { from } : {} })
+    autoSaveState.value = 'saving'
+    return true
+  } catch (error) { autoSaveState.value = navigator.onLine ? 'failed' : 'offline'; props.fail(error); return false }
+}
+/** 临时草稿转正：正文快照和待上传照片整体改挂到真实 id，先写新的再删旧的。 */
+async function adoptLocalDraft(realId: number) {
+  const localId = localDraftId.value
+  localDraftId.value = null
+  if (localId == null) return
+  const saved = await localDraft.get(localId)
+  if (saved?.form) await localDraft.put(realId, saved.form)
+  await reassignPhotos(localId, realId)
+  await localDraft.remove(localId)
+}
+/** 作者做了任何一件算数的编辑。第一次就把服务端草稿开出来，后续调用几乎零成本。 */
+function noteUserEdit() {
+  userEdited = true
+  if (id.value == null) { ensureLocalDraft(); void ensureDraft() }
 }
 async function load() {
   pageLoading.value = true; let recovered = false
   try {
-    const [tripPage, availableTemplates, availableThemes] = await Promise.all([tripApi.list({ page: 1, pageSize: 100 }), templateApi.list(true), themeApi.list(true)])
-    trips.value = tripPage.items; templates.value = availableTemplates; themes.value = availableThemes
+    // 旅行下拉走轻量选项接口：以前借用分页列表的前 100 条，旅行更多时会被静默截断
+    const [tripOptions, availableTemplates, availableThemes] = await Promise.all([tripApi.options(), templateApi.list(true), themeApi.list(true)])
+    trips.value = tripOptions; templates.value = availableTemplates; themes.value = availableThemes
     if (id.value) { applyEntry(await journalApi.get(id.value)); media.value = await mediaApi.list(id.value) }
-    else { form.occurredOn ||= today(); await ensureDraft() }
+    else form.occurredOn ||= today()
     if (form.tripId) await loadTravelData(form.tripId)
     if (!form.tripStopId) form.tripStopId = stopOfDay(form.occurredOn)?.id || null
     selectedTemplate.value = templates.value.find(item => item.id === form.templateId) || null
     if (selectedTemplate.value) selectTemplate(selectedTemplate.value)
-    const saved = await localDraft.get(id.value)
+    // 新建页面要找的是上次离线写了一半、还没来得及转正的那份本机草稿
+    const restoreId = id.value ?? pendingLocalDraftId()
+    const saved = await localDraft.get(restoreId)
     if (saved?.form && typeof saved.form === 'object' && saved.form !== null && JSON.stringify((saved.form as Partial<JournalForm>).contentJson) !== JSON.stringify(form.contentJson)) {
       try { await props.confirm('发现本机保存的编辑快照，是否恢复？'); Object.assign(form, saved.form); form.contentJson = normalize((saved.form as Partial<JournalForm>).contentJson); recovered = true } catch { /* 作者拒绝恢复 */ }
     }
-    if (!recovered) await localDraft.remove(id.value)
+    if (recovered && id.value == null && restoreId != null) { localDraftId.value = restoreId; userEdited = true }
+    if (!recovered) await localDraft.remove(restoreId)
     dirty.value = recovered; if (recovered) autoSaveState.value = 'local'
   } catch (error) { props.fail(error) }
   finally { pageLoading.value = false }
   if (recovered) { scheduleLocal(); scheduleRemote() }
+}
+/**
+ * 侧边栏「写日记」和编辑器共用一条 /journals/:id 路由，Vue 会复用组件而不是重新 setup。
+ * 不把状态显式清一遍，从已有日记切过去就会带着上一篇的 id 和正文。
+ */
+async function resetToNew() {
+  if (localTimer !== null) { clearTimeout(localTimer); localTimer = null }
+  if (remoteTimer !== null) { clearTimeout(remoteTimer); remoteTimer = null }
+  uploads.value.forEach(releaseUpload)
+  uploads.value = []; media.value = []; selectedMedia.value = []
+  id.value = null; localDraftId.value = null; draftCreation = null; userEdited = false
+  previewLink.value = ''; autoSaveState.value = ''; dirty.value = false; saving.value = false
+  selectedTemplate.value = null; templateData.value = {}; stops.value = []
+  Object.assign(form, { tripId: queryTripId(), tripStopId: null, title: '', slug: '', excerpt: '', contentJson: emptyDocument(), occurredOn: '', coverMediaId: null, status: 'DRAFT' as JournalStatus, themeKey: null, templateId: null, templateVersion: null, tags: [] })
+  await load()
+  void resumePendingUploads()
 }
 
 const pendingFields = ['pendingKey', 'pendingKeys', 'pendingOrder', 'pendingResolved']
@@ -126,22 +217,67 @@ function cleanContent(): JournalDocument {
   return { schemaVersion: 1, blocks }
 }
 function payload(contentJson: JournalDocument): JournalEditorDraftRequest { return { tripId: form.tripId, tripStopId: form.tripStopId, title: form.title, slug: form.slug, excerpt: form.excerpt || autoExcerpt.value, contentJson: contentJson as unknown as JsonObject, occurredOn: form.occurredOn, coverMediaId: form.coverMediaId, themeKey: form.themeKey, templateId: form.templateId, templateVersion: form.templateVersion, tags: form.tags } }
-function serverBody(): JournalEditorDraftRequest { return { ...payload(cleanContent()), detachFromTrip: form.tripId == null } }
+function serverBody(): JournalEditorDraftRequest { return { ...payload(cleanContent()), detachFromTrip: form.tripId == null, expectedRevision: revision.value } }
 function localSnapshot() { return payload(normalize(JSON.parse(JSON.stringify(form.contentJson)))) }
 function hasPendingContent() { return form.contentJson.blocks.some(block => block.data.pendingKey || (Array.isArray(block.data.pendingKeys) && block.data.pendingKeys.length)) }
-async function reconcileLocalAfterServer(snapshot: JournalEditorDraftRequest) { const synchronized = JSON.stringify(snapshot) === JSON.stringify(serverBody()); if (synchronized && !hasPendingContent()) await localDraft.remove(id.value); else await localDraft.put(id.value, localSnapshot()); return synchronized }
+async function reconcileLocalAfterServer(snapshot: JournalEditorDraftRequest) { const synchronized = JSON.stringify(snapshot) === JSON.stringify(serverBody()); if (synchronized && !hasPendingContent()) await localDraft.remove(storageId()); else await localDraft.put(storageId(), localSnapshot()); return synchronized }
+/**
+ * 服务端说「你手上这份不是最新的」。
+ *
+ * 绝不能自动覆盖，也绝不能丢掉本机这一份——作者刚敲的那几段只在这里。所以先把本机快照
+ * 落盘，再让作者自己选：重新加载服务器版本，还是保留本机内容强制写上去。
+ *
+ * @return 是否是版本冲突（是的话调用方不用再走普通失败分支）
+ */
+async function handleConflict(error: unknown): Promise<boolean> {
+  if (!isConflict(error) || conflicted.value) return isConflict(error)
+  conflicted.value = true
+  autoSaveState.value = 'local'
+  await localDraft.put(ensureLocalDraft(), localSnapshot())
+  try {
+    await props.confirm('这篇日记在别的地方已经被改过了。点「确定」丢弃本机改动并加载服务器版本；点「取消」保留本机内容，稍后可以再次保存覆盖。')
+    await reloadFromServer()
+  } catch {
+    // 作者选择留住自己写的：拿服务端最新版本号，下一次保存就能正常覆盖上去
+    await refreshRevision()
+  } finally {
+    conflicted.value = false
+  }
+  return true
+}
+function isConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: number }).status === 409
+}
+/** 丢弃本机改动，整篇换成服务器上的版本。 */
+async function reloadFromServer() {
+  if (!id.value) return
+  try {
+    applyEntry(await journalApi.get(id.value))
+    media.value = await mediaApi.list(id.value)
+    await localDraft.remove(storageId())
+    dirty.value = false
+    autoSaveState.value = 'saved'
+  } catch (error) { props.fail(error) }
+}
+/** 只取服务端最新版本号，正文原样保留本机这一份。 */
+async function refreshRevision() {
+  if (!id.value) return
+  try { revision.value = (await journalApi.get(id.value)).revision ?? null }
+  catch { /* 拿不到就等下一次保存再试 */ }
+}
 function enqueue<T>(task: () => Promise<T>): Promise<T> { const next = saveChain.then(task, task); saveChain = next.then(() => undefined, () => undefined); return next }
 function flushEditor() { blockEditor.value?.flushInline() }
-function scheduleLocal() { if (localTimer !== null) clearTimeout(localTimer); localTimer = window.setTimeout(() => { localTimer = null; void localDraft.put(id.value, localSnapshot()) }, 600) }
+function scheduleLocal() { if (localTimer !== null) clearTimeout(localTimer); localTimer = window.setTimeout(() => { localTimer = null; void localDraft.put(ensureLocalDraft(), localSnapshot()) }, 600) }
 function scheduleRemote() { if (remoteTimer !== null) clearTimeout(remoteTimer); remoteTimer = window.setTimeout(() => { remoteTimer = null; void autoSave() }, 3000) }
 async function autoSave() {
-  if (!id.value || !dirty.value || form.status !== 'DRAFT') return false
+  if (!dirty.value || form.status !== 'DRAFT') return false
   if (!navigator.onLine) { autoSaveState.value = 'offline'; return false }
+  if (!id.value && !await ensureDraft()) return false
   return enqueue(async () => {
     if (!id.value || !dirty.value || form.status !== 'DRAFT') return false
     saving.value = true; autoSaveState.value = 'saving'; const snapshot = serverBody()
-    try { await journalApi.saveDraft(id.value, snapshot); if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; return true }
-    catch { autoSaveState.value = navigator.onLine ? 'failed' : 'offline'; return false }
+    try { const saved = await journalApi.saveDraft(id.value, snapshot); revision.value = saved.revision ?? null; if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; return true }
+    catch (error) { if (await handleConflict(error)) return false; autoSaveState.value = navigator.onLine ? 'failed' : 'offline'; return false }
     finally { saving.value = false }
   })
 }
@@ -152,8 +288,8 @@ async function save(silent = false) {
   return enqueue(async () => {
     if (!id.value) return false
     saving.value = true; autoSaveState.value = 'saving'; const snapshot = serverBody()
-    try { await journalApi.saveDraft(id.value, snapshot); if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; if (!silent) props.message('草稿已保存'); return true }
-    catch (error) { autoSaveState.value = 'failed'; props.fail(error); return false }
+    try { const saved = await journalApi.saveDraft(id.value, snapshot); revision.value = saved.revision ?? null; if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; if (!silent) props.message('草稿已保存'); return true }
+    catch (error) { if (await handleConflict(error)) return false; autoSaveState.value = 'failed'; props.fail(error); return false }
     finally { saving.value = false }
   })
 }
@@ -163,21 +299,51 @@ async function updatePublished() { flushEditor(); await nextTick(); if (!await v
 async function unpublish() { if (!id.value) return; await enqueue(async () => { try { await journalApi.unpublish(id.value!); form.status = 'DRAFT'; dirty.value = false; props.message('日记已撤回') } catch (error) { props.fail(error) } }) }
 
 const uploadConcurrency = 3
+/**
+ * 给占位块配上本机小图预览。
+ *
+ * 不 await：作者选完照片应该立刻看到占位块和上传进度，而不是先等十张原图缩完。
+ * 缩略本身在 local-preview 里限了并发，不会一次解码一堆原图。
+ */
+function attachPreviews(tasks: UploadTask[]) {
+  tasks.forEach(task => {
+    void createLocalPreview(task.file).then(url => {
+      // 这张可能在缩略过程中已经被移除或上传完了，那就别再挂上去，直接扔掉
+      if (!uploads.value.includes(task) || task.status === 'done') { releaseLocalPreview(url); return }
+      releaseLocalPreview(task.preview)
+      task.preview = url
+    })
+  })
+}
+/** 一张上传任务的收尾：预览 URL 只在这里释放，避免各条清理路径各写一遍。 */
+function releaseUpload(task: UploadTask) {
+  releaseLocalPreview(task.preview)
+  task.preview = ''
+}
 async function upload(files?: FileList | File[] | null) {
-  const list = Array.from(files || []).filter(file => file.type.startsWith('image/')); if (!list.length || !await ensureDraft()) return
-  const tasks = list.map(file => reactive<UploadTask>({ key: `up_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, name: file.name, file, preview: URL.createObjectURL(file), progress: 0, status: 'waiting', seq: uploadSeq++ }))
+  const list = Array.from(files || []).filter(file => file.type.startsWith('image/')); if (!list.length) return
+  // 选照片本身就是一次有效编辑；离线时草稿开不出来，但正文占位和本机原图必须先落地
+  noteUserEdit()
+  const ready = await ensureDraft()
+  const storage = ensureLocalDraft()
+  const tasks = list.map(file => reactive<UploadTask>({ key: `up_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, name: file.name, file, preview: '', progress: 0, status: 'waiting', seq: uploadSeq++ }))
   uploads.value.push(...tasks); blockEditor.value?.insertPending(tasks)
-  const persisted = await Promise.all(tasks.map(task => queuePhoto(id.value, task.key, task.file, task.name))); await localDraft.put(id.value, localSnapshot())
+  attachPreviews(tasks)
+  const persisted = await Promise.all(tasks.map(task => queuePhoto(storage, task.key, task.file, task.name))); await localDraft.put(storage, localSnapshot())
   if (persisted.some(ok => !ok)) props.warning('部分照片无法写入离线存储，请保持页面打开直到上传完成')
+  if (!ready) { props.info('照片已暂存在本机，联网后会自动继续上传'); return }
   await runUploadQueue(tasks)
 }
 async function resumePendingUploads() {
-  if (!id.value) return
-  const queued = await pendingPhotos(id.value); if (!queued.length) return
+  const storage = storageId(); if (storage == null) return
+  const queued = await pendingPhotos(storage); if (!queued.length) return
   const keys = new Set<string>(); form.contentJson.blocks.forEach(block => { if (typeof block.data.pendingKey === 'string') keys.add(block.data.pendingKey); if (Array.isArray(block.data.pendingKeys)) block.data.pendingKeys.forEach(key => { if (typeof key === 'string') keys.add(key) }) })
   const now = Date.now(); queued.filter(item => !keys.has(item.key) && now - item.queuedAt >= 86_400_000).forEach(item => void dropPhoto(item.key))
-  const tasks = queued.filter(item => keys.has(item.key)).map(item => reactive<UploadTask>({ key: item.key, name: item.name, file: item.blob, preview: URL.createObjectURL(item.blob), progress: 0, status: 'waiting', seq: uploadSeq++ }))
-  if (!tasks.length) return; uploads.value.push(...tasks); props.info(`有 ${tasks.length} 张照片上次没传完，正在继续`); await runUploadQueue(tasks)
+  const tasks = queued.filter(item => keys.has(item.key)).map(item => reactive<UploadTask>({ key: item.key, name: item.name, file: item.blob, preview: '', progress: 0, status: 'waiting', seq: uploadSeq++ }))
+  attachPreviews(tasks)
+  if (!tasks.length) return; uploads.value.push(...tasks)
+  if (!id.value) { props.info(`有 ${tasks.length} 张照片还没传完，联网后会自动继续`); return }
+  props.info(`有 ${tasks.length} 张照片上次没传完，正在继续`); await runUploadQueue(tasks)
 }
 async function runUploadQueue(tasks: UploadTask[]) {
   uploading.value = true; let cursor = 0
@@ -187,13 +353,38 @@ async function runUploadQueue(tasks: UploadTask[]) {
 }
 async function sendUpload(task: UploadTask) {
   if (!id.value) return; task.status = 'uploading'; task.progress = 0
-  try { const body = new FormData(); body.append('file', task.file); const item = await mediaApi.upload(id.value, body, event => { if (event.total) task.progress = Math.min(99, Math.round(event.loaded * 100 / event.total)) }); const at = media.value.findIndex(existing => Number((existing as MediaView & { uploadSeq?: number }).uploadSeq) > task.seq); const stamped = Object.assign(item, { uploadSeq: task.seq }); if (at < 0) media.value.push(stamped); else media.value.splice(at, 0, stamped); task.status = 'done'; task.progress = 100; blockEditor.value?.resolvePending(task.key, item.id); await dropPhoto(task.key); URL.revokeObjectURL(task.preview) }
+  try {
+    const body = new FormData(); body.append('file', task.file)
+    // 上传的永远是原始文件；本机预览缩没缩过和这里无关
+    const item = await mediaApi.upload(id.value, body, event => {
+      if (!event.total) return
+      // 只在整数百分比真的变了才写回，否则一次上传能触发上百次重绘
+      const next = Math.min(99, Math.round(event.loaded * 100 / event.total))
+      if (next !== task.progress) task.progress = next
+    })
+    const at = media.value.findIndex(existing => Number((existing as MediaView & { uploadSeq?: number }).uploadSeq) > task.seq)
+    const stamped = Object.assign(item, { uploadSeq: task.seq })
+    if (at < 0) media.value.push(stamped); else media.value.splice(at, 0, stamped)
+    task.status = 'done'; task.progress = 100
+    blockEditor.value?.resolvePending(task.key, item.id)
+    await dropPhoto(task.key)
+    // 必须等 DOM 换成服务端缩略图再撤销本机 URL，否则中间会有一帧空图闪过
+    await nextTick()
+    releaseUpload(task)
+  }
   catch { task.status = 'failed' }
 }
 async function syncMediaOrder() { if (!id.value || !media.value.length || media.value.some(item => item.relationId == null)) return; try { await mediaApi.reorder(id.value, media.value.map(item => item.relationId!)) } catch { /* 下次排序重试 */ } }
 function retryUpload(key: string) { const task = uploads.value.find(item => item.key === key); if (task?.status === 'failed') void runUploadQueue([task]) }
-function discardUpload(key: string) { uploads.value = uploads.value.filter(item => item.key !== key); void dropPhoto(key) }
-function onOnline() { const failed = uploads.value.filter(task => task.status === 'failed'); if (failed.length) void runUploadQueue(failed); if (dirty.value) void autoSave() }
+function discardUpload(key: string) { const task = uploads.value.find(item => item.key === key); if (task) releaseUpload(task); uploads.value = uploads.value.filter(item => item.key !== key); void dropPhoto(key) }
+function onOnline() { void resumeAfterOnline() }
+/** 出了地铁：先把本机临时草稿转正（只转一次），再续传卡住的照片和没保存的正文。 */
+async function resumeAfterOnline() {
+  if (!id.value && userEdited) await ensureDraft()
+  const stalled = uploads.value.filter(task => task.status === 'failed' || task.status === 'waiting')
+  if (stalled.length && id.value) void runUploadQueue(stalled)
+  if (dirty.value) void autoSave()
+}
 function picked(event: Event) { const input = event.target as HTMLInputElement; void upload(input.files); input.value = '' }
 function capture() { if (window.matchMedia('(pointer:coarse)').matches) photoSheet.value = true; else fileInput.value?.click() }
 function dropped(event: DragEvent) { void upload(event.dataTransfer?.files) }
@@ -213,14 +404,17 @@ function selectTemplate(item: JournalTemplate) { selectedTemplate.value = item; 
 function templateInput(block: Record<string, unknown>): TemplateInput { return templateData.value[String(block.id)] || {} }
 function updateTemplateInput(block: Record<string, unknown>, value: TemplateInput) { templateData.value[String(block.id)] = value }
 function openTemplate() { if (!form.tripId) { metaCollapsed.value = false; metaOpen.value = true; props.info('模板会读取城市、行程等旅行数据；请先选择所属旅行，也可以直接在正文中开始写。'); return }; templateDialog.value = true; if (selectedTemplate.value) selectTemplate(selectedTemplate.value); else if (templates.value[0]) selectTemplate(templates.value[0]) }
-async function generateFromTemplate() { if (!selectedTemplate.value || !form.tripId) return; if (form.contentJson.blocks.length) try { await props.confirm('使用模板会替换当前正文，是否继续？') } catch { return }; generating.value = true; try { const result = await templateApi.generate(selectedTemplate.value.id, { journalId: id.value, tripId: form.tripId, tripStopId: form.tripStopId, occurredOn: form.occurredOn, data: templateData.value as unknown as JsonObject }); form.contentJson = normalize(result.contentJson); form.templateId = result.templateId; form.templateVersion = result.templateVersion; templateDialog.value = false; if (result.skippedBlocks.length) props.info(`没有数据，已跳过：${result.skippedBlocks.join('、')}`) } catch (error) { props.fail(error) } finally { generating.value = false } }
+async function generateFromTemplate() { if (!selectedTemplate.value || !form.tripId) return; if (form.contentJson.blocks.length) try { await props.confirm('使用模板会替换当前正文，是否继续？') } catch { return }; if (!await ensureDraft()) return; generating.value = true; try { const result = await templateApi.generate(selectedTemplate.value.id, { journalId: id.value, tripId: form.tripId, tripStopId: form.tripStopId, occurredOn: form.occurredOn, data: templateData.value as unknown as JsonObject }); form.contentJson = normalize(result.contentJson); form.templateId = result.templateId; form.templateVersion = result.templateVersion; templateDialog.value = false; if (result.skippedBlocks.length) props.info(`没有数据，已跳过：${result.skippedBlocks.join('、')}`) } catch (error) { props.fail(error) } finally { generating.value = false } }
 async function makePreviewLink() { if (!await save(true) || !id.value) return; try { const value = await journalApi.createPreviewLink(id.value); previewLink.value = value.url || `${location.origin}/#/preview/${value.token}`; await navigator.clipboard?.writeText(previewLink.value); props.message('预览链接已复制') } catch (error) { props.fail(error) } }
 function openPublished() { if (form.slug) window.open(`${location.origin}/#/journals/${encodeURIComponent(form.slug)}`, '_blank', 'noopener') }
 function addTag() { const value = tagInput.value.trim(); if (value && !form.tags.includes(value)) form.tags.push(value); tagInput.value = '' } function removeTag(value: string) { form.tags = form.tags.filter(tag => tag !== value) }
 function backToTrip() { if (!form.tripId) { void router.push('/'); return }; const from = typeof route.query.from === 'string' && ['overview', 'stops', 'itinerary', 'budget', 'expenses', 'journals', 'settings'].includes(route.query.from) ? route.query.from : 'journals'; void router.push({ path: `/trips/${form.tripId}`, query: { tab: from } }) }
 function openArticlePreview() { blockEditor.value?.flushInline(); metaOpen.value = false; void nextTick(() => { previewOpen.value = true }) }
 function keepaliveSave() { if (!id.value) return; const token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1]; const headers: Record<string, string> = { 'Content-Type': 'application/json' }; if (token) headers['X-XSRF-TOKEN'] = decodeURIComponent(token); void fetch(`/api/admin/journals/${id.value}/draft`, { method: 'PATCH', credentials: 'include', keepalive: true, headers, body: JSON.stringify(serverBody()) }).catch(() => undefined) }
-function flushAll(closing: boolean) { if (pageLoading.value || !id.value) return; flushEditor(); if (localTimer !== null) { clearTimeout(localTimer); localTimer = null }; if (!dirty.value) return; void localDraft.put(id.value, localSnapshot()); if (remoteTimer !== null) { clearTimeout(remoteTimer); remoteTimer = null }; if (form.status !== 'DRAFT' || !navigator.onLine) return; if (closing) keepaliveSave(); else void autoSave() }
+function flushAll(closing: boolean) { if (pageLoading.value) return; flushEditor(); if (localTimer !== null) { clearTimeout(localTimer); localTimer = null }; if (!dirty.value) return; void localDraft.put(ensureLocalDraft(), localSnapshot()); if (remoteTimer !== null) { clearTimeout(remoteTimer); remoteTimer = null }; if (!id.value || form.status !== 'DRAFT' || !navigator.onLine) return; if (!closing) { void autoSave(); return }
+  // 已经有一次保存在路上时，keepalive 这条带的是同一个旧版本号，到达服务端只会拿到 409。
+  // 本机快照上面已经写过了，这时候什么都不发才是对的。
+  if (!saving.value) keepaliveSave() }
 function onPageHide() { flushAll(true) } function onHidden() { if (document.visibilityState === 'hidden') flushAll(false) }
 
 watch(previewHtml, () => void nextTick(() => { teardown(articlePreviewEl.value); enhance(articlePreviewEl.value) }))
@@ -228,23 +422,26 @@ watch(previewOpen, value => { if (!value) teardown(articlePreviewEl.value) })
 watch(() => form.tripId, value => { void loadTravelData(value).catch(props.fail) })
 watch(() => form.occurredOn, value => { if (value && !form.slug) form.slug = `journal-${value.replaceAll('-', '')}-${Date.now().toString().slice(-5)}` })
 watch(metaCollapsed, value => localStorage.setItem('travel-journal.editor-meta-collapsed', value ? 'on' : 'off'))
-watch(form, () => { if (pageLoading.value) return; dirty.value = true; if (form.status === 'PUBLISHED') { autoSaveState.value = 'local'; scheduleLocal(); return }; scheduleLocal(); scheduleRemote() }, { deep: true })
+watch(form, () => { if (pageLoading.value) return; dirty.value = true; noteUserEdit(); if (form.status === 'PUBLISHED') { autoSaveState.value = 'local'; scheduleLocal(); return }; scheduleLocal(); scheduleRemote() }, { deep: true })
+// 侧边栏「写日记」落在同一条路由上，组件会被复用；不显式重置就会带着上一篇的 id 继续写
+watch(() => route.params.id, async next => { const value = Array.isArray(next) ? next[0] : next; if (value === 'new' && (id.value !== null || userEdited || dirty.value)) await resetToNew() })
 onMounted(async () => { await load(); void resumePendingUploads(); fallbackTimer = window.setInterval(() => void autoSave(), 45_000); window.addEventListener('pagehide', onPageHide); document.addEventListener('visibilitychange', onHidden); window.addEventListener('online', onOnline) })
 onBeforeUnmount(async () => {
   if (fallbackTimer !== null) clearInterval(fallbackTimer)
   window.removeEventListener('pagehide', onPageHide)
   document.removeEventListener('visibilitychange', onHidden)
   window.removeEventListener('online', onOnline)
-  uploads.value.forEach(task => URL.revokeObjectURL(task.preview))
-  if (pageLoading.value || !id.value) return
+  uploads.value.forEach(releaseUpload)
+  if (pageLoading.value) return
   flushEditor()
   if (localTimer !== null) { clearTimeout(localTimer); localTimer = null }
   if (remoteTimer !== null) { clearTimeout(remoteTimer); remoteTimer = null }
   if (!dirty.value) return
-  const journalId = id.value
   const local = localSnapshot()
-  await localDraft.put(journalId, local)
-  if (form.status !== 'DRAFT' || !navigator.onLine) return
+  // 还没转正的临时草稿也要留在本机，否则「离线写了两段就切走」等于白写
+  await localDraft.put(ensureLocalDraft(), local)
+  const journalId = id.value
+  if (!journalId || form.status !== 'DRAFT' || !navigator.onLine) return
   const snapshot = serverBody()
   try {
     await enqueue(() => journalApi.saveDraft(journalId, snapshot))

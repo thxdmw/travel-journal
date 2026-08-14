@@ -42,6 +42,13 @@ public class JournalEntry extends BaseEntity {
     private Long coverMediaId;
     /** 发布时间，撤回后置空 */
     private OffsetDateTime publishedAt;
+    /**
+     * 草稿保存的乐观锁版本号，每次成功写入自增 1。
+     *
+     * <p>不用 MyBatis-Plus 的 {@code @Version}：那套只在 updateById 生效，而这里的写回
+     * 还要经过带 set 的 UpdateWrapper，条件必须自己拼才控制得住。</p>
+     */
+    private Integer revision;
     /** 日记专属主题标识，为空表示继承旅行或全站主题 */
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String themeKey;
@@ -58,4 +65,11 @@ public class JournalEntry extends BaseEntity {
      */
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     private java.util.List<String> tags;
+
+    /**
+     * 所属旅行标题，同样不是本表字段。列表查询时由 Service 批量回填一次，
+     * 独立日记和旅行已删除时为 null，由前端降级成「独立日记」。
+     */
+    @TableField(exist = false)
+    private String tripTitle;
 }

@@ -66,7 +66,7 @@ public class PublicContentService {
      *              没有任何可画的点，前端不显示地图。
      */
     public record JournalDetail(JournalCard journal, JsonNode contentJson,
-                                List<MediaService.MediaView> media, String previousSlug, String nextSlug,
+                                List<MediaService.PublicMediaView> media, String previousSlug, String nextSlug,
                                 ThemePresetService.ThemeView theme,
                                 List<DayRouteService.RoutePoint> route) {}
     public record CityMarker(String cityName, String regionName, String countryName,
@@ -83,7 +83,9 @@ public class PublicContentService {
 
     /** 首页数据：最近日记、最近旅行、地图城市点和四个统计数字。没有已发布日记时返回全空。 */
     public Home home() {
-        List<JournalEntry> published = publishedJournals();
+        // 地图要按城市聚合年份和篇数，这一份必须是全量；但它只取地图和统计用得上的几列，
+        // 摘要、封面这些只有最近 6 张卡片需要的字段不在其中。
+        List<JournalEntry> published = publishedJournalsForAggregation();
         if (published.isEmpty()) return new Home(List.of(), List.of(), List.of(), 0, 0, 0, 0);
         Set<Long> tripIds = published.stream().map(JournalEntry::getTripId).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
@@ -93,8 +95,8 @@ public class PublicContentService {
                 .in(TripStop::getTripId, tripIds).orderByAsc(TripStop::getSortOrder, TripStop::getId));
         Map<Long, TripStop> stopMap = allStops.stream().collect(Collectors.toMap(TripStop::getId, Function.identity()));
         Map<Long, List<TripStop>> stopsByTrip = allStops.stream().collect(Collectors.groupingBy(TripStop::getTripId));
-        List<JournalCard> journals = published.stream().limit(6)
-                .map(entry -> card(entry, tripMap.get(entry.getTripId()), stopMap.get(entry.getTripStopId()))).toList();
+        // 最近日记单独查一次，只取 6 条完整记录，而不是把全站的摘要和封面都读进来
+        List<JournalCard> journals = cards(recentPublished(6));
         Map<Long, Long> journalCounts = published.stream().filter(entry -> entry.getTripId() != null)
                 .collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
         List<TripCard> allTrips = tripMap.values().stream()
@@ -106,7 +108,7 @@ public class PublicContentService {
         // 日记多了会拼出一条几百个参数的语句
         long photos = aggregateMapper.countPublishedPhotos();
         return new Home(journals, allTrips.stream().limit(3).toList(), cities,
-                allTrips.size(), cities.size(), published.size(), photos);
+                allTrips.size(), cities.size(), aggregateMapper.countPublishedJournals(), photos);
     }
 
     /** 前台旅行列表。只展示至少有一篇已发布日记的旅行，草稿阶段的旅行不对外可见。 */
@@ -115,9 +117,15 @@ public class PublicContentService {
         Map<Long, Long> counts = published.stream().filter(entry -> entry.getTripId() != null)
                 .collect(Collectors.groupingBy(JournalEntry::getTripId, Collectors.counting()));
         if (counts.isEmpty()) return List.of();
+        // 城市一次查完再分组，不按旅行数发查询
+        Map<Long, List<TripStop>> stopsByTrip = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+                        .in(TripStop::getTripId, counts.keySet())
+                        .orderByAsc(TripStop::getSortOrder, TripStop::getId))
+                .stream().collect(Collectors.groupingBy(TripStop::getTripId));
         return tripMapper.selectByIds(counts.keySet()).stream()
                 .sorted(Comparator.comparing(Trip::getStartDate).reversed())
-                .map(trip -> tripCard(trip, counts.getOrDefault(trip.getId(), 0L))).toList();
+                .map(trip -> tripCard(trip, counts.getOrDefault(trip.getId(), 0L),
+                        stopsByTrip.getOrDefault(trip.getId(), List.of()))).toList();
     }
 
     /** 旅行详情。一篇已发布日记都没有时按「尚未公开」处理，不泄露旅行的存在。 */
@@ -131,7 +139,7 @@ public class PublicContentService {
         List<TripStopView> stops = stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
                         .eq(TripStop::getTripId, trip.getId()).orderByAsc(TripStop::getSortOrder))
                 .stream().map(this::stopView).toList();
-        return new TripDetail(tripCard(trip, journals.size()), stops, journals.stream().map(this::card).toList(),
+        return new TripDetail(tripCard(trip, journals.size()), stops, cards(journals),
                 themePresetService.effective(null, trip.getThemeKey()));
     }
 
@@ -160,8 +168,7 @@ public class PublicContentService {
         }
         Page<JournalEntry> result = journalMapper.selectPage(Page.of(page, pageSize),
                 query.orderByDesc(JournalEntry::getPublishedAt));
-        return PageResponse.of(result.getRecords().stream().map(this::card).toList(),
-                page, pageSize, result.getTotal());
+        return PageResponse.of(cards(result.getRecords()), page, pageSize, result.getTotal());
     }
 
     public JournalDetail journal(String slug) {
@@ -178,7 +185,8 @@ public class PublicContentService {
         String next = index >= 0 && index < tripJournals.size() - 1 ? tripJournals.get(index + 1).getSlug() : null;
         Trip trip = entry.getTripId() == null ? null : tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
-        return new JournalDetail(card(entry, trip, stop), entry.getContentJson(), mediaService.list(entry.getId()),
+        return new JournalDetail(card(entry, trip, stop), entry.getContentJson(),
+                mediaService.publicList(entry.getId(), null),
                 previous, next, themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()),
                 dayRouteService.forJournal(entry));
     }
@@ -194,7 +202,8 @@ public class PublicContentService {
         Trip trip = entry.getTripId() == null ? null : tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return new JournalDetail(card(entry, trip, stop), entry.getContentJson(),
-                mediaService.list(entry.getId()), null, null,
+                // 图片地址带上令牌，草稿图片才对匿名预览者可见，且只限这一篇
+                mediaService.publicList(entry.getId(), token), null, null,
                 themePresetService.effective(entry.getThemeKey(), trip == null ? null : trip.getThemeKey()),
                 dayRouteService.forJournal(entry));
     }
@@ -263,10 +272,60 @@ public class PublicContentService {
                 .eq(JournalEntry::getStatus, "PUBLISHED").orderByDesc(JournalEntry::getPublishedAt));
     }
 
+    /**
+     * 首页地图和统计用的全量投影，比 {@link #publishedJournals} 更窄。
+     *
+     * <p>地图要按城市聚合去过的年份、旅行和日记链接，这一份躲不掉全量；但摘要和封面
+     * 只有最近那 6 张卡片用得上，没必要为了首页把全站的摘要都读进 JVM。</p>
+     */
+    private List<JournalEntry> publishedJournalsForAggregation() {
+        return journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
+                .select(JournalEntry::getId, JournalEntry::getTripId, JournalEntry::getTripStopId,
+                        JournalEntry::getTitle, JournalEntry::getSlug,
+                        JournalEntry::getOccurredOn, JournalEntry::getPublishedAt)
+                .eq(JournalEntry::getStatus, "PUBLISHED").orderByDesc(JournalEntry::getPublishedAt));
+    }
+
+    /** 最近几篇已发布日记，带卡片需要的完整字段。 */
+    private List<JournalEntry> recentPublished(int limit) {
+        return journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
+                .select(JournalEntry::getId, JournalEntry::getTripId, JournalEntry::getTripStopId,
+                        JournalEntry::getTitle, JournalEntry::getSlug, JournalEntry::getExcerpt,
+                        JournalEntry::getOccurredOn, JournalEntry::getCoverMediaId)
+                .eq(JournalEntry::getStatus, "PUBLISHED")
+                .orderByDesc(JournalEntry::getPublishedAt)
+                .last("limit " + limit));
+    }
+
     private JournalCard card(JournalEntry entry) {
         Trip trip = entry.getTripId() == null ? null : tripMapper.selectById(entry.getTripId());
         TripStop stop = entry.getTripStopId() == null ? null : stopMapper.selectById(entry.getTripStopId());
         return card(entry, trip, stop);
+    }
+
+    /**
+     * 批量组装日记卡片。
+     *
+     * <p>逐篇 {@code card(entry)} 会为每篇日记各查一次旅行和城市：一页 12 篇就是 24 条
+     * 额外查询，而且同一场旅行下的日记还会把同一个旅行反复查回来。这里先收 id，
+     * 两次批量查完再在内存里配对。</p>
+     */
+    private List<JournalCard> cards(List<JournalEntry> entries) {
+        if (entries.isEmpty()) return List.of();
+        Set<Long> tripIds = entries.stream().map(JournalEntry::getTripId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<Long> stopIds = entries.stream().map(JournalEntry::getTripStopId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, Trip> trips = tripIds.isEmpty() ? Map.of() : tripMapper.selectByIds(tripIds).stream()
+                .collect(Collectors.toMap(Trip::getId, Function.identity()));
+        Map<Long, TripStop> stops = stopIds.isEmpty() ? Map.of() : stopMapper.selectByIds(stopIds).stream()
+                .collect(Collectors.toMap(TripStop::getId, Function.identity()));
+        // 独立日记的 tripId 是 null，而 Map.of() 连查一下 null 都会抛 NPE
+        return entries.stream()
+                .map(entry -> card(entry,
+                        entry.getTripId() == null ? null : trips.get(entry.getTripId()),
+                        entry.getTripStopId() == null ? null : stops.get(entry.getTripStopId())))
+                .toList();
     }
 
     private JournalCard card(JournalEntry entry, Trip trip, TripStop stop) {

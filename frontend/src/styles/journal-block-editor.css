@@ -78,7 +78,9 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-pending{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;padding:12px;border:1px dashed var(--tj-border);border-radius:var(--tj-radius);background:var(--tj-surface-soft)}
 .block-pending.is-failed{border-color:var(--tj-danger);border-style:solid;background:color-mix(in srgb,var(--tj-danger) 5%,var(--tj-surface))}
 .block-pending-shots{display:flex;gap:4px}
-.block-pending-shots img{width:56px;height:56px;object-fit:cover;border-radius:7px;background:var(--tj-surface)}
+.block-pending-shots img,.block-pending-shot-empty{width:56px;height:56px;object-fit:cover;border-radius:7px;background:var(--tj-surface)}
+/* 缩略图还没生成时的同尺寸占位，保证这一块的高度从头到尾不变 */
+.block-pending-shot-empty{display:block;border:1px dashed var(--tj-border)}
 .block-pending-main{min-width:0;display:grid;align-content:center;gap:7px}
 .block-pending-main strong{overflow:hidden;color:var(--tj-primary);font-size:13px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
 .block-pending-bar{height:4px;border-radius:4px;background:var(--tj-border);overflow:hidden}

@@ -18,23 +18,36 @@ function queryText(value: LocationQueryValue | LocationQueryValue[] | undefined)
 
 const keyword = ref(queryText(route.query.q))
 const activeTag = computed(() => queryText(route.query.tag))
+const PAGE_SIZE = 12
+/*
+ * 页码走地址栏。
+ *
+ * 这一页以前永远只请求第一页 12 条，也没有任何翻页入口：写到第 13 篇，前面那些
+ * 就再也点不到了。页码放进 query 而不是组件状态，浏览器的前进后退才回得到原来那一页。
+ */
+const page = computed(() => {
+  const value = Number(queryText(route.query.page))
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1
+})
+const totalPages = computed(() => data.value?.totalPages ?? 0)
 
 async function load() {
   loading.value = true
   try {
     data.value = await publicApi.journals(
-      1,
-      12,
+      page.value,
+      PAGE_SIZE,
       queryText(route.query.q) || undefined,
       activeTag.value || undefined,
     )
   } catch {
-    data.value = { items: [], page: 1, pageSize: 12, total: 0, totalPages: 0 }
+    data.value = { items: [], page: page.value, pageSize: PAGE_SIZE, total: 0, totalPages: 0 }
   } finally {
     loading.value = false
   }
 }
 
+/** 换筛选条件时不带页码：新的结果集里第 3 页可能根本不存在。 */
 function currentQuery(): Record<string, string> {
   const query: Record<string, string> = {}
   if (keyword.value.trim()) query.q = keyword.value.trim()
@@ -44,6 +57,13 @@ function currentQuery(): Record<string, string> {
 
 function search() {
   void router.push({ path: '/journals', query: currentQuery() })
+}
+
+function goToPage(next: number) {
+  if (next < 1 || (totalPages.value && next > totalPages.value)) return
+  const query = currentQuery()
+  if (next > 1) query.page = String(next)
+  void router.push({ path: '/journals', query })
 }
 
 function pickTag(slug: string) {
@@ -105,5 +125,10 @@ onMounted(async () => {
     <div v-else class="empty">
       没有找到匹配的日记。<button type="button" class="text-link-btn" @click="reset">清空筛选</button>
     </div>
+    <nav v-if="!loading && totalPages > 1" class="journal-pager" aria-label="日记分页">
+      <button type="button" :disabled="page <= 1" @click="goToPage(page - 1)">上一页</button>
+      <span>第 {{ page }} / {{ totalPages }} 页</span>
+      <button type="button" :disabled="page >= totalPages" @click="goToPage(page + 1)">下一页</button>
+    </nav>
   </main>
 </template>

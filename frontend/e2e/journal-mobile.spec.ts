@@ -19,8 +19,8 @@ test('@smoke 不建旅行也能直接打开独立日记草稿', async ({ page })
   const id = await openNewJournal(page)
   expect(id).toBeGreaterThan(0)
 
-  // 标题、slug 都还没填，但状态已经是「已保存」——这正是「新建即草稿」要的效果
-  await waitSaved(page)
+  // 打开一篇还没写东西的草稿不会触发保存，顶栏就显示状态本身
+  await expect(page.locator('.editor-save-state')).toHaveText(/草稿/)
 
   const entry = await adminRequest<JournalEntry>(
       page,
@@ -188,7 +188,6 @@ test(
     '什么都不写就退出，草稿仍然留着（回收交给服务端定时任务）',
     async ({ page }) => {
       const id = await openNewJournal(page)
-      await waitSaved(page)
 
       await page.goto('/admin/#/trips')
       await page.waitForTimeout(1500)
@@ -211,6 +210,9 @@ test.describe('手机端布局', () => {
         .locator('.editor-page, .editor-page *')
         .evaluateAll(nodes =>
             nodes
+                // 关着的弹窗遮罩也带 overflow，但它 display:none，滚不了任何东西。
+                // 模板弹窗没有 append-to-body，DOM 就挂在 .editor-page 里面。
+                .filter(node => node.getClientRects().length > 0)
                 .filter(node =>
                     ['auto', 'scroll'].includes(
                         getComputedStyle(node).overflowY,

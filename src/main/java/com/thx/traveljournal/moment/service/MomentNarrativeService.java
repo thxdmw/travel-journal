@@ -117,7 +117,8 @@ public class MomentNarrativeService {
             }
             return parse(text(message), targets);
         } catch (Exception e) {
-            log.warn("AI 润色失败，已退回原文：{}", e.getMessage());
+            // 带堆栈：只有一行 message 时，超时、鉴权失败和响应格式问题看起来一模一样
+            log.warn("AI 润色失败，已退回原文", e);
             return Map.of();
         }
     }
@@ -175,7 +176,7 @@ public class MomentNarrativeService {
                 if (allowed.contains(id) && !text.isEmpty()) result.put(id, text);
             }
         } catch (Exception e) {
-            log.warn("AI 返回的内容不是预期的 JSON，已退回原文：{}", e.getMessage());
+            log.warn("AI 返回的内容不是预期的 JSON，已退回原文", e);
         }
         return result;
     }

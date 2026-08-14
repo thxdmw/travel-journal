@@ -5,6 +5,7 @@ import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.common.util.CoordinateConverter;
 import com.thx.traveljournal.config.AppProperties;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -24,6 +25,7 @@ import java.util.Map;
  * 和数据库看到的坐标永远是 WGS84，不需要关心高德内部用的是哪套坐标系。
  * 没有配置 AMAP_WEB_SERVICE_KEY 时相关接口会明确报错，后台仍可手动在地图上选点。</p>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MapLocationService {
@@ -85,6 +87,9 @@ public class MapLocationService {
             }
             return result;
         } catch (RestClientException ex) {
+            // 返回给用户的是一句人话，但日志要留下堆栈，否则超时、鉴权失败、配额用尽都长一个样。
+            // 只记异常本身，不记请求 URL——那上面挂着高德的 Web 服务 Key。
+            log.warn("高德地点搜索调用失败", ex);
             throw BusinessException.badRequest("地点搜索服务暂时不可用，请稍后重试或手动选点");
         }
     }
@@ -114,6 +119,7 @@ public class MapLocationService {
                     country, "中国".equals(country) ? "CN" : null, text(component, "adcode"),
                     latitude, longitude, "WGS84", "AMAP_REVERSE");
         } catch (RestClientException ex) {
+            log.warn("高德逆地理编码调用失败", ex);
             throw BusinessException.badRequest("地址识别服务暂时不可用，坐标仍可手动保存");
         }
     }

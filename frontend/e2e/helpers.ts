@@ -130,11 +130,38 @@ export async function createTestTrip(page: Page, name = 'E2E 随手记旅程') {
   return Number(trip.id)
 }
 
-/** 打开一篇新日记。编辑器会自己去后端要一个草稿 id，URL 上的 new 会被换成真实 id。 */
+/**
+ * 等编辑器真正可用。
+ *
+ * `.editor-page` 是根节点，组件一挂载就可见，那时 `load()` 还在跑、v-loading 的遮罩
+ * 还盖在上面。以前靠 `waitForURL` 等 `router.replace` 顺带等到了加载结束，改成直接
+ * 进真实 id 之后就没有那个信号了，必须显式等遮罩退场。
+ */
+async function waitEditorReady(page: Page) {
+  await expect(page.locator('.editor-page')).toBeVisible({ timeout: 20_000 })
+  await expect(page.locator('.editor-page .el-loading-mask')).toHaveCount(0, { timeout: 20_000 })
+}
+
+/**
+ * 打开一篇已经存在的空草稿。
+ *
+ * 编辑器不再一进 `/journals/new` 就开草稿——那样点一次「写日记」就多一条空记录。
+ * 大部分用例关心的是「编辑器打开之后的行为」，所以这里先用真实接口建一篇再直接进去。
+ * 「首次编辑才创建」这条路径本身由 journal-draft-creation.spec.ts 覆盖。
+ */
 export async function openNewJournal(page: Page, tripId?: number) {
+  const draft = await adminRequest<{ id: number }>(page, 'POST', '/journals/draft',
+      tripId ? { tripId } : {})
+  const id = Number(draft.id)
+  await page.goto(`/admin/#/journals/${id}`)
+  await waitEditorReady(page)
+  return id
+}
+
+/** 打开空白的新建页面，不预先创建任何草稿。 */
+export async function openBlankJournalPage(page: Page, tripId?: number) {
   await page.goto(`/admin/#/journals/new${tripId ? `?tripId=${tripId}` : ''}`)
-  await page.waitForURL(/#\/journals\/\d+/, { timeout: 20_000 })
-  return Number(page.url().match(/#\/journals\/(\d+)/)![1])
+  await waitEditorReady(page)
 }
 
 /** 当前正文里的所有 inline 段落文本。 */

@@ -17,6 +17,10 @@ public interface MediaVisibilityMapper {
      * 且这个旅行至少有一篇已发布日记（前台旅行列表本身就只展示这类旅行，
      * 见 PublicContentService#publicTrips）；三是图片被某个启用中的主题用作首页封面。
      * 后两种分别是旅行封面上传和主题封面上传引入的，少了它们前台会拿到 403。</p>
+     *
+     * <p>主题封面要同时看 {@code definition_json} 和 {@code override_json}：系统主题的
+     * 官方定义不可写回，作者换的首页大图只会落进 override。只查 definition 的话，
+     * 这张封面在前台是 403，清理孤儿时还会被当成没人用的图删掉。</p>
      */
     @Select("""
         select
@@ -32,20 +36,25 @@ public interface MediaVisibilityMapper {
           + (select count(*)
                from theme_preset tp
               where tp.enabled = true
-                and tp.definition_json @> jsonb_build_object(
-                        'hero', jsonb_build_object('mediaId', #{mediaId})))
+                and (tp.definition_json @> jsonb_build_object(
+                         'hero', jsonb_build_object('mediaId', #{mediaId}))
+                  or coalesce(tp.override_json, '{}'::jsonb) @> jsonb_build_object(
+                         'hero', jsonb_build_object('mediaId', #{mediaId}))))
         """)
     long countPublishedReferences(@Param("mediaId") Long mediaId);
 
     /**
      * 统计一张图片被多少个主题用作首页封面（不限是否启用）。
      *
-     * <p>清理孤儿图片时用，避免把停用主题还在引用的封面误删。</p>
+     * <p>清理孤儿图片时用，避免把停用主题还在引用的封面误删。同样要覆盖 override：
+     * 系统主题上作者自己换的封面只存在 {@code override_json} 里。</p>
      */
     @Select("""
         select count(*)
           from theme_preset tp
          where tp.definition_json @> jsonb_build_object(
+                   'hero', jsonb_build_object('mediaId', #{mediaId}))
+            or coalesce(tp.override_json, '{}'::jsonb) @> jsonb_build_object(
                    'hero', jsonb_build_object('mediaId', #{mediaId}))
         """)
     long countThemeHeroReferences(@Param("mediaId") Long mediaId);

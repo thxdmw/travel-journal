@@ -71,12 +71,23 @@ public class JournalPreviewService {
      * 不区分这两种情况，免得泄露令牌是否存在过。
      */
     public JournalEntry resolve(String token) {
+        return journalService.get(resolveJournalId(token));
+    }
+
+    /**
+     * 令牌对应哪一篇日记。
+     *
+     * <p>图片访问要用它：预览页能读到草稿正文，正文里的图片却挂在未发布的日记下，
+     * 匿名访客拿不到——那样预览出来是一篇全是裂图的文章。授权范围严格限定在这一篇，
+     * 一个令牌看不到别的草稿的图片。</p>
+     */
+    public Long resolveJournalId(String token) {
         if (!StringUtils.hasText(token)) throw BusinessException.notFound("预览链接无效或已过期");
         JournalPreviewToken entity = tokenMapper.selectOne(new LambdaQueryWrapper<JournalPreviewToken>()
                 .eq(JournalPreviewToken::getToken, token).last("limit 1"));
         if (entity == null || entity.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw BusinessException.notFound("预览链接无效或已过期");
         }
-        return journalService.get(entity.getJournalEntryId());
+        return entity.getJournalEntryId();
     }
 }

@@ -310,3 +310,24 @@
 .table-actions .el-button--danger.is-plain { --el-button-hover-bg-color:var(--el-color-danger); --el-button-hover-text-color:#fff; }
 /* 只隐藏页面最外层滚动条；列表、编辑预览等独立区域按需滚动 */
 .el-table .el-scrollbar__bar.is-vertical { width:7px; }
+
+/*
+ * ================================================================ 日记管理
+ * 独立日记不在任何一个旅行工作台里，掉出首页「最近编辑」之后就没有入口了，
+ * 所以这一页要能靠标题、状态和旅行把任何一篇找回来。
+ */
+.journal-filter { width:150px; }
+.journal-pager { display:flex; justify-content:center; padding:16px 0 4px; }
+/* 表格在窄屏上横向滚不动，手机改用卡片 */
+.journal-card-list { display:none; }
+.journal-manage-card { padding:14px 16px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); }
+.journal-manage-card+.journal-manage-card { margin-top:10px; }
+.journal-manage-card h3 { margin:0 0 6px; color:var(--tj-primary); font:600 17px var(--tj-serif); }
+.journal-manage-card p { display:flex; gap:10px; align-items:center; margin:0 0 8px; color:var(--tj-muted); font-size:13px; }
+.journal-manage-card p .status { padding:2px 8px; border-radius:999px; background:var(--tj-bg); font-size:12px; }
+.journal-manage-card footer { display:flex; gap:8px; align-items:center; justify-content:space-between; color:#8c887f; font-size:12px; }
+@media (max-width:860px) {
+  .journal-card-list { display:block; }
+  .toolbar { flex-wrap:wrap; }
+  .journal-filter { width:calc(50% - 6px); }
+}

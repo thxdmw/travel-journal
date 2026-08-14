@@ -53,7 +53,8 @@ class MediaServiceTest {
                 new AppProperties.Minio("http://localhost:9000", "key", "secret", "travel-journal", 60));
         MediaService service = new MediaService(assetMapper, relationMapper, mock(MediaVisibilityMapper.class),
                 journalMapper, new JournalDocumentService(new ObjectMapper()), mock(TripMapper.class),
-                mock(com.thx.traveljournal.trip.mapper.TripStopMapper.class), minio, properties);
+                mock(com.thx.traveljournal.trip.mapper.TripStopMapper.class), minio, properties,
+                new com.thx.traveljournal.common.util.SiteClock(properties));
 
         BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream output = new ByteArrayOutputStream();

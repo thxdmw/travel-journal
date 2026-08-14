@@ -68,6 +68,41 @@ describe('错误包装', () => {
     const error = (await get('/offline').catch(e => e)) as ApiError
     expect(error.network).toBe(true)
     expect(error.status).toBe(0)
+    expect(error.code).toBeNull()
+  })
+
+  it('留住业务码、requestId 和字段错误，UI 之外还得能排查', async () => {
+    // 线上出问题时用户只报得出界面上那句中文，没有 requestId 就对不到服务端日志
+    mock.onPut('/admin/journals/9').reply(400, {
+      code: 'VALIDATION_ERROR',
+      message: '参数校验失败',
+      requestId: 'r-42',
+      data: { title: '请填写日记标题', slug: '只能使用小写字母、数字和短横线' },
+    })
+
+    const error = (await http.put('/admin/journals/9').catch(e => e)) as ApiError
+    expect(error.message).toBe('参数校验失败')
+    expect(error.code).toBe('VALIDATION_ERROR')
+    expect(error.requestId).toBe('r-42')
+    expect(error.fields).toEqual({ title: '请填写日记标题', slug: '只能使用小写字母、数字和短横线' })
+  })
+
+  it('响应体没带 requestId 时退到响应头', async () => {
+    mock.onGet('/boom2').reply(500, { code: 'INTERNAL_ERROR', message: '服务器处理请求失败' },
+      { 'x-request-id': 'r-99' })
+
+    const error = (await get('/boom2').catch(e => e)) as ApiError
+    expect(error.requestId).toBe('r-99')
+  })
+
+  it('版本冲突保留 409，供编辑器识别为并发冲突', async () => {
+    mock.onPatch('/admin/journals/9/draft').reply(409, {
+      code: 'CONFLICT', message: '这篇日记在别处已经有更新的版本，请先刷新再保存',
+    })
+
+    const error = (await http.patch('/admin/journals/9/draft').catch(e => e)) as ApiError
+    expect(error.status).toBe(409)
+    expect(error.code).toBe('CONFLICT')
   })
 })
 

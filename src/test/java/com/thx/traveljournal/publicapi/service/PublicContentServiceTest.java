@@ -50,6 +50,8 @@ class PublicContentServiceTest {
         journal.setPublishedAt(OffsetDateTime.now());
         when(journalMapper.selectList(any())).thenReturn(List.of(journal));
         when(aggregateMapper.countPublishedPhotos()).thenReturn(0L);
+        // 日记总数由 SQL 聚合回答，不再靠把全表读进内存后数一遍
+        when(aggregateMapper.countPublishedJournals()).thenReturn(1L);
 
         PublicContentService service = new PublicContentService(tripMapper, stopMapper, journalMapper,
                 mock(MediaService.class), mock(JournalMediaMapper.class), mock(ThemePresetService.class),
@@ -66,5 +68,54 @@ class PublicContentServiceTest {
             assertThat(card.tripSlug()).isNull();
         });
         verifyNoInteractions(tripMapper, stopMapper);
+    }
+
+    @Test
+    void 日记列表按页批量取旅行和城市而不是逐篇查() {
+        TripMapper tripMapper = mock(TripMapper.class);
+        TripStopMapper stopMapper = mock(TripStopMapper.class);
+        JournalMapper journalMapper = mock(JournalMapper.class);
+
+        Trip trip = new Trip();
+        trip.setId(3L);
+        trip.setTitle("京都四日");
+        trip.setSlug("kyoto");
+        TripStop stop = new TripStop();
+        stop.setId(5L);
+        stop.setTripId(3L);
+        stop.setCityName("京都");
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<JournalEntry> page =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 12);
+        // 同一场旅行下的 12 篇日记：逐篇查的话，这一个 trip 会被来回查 12 次
+        page.setRecords(java.util.stream.IntStream.rangeClosed(1, 12)
+                .mapToObj(index -> {
+                    JournalEntry entry = new JournalEntry();
+                    entry.setId((long) index);
+                    entry.setTripId(3L);
+                    entry.setTripStopId(5L);
+                    entry.setTitle("第 " + index + " 天");
+                    entry.setSlug("day-" + index);
+                    return entry;
+                }).toList());
+        page.setTotal(12);
+        when(journalMapper.selectPage(any(), any())).thenReturn(page);
+        when(tripMapper.selectByIds(any())).thenReturn(List.of(trip));
+        when(stopMapper.selectByIds(any())).thenReturn(List.of(stop));
+
+        PublicContentService service = new PublicContentService(tripMapper, stopMapper, journalMapper,
+                mock(MediaService.class), mock(JournalMediaMapper.class), mock(ThemePresetService.class),
+                mock(PublicAggregateMapper.class), mock(JournalPreviewService.class), mock(DayRouteService.class));
+
+        var result = service.journals(1, 12, null, null);
+
+        assertThat(result.items()).hasSize(12);
+        assertThat(result.items().getFirst().tripTitle()).isEqualTo("京都四日");
+        assertThat(result.items().getFirst().cityName()).isEqualTo("京都");
+        // 一页日记只问一次旅行、一次城市，与这一页有多少篇无关
+        verify(tripMapper, times(1)).selectByIds(any());
+        verify(stopMapper, times(1)).selectByIds(any());
+        verify(tripMapper, never()).selectById(any());
+        verify(stopMapper, never()).selectById(any());
     }
 }

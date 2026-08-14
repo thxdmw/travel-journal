@@ -1,6 +1,7 @@
 package com.thx.traveljournal.media.controller;
 
 import com.thx.traveljournal.common.api.ApiResponse;
+import com.thx.traveljournal.journal.service.JournalPreviewService;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.service.MediaService;
 import jakarta.validation.Valid;
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class MediaController {
     private final MediaService service;
+    private final JournalPreviewService previewService;
 
     public record ReorderRequest(@NotEmpty List<Long> orderedIds) {}
     public record CaptionRequest(@Size(max=500) String caption) {}
@@ -82,12 +84,18 @@ public class MediaController {
      */
     @GetMapping("/api/media/{mediaId}/{variant}")
     public ResponseEntity<Void> access(@PathVariable Long mediaId, @PathVariable String variant,
+                                       @RequestParam(required = false) String previewToken,
                                        Authentication authentication) {
         boolean admin = authentication != null && authentication.isAuthenticated()
                 && !(authentication instanceof AnonymousAuthenticationToken);
-        URI location = service.access(mediaId, variant, admin);
-        return ResponseEntity.status(302)
-                .cacheControl(CacheControl.maxAge(service.redirectCacheSeconds(), TimeUnit.SECONDS).cachePrivate())
-                .location(location).build();
+        // 草稿预览链接同时授权它那一篇日记的图片，否则预览出来是一整篇裂图
+        Long previewJournalId = previewToken == null || previewToken.isBlank()
+                ? null : previewService.resolveJournalId(previewToken);
+        URI location = service.access(mediaId, variant, admin, previewJournalId);
+        CacheControl cache = previewJournalId != null
+                // 预览是私有且会被撤销的，不能让浏览器或任何中间层把它留下来
+                ? CacheControl.noStore()
+                : CacheControl.maxAge(service.redirectCacheSeconds(), TimeUnit.SECONDS).cachePrivate();
+        return ResponseEntity.status(302).cacheControl(cache).location(location).build();
     }
 }

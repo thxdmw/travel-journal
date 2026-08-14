@@ -7,3 +7,10 @@ logging:
   level:
     root: INFO
     com.thx.traveljournal: INFO
+# 接口文档只在开发时有用。生产环境把它整个关掉：那张页面会把全部后台路径、
+# 请求体结构和校验规则原样列给任何访客看，等于给攻击者省掉了摸索的一步。
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

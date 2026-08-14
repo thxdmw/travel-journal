@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { onMounted, reactive } from 'vue'
-import { journalApi } from '@/api/journal'
-import { tripApi } from '@/api/trip'
+import { dashboardApi } from '@/api/dashboard'
 import { useRouter } from 'vue-router'
-import type { JournalEntry, JournalStatus } from '@/types/journal'
+import type { JournalStatus } from '@/types/journal'
+import type { RecentJournal } from '@/types/dashboard'
 
 const props = defineProps<{ fail(error: unknown): void }>()
 const router = useRouter()
-const stats = reactive<{ trips: number, drafts: number, published: number, recent: JournalEntry[] }>({
+const stats = reactive<{ trips: number, drafts: number, published: number, themeName: string, recent: RecentJournal[] }>({
   trips: 0,
   drafts: 0,
   published: 0,
+  themeName: '—',
   recent: [],
 })
 
@@ -18,16 +19,19 @@ function statusLabel(status: JournalStatus): string {
   return status === 'DRAFT' ? '草稿' : '已发布'
 }
 
+/** 日记可以不属于任何旅行，那不是缺数据，是一种正常归属。 */
+function tripLabel(row: RecentJournal): string {
+  return row.tripTitle || '独立日记'
+}
+
+function titleLabel(row: RecentJournal): string {
+  return row.title || '未命名日记'
+}
+
 onMounted(async () => {
   try {
-    const [trips, journals] = await Promise.all([
-      tripApi.list({ page: 1, pageSize: 100 }),
-      journalApi.list({ page: 1, pageSize: 100 }),
-    ])
-    stats.trips = trips.total
-    stats.drafts = journals.items.filter(item => item.status === 'DRAFT').length
-    stats.published = journals.items.filter(item => item.status === 'PUBLISHED').length
-    stats.recent = journals.items.slice(0, 6)
+    // 统计全部由数据库聚合：以前是拉前 100 条日记在前端 filter，第 101 篇开始就不准了
+    Object.assign(stats, await dashboardApi.overview())
   } catch (error) {
     props.fail(error)
   }
@@ -44,12 +48,16 @@ onMounted(async () => {
       <div class="metric"><span>旅行总数</span><strong>{{ stats.trips }}</strong></div>
       <div class="metric"><span>草稿日记</span><strong>{{ stats.drafts }}</strong></div>
       <div class="metric"><span>已发布日记</span><strong>{{ stats.published }}</strong></div>
-      <div class="metric"><span>当前主题</span><strong style="font-size: 20px">远行手记</strong></div>
+      <div class="metric"><span>当前主题</span><strong style="font-size: 20px">{{ stats.themeName }}</strong></div>
     </div>
     <div class="panel panel-pad">
-      <h3 style="color: var(--tj-primary); font-family: var(--tj-serif)">最近编辑</h3>
+      <div class="page-head">
+        <h3 style="color: var(--tj-primary); font-family: var(--tj-serif)">最近编辑</h3>
+        <el-button link type="primary" @click="router.push('/journals')">全部日记</el-button>
+      </div>
       <el-table :data="stats.recent" max-height="calc(100vh - 430px)">
-        <el-table-column prop="title" label="日记" />
+        <el-table-column label="日记"><template #default="{ row }">{{ titleLabel(row) }}</template></el-table-column>
+        <el-table-column label="旅行" width="180"><template #default="{ row }">{{ tripLabel(row) }}</template></el-table-column>
         <el-table-column prop="occurredOn" label="日期" width="130" />
         <el-table-column label="状态" width="100"><template #default="{ row }">{{ statusLabel(row.status) }}</template></el-table-column>
         <el-table-column width="100"><template #default="{ row }"><el-button link type="primary" @click="router.push('/journals/' + row.id)">编辑</el-button></template></el-table-column>

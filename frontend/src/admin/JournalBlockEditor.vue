@@ -636,7 +636,8 @@ v-for="tone in CALLOUT_TONES" :key="tone[0]"
           </div>
 
           <article v-else-if="isPending(block)" class="block-pending" :class="{'is-failed':pendingFailed(block)}" :data-editor-block-id="block.id">
-            <div class="block-pending-shots"><img v-for="task in pendingPreviews(block)" :key="task.key" :src="task.preview" alt=""></div>
+            <!-- 预览是异步缩出来的，还没好时留一个同尺寸的空位，别让这一块的高度跳一下 -->
+            <div class="block-pending-shots"><template v-for="task in pendingPreviews(block)" :key="task.key"><img v-if="task.preview" :src="task.preview" alt="" decoding="async"><span v-else class="block-pending-shot-empty" aria-hidden="true"></span></template></div>
             <div class="block-pending-main">
               <strong>{{pendingLabel(block)}}</strong>
               <div class="block-pending-bar"><i :style="{width:pendingProgress(block)+'%'}"></i></div>
@@ -756,7 +757,7 @@ v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft
               <template v-else-if="isImageBlock">
                 <el-tabs v-model="imageTab" class="image-setting-tabs">
                   <el-tab-pane label="内容" name="content"><div class="image-setting-section"><header><strong>选择要放进正文的图片</strong><small>{{draft.type==='gallery'?'可多选，再到“版式”选择组合方式':'单击图片进行选择'}}</small></header>
-                    <div class="block-image-picker"><button v-for="item in media" :key="item.id" type="button" :class="{selected:selectedMedia(item)}" @click="toggleDraftMedia(item)"><img :src="item.thumbnailUrl||item.displayUrl" :alt="item.caption||item.filename"><span>{{item.caption||item.filename}}</span></button><p v-if="!media.length">图片库为空，请先在图片管理中上传。</p></div>
+                    <div class="block-image-picker"><button v-for="item in media" :key="item.id" type="button" :class="{selected:selectedMedia(item)}" @click="toggleDraftMedia(item)"><img :src="item.thumbnailUrl||item.displayUrl" loading="lazy" decoding="async" :alt="item.caption||item.filename"><span>{{item.caption||item.filename}}</span></button><p v-if="!media.length">图片库为空，请先在图片管理中上传。</p></div>
                     <template v-if="draft.type==='postcard'"><p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2"><label>地点<el-input v-model="draft.data.location"/></label><label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label></div><label>明信片正文<el-input v-model="draft.data.message" type="textarea" :rows="5" placeholder="写下想和这张照片一起留下的话"/></label><label>署名<el-input v-model="draft.data.signature"/></label></template>
                     <label v-else>图注（可选）<el-input v-model="draft.data.caption" placeholder="会跟随图片显示，也可以在“图注”中调整位置"/></label>
                   </div></el-tab-pane>

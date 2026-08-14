@@ -148,8 +148,13 @@ public class MomentService {
     @Transactional
     public void delete(Long id) {
         get(id);
+        List<Long> assetIds = mediaMapper.selectList(new LambdaQueryWrapper<MomentMedia>()
+                        .eq(MomentMedia::getMomentId, id))
+                .stream().map(MomentMedia::getMediaAssetId).distinct().toList();
         mediaMapper.delete(new LambdaQueryWrapper<MomentMedia>().eq(MomentMedia::getMomentId, id));
         mapper.deleteById(id);
+        // 只解除关系不清资产的话，从没整理过的随手记照片会永远躺在桶里没人认领
+        mediaService.releaseIfUnreferenced(assetIds);
     }
 
     /** 给一条随手记加照片。文件本身走 media 模块，这里只建立归属关系。 */
@@ -196,6 +201,8 @@ public class MomentService {
         get(momentId);
         mediaMapper.delete(new LambdaQueryWrapper<MomentMedia>()
                 .eq(MomentMedia::getMomentId, momentId).eq(MomentMedia::getMediaAssetId, mediaAssetId));
+        // 已经整理进日记的那张仍被日记引用，releaseIfUnreferenced 会自己认出来并跳过
+        mediaService.releaseIfUnreferenced(List.of(mediaAssetId));
     }
 
     /** 某次旅行还有多少条没整理，按天分组。旅行工作台用它提示「今天有 6 条待整理」。 */
@@ -282,9 +289,13 @@ public class MomentService {
                         .in(MomentMedia::getMomentId, moments.stream().map(Moment::getId).toList())
                         .orderByAsc(MomentMedia::getSortOrder, MomentMedia::getId))
                 .stream().collect(Collectors.groupingBy(MomentMedia::getMomentId));
+        // 关系是批量查的，资产也要批量查：逐张 viewOf 等于把 N+1 从关系挪到了资产上
+        Map<Long, MediaService.MediaView> assetViews = mediaService.viewsOf(
+                photos.values().stream().flatMap(List::stream).map(MomentMedia::getMediaAssetId).distinct().toList());
         Function<Moment, List<MediaService.MediaView>> viewsOf = moment ->
                 photos.getOrDefault(moment.getId(), List.of()).stream()
-                        .map(relation -> mediaService.viewOf(relation.getMediaAssetId())).toList();
+                        .map(relation -> assetViews.get(relation.getMediaAssetId()))
+                        .filter(java.util.Objects::nonNull).toList();
         return moments.stream().map(moment -> new MomentView(
                 moment.getId(), moment.getClientId(), moment.getTripId(), moment.getTripStopId(),
                 moment.getTripStopId() == null ? null : cities.get(moment.getTripStopId()),

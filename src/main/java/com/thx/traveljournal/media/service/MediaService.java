@@ -9,6 +9,7 @@ import com.drew.metadata.exif.GpsDirectory;
 import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.config.AppProperties;
 import com.thx.traveljournal.common.util.CoordinateConverter;
+import com.thx.traveljournal.common.util.SiteClock;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.journal.service.JournalDocumentService;
@@ -26,7 +27,10 @@ import net.coobird.thumbnailator.Thumbnails;
 import org.apache.tika.Tika;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
@@ -39,6 +43,8 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -72,6 +78,7 @@ public class MediaService {
     private final com.thx.traveljournal.trip.mapper.TripStopMapper tripStopMapper;
     private final MinioClient minioClient;
     private final AppProperties properties;
+    private final SiteClock clock;
     private final Tika tika = new Tika();
 
     /**
@@ -85,6 +92,46 @@ public class MediaService {
                             String thumbnailUrl, String mediumUrl, String displayUrl,
                             OffsetDateTime capturedAt, BigDecimal gpsLatitude, BigDecimal gpsLongitude) {}
 
+    /**
+     * 公开端的图片视图。
+     *
+     * <p>公开接口曾经直接复用上面那个后台 {@code MediaView}，于是访客能从日记详情的
+     * JSON 里读到原始文件名、EXIF 拍摄时间和 GPS 经纬度——照片拍摄地点是隐私，
+     * 内部关系 id 是攻击面，两者都不该出现在公开响应里。这里只保留渲染真正需要的字段。</p>
+     *
+     * @param mediaId 图片 id，正文 Block 里引用的就是它
+     */
+    public record PublicMediaView(Long mediaId, String caption, Integer width, Integer height,
+                                  String thumbnailUrl, String mediumUrl, String displayUrl) {}
+
+    /**
+     * 某篇日记的公开图片列表。
+     *
+     * @param previewToken 草稿预览令牌；非空时图片地址会带上它，好让预览页看得见草稿图片
+     */
+    public List<PublicMediaView> publicList(Long journalId, String previewToken) {
+        List<JournalMedia> relations = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId)
+                .orderByAsc(JournalMedia::getSortOrder, JournalMedia::getId));
+        Map<Long, MediaAsset> assets = assetsOf(relations.stream().map(JournalMedia::getMediaAssetId).toList());
+        return relations.stream()
+                .map(relation -> {
+                    MediaAsset asset = assets.get(relation.getMediaAssetId());
+                    return asset == null ? null : publicView(asset, relation.getCaption(), previewToken);
+                })
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private PublicMediaView publicView(MediaAsset asset, String caption, String previewToken) {
+        String base = "/api/media/" + asset.getId() + "/";
+        // 预览令牌跟着图片地址走：草稿图片对匿名访客不可见，只有带着这一篇的令牌才放行
+        String suffix = StringUtils.hasText(previewToken)
+                ? "?previewToken=" + URLEncoder.encode(previewToken, StandardCharsets.UTF_8) : "";
+        return new PublicMediaView(asset.getId(), caption, asset.getWidth(), asset.getHeight(),
+                base + "thumbnail" + suffix, base + "medium" + suffix, base + "display" + suffix);
+    }
+
     /** 单张图片的展示信息，供不走 journal_media 关系的场景（比如随手记）使用。 */
     public MediaView viewOf(Long mediaAssetId) {
         return toView(null, requireAsset(mediaAssetId), null, null);
@@ -93,10 +140,32 @@ public class MediaService {
     /** 按排序号列出某篇日记的全部图片。 */
     public List<MediaView> list(Long journalId) {
         requireJournal(journalId);
-        return journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
-                        .eq(JournalMedia::getJournalEntryId, journalId)
-                        .orderByAsc(JournalMedia::getSortOrder, JournalMedia::getId))
-                .stream().map(this::toView).toList();
+        List<JournalMedia> relations = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId)
+                .orderByAsc(JournalMedia::getSortOrder, JournalMedia::getId));
+        Map<Long, MediaAsset> assets = assetsOf(relations.stream().map(JournalMedia::getMediaAssetId).toList());
+        return relations.stream()
+                .map(relation -> {
+                    MediaAsset asset = assets.get(relation.getMediaAssetId());
+                    if (asset == null) throw BusinessException.notFound("图片不存在");
+                    return toView(relation.getId(), asset, relation.getCaption(), relation.getSortOrder());
+                })
+                .toList();
+    }
+
+    /** 一次取回这些资产，避免「有几张图就查几次库」。 */
+    public Map<Long, MediaAsset> assetsOf(Collection<Long> assetIds) {
+        Set<Long> ids = assetIds.stream().filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) return Map.of();
+        return assetMapper.selectByIds(ids).stream()
+                .collect(java.util.stream.Collectors.toMap(MediaAsset::getId, asset -> asset));
+    }
+
+    /** 批量版的 {@link #viewOf}，供随手记这类一次要展示很多张图的场景使用。 */
+    public Map<Long, MediaView> viewsOf(Collection<Long> assetIds) {
+        Map<Long, MediaView> views = new LinkedHashMap<>();
+        assetsOf(assetIds).forEach((id, asset) -> views.put(id, toView(null, asset, null, null)));
+        return views;
     }
 
     /**
@@ -141,9 +210,11 @@ public class MediaService {
                 .orderByAsc(JournalMedia::getSortOrder, JournalMedia::getId));
         if (relations.size() < 2) return relations.size();
 
+        // 一次取回全部资产，再在内存里配对；按张数发查询在图多的日记上很容易上百次
+        Map<Long, MediaAsset> assets = assetsOf(relations.stream().map(JournalMedia::getMediaAssetId).toList());
         Map<Long, OffsetDateTime> capturedAt = new HashMap<>();
         for (JournalMedia relation : relations) {
-            MediaAsset asset = assetMapper.selectById(relation.getMediaAssetId());
+            MediaAsset asset = assets.get(relation.getMediaAssetId());
             if (asset != null && asset.getCapturedAt() != null) {
                 capturedAt.put(relation.getId(), asset.getCapturedAt());
             }
@@ -174,10 +245,11 @@ public class MediaService {
     public CitySuggestion suggestCity(Long journalId) {
         JournalEntry journal = requireJournal(journalId);
         if (journal.getTripId() == null) return null;
-        List<MediaAsset> located = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+        List<Long> assetIds = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
                         .eq(JournalMedia::getJournalEntryId, journalId))
-                .stream().map(relation -> assetMapper.selectById(relation.getMediaAssetId()))
-                .filter(asset -> asset != null && asset.getGpsLatitude() != null && asset.getGpsLongitude() != null)
+                .stream().map(JournalMedia::getMediaAssetId).toList();
+        List<MediaAsset> located = assetsOf(assetIds).values().stream()
+                .filter(asset -> asset.getGpsLatitude() != null && asset.getGpsLongitude() != null)
                 .toList();
         if (located.isEmpty()) return null;
 
@@ -389,8 +461,20 @@ public class MediaService {
      * @param admin 是否为已登录管理员；访客只能访问已公开引用的图片，且拿不到原图
      */
     public URI access(Long mediaId, String variant, boolean admin) {
+        return access(mediaId, variant, admin, null);
+    }
+
+    /**
+     * 生成图片的对象存储预签名访问地址。
+     *
+     * @param admin           是否为已登录管理员；访客只能访问已公开引用的图片，且拿不到原图
+     * @param previewJournalId 预览令牌已经授权的那一篇日记；非空时该篇日记下的草稿图片放行，
+     *                         但仅限这一篇，也仍然拿不到原图
+     */
+    public URI access(Long mediaId, String variant, boolean admin, Long previewJournalId) {
         MediaAsset asset = requireAsset(mediaId);
-        if (!admin && visibilityMapper.countPublishedReferences(mediaId) == 0) {
+        if (!admin && !previewGrants(mediaId, previewJournalId)
+                && visibilityMapper.countPublishedReferences(mediaId) == 0) {
             throw new BusinessException("FORBIDDEN", "图片不可公开访问", HttpStatus.FORBIDDEN);
         }
         String key = switch (variant) {
@@ -411,8 +495,18 @@ public class MediaService {
                     .expiry(properties.minio().presignedUrlTtlMinutes(), TimeUnit.MINUTES).build());
             return URI.create(url);
         } catch (Exception ex) {
+            // 带上 bucket 和 key，但绝不记预签名地址本身——那串东西等于一把临时钥匙
+            log.warn("生成图片预签名地址失败：bucket={} key={}", asset.getBucketName(), key, ex);
             throw new BusinessException("STORAGE_ERROR", "生成图片访问地址失败", HttpStatus.BAD_GATEWAY);
         }
+    }
+
+    /** 这张图是不是预览令牌授权的那一篇日记里的。令牌只对自己那一篇有效。 */
+    private boolean previewGrants(Long mediaId, Long previewJournalId) {
+        if (previewJournalId == null) return false;
+        return journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, previewJournalId)
+                .eq(JournalMedia::getMediaAssetId, mediaId)) > 0;
     }
 
     /**
@@ -434,6 +528,9 @@ public class MediaService {
         try {
             mime = tika.detect(uploaded, file.getOriginalFilename());
             if (!ALLOWED.contains(mime)) throw BusinessException.badRequest("只支持 JPEG、PNG 和 WebP 图片");
+            // 先只读文件头里的尺寸再决定要不要解码：一张几百 KB 的「压缩炸弹」声明成
+            // 三万乘三万，等 ImageIO 解完再检查像素上限，那几 GB 的位图已经分配出去了
+            checkPixelLimit(uploaded);
             source = ImageIO.read(new ByteArrayInputStream(uploaded));
             if (source == null) throw BusinessException.badRequest("图片内容无法解码");
         } catch (IOException ex) {
@@ -491,11 +588,30 @@ public class MediaService {
             asset.setGpsLatitude(capture.latitude());
             asset.setGpsLongitude(capture.longitude());
             assetMapper.insert(asset);
+            registerRollbackCleanup(bucket, originalKey, displayKey, mediumKey, thumbnailKey);
             return asset;
         } catch (RuntimeException ex) {
-            cleanup(bucket, originalKey, displayKey, thumbnailKey);
+            // 四个规格必须一起清：漏掉 medium 的话，每一次失败的上传都会在桶里留一张没人认识的图
+            cleanup(bucket, originalKey, displayKey, mediumKey, thumbnailKey);
             throw ex;
         }
+    }
+
+    /**
+     * 外层事务最终回滚时，把这次已经写进对象存储的文件删掉。
+     *
+     * <p>{@code storeImage} 返回之后调用方还要插关系行、改封面，那些一旦失败，数据库会
+     * 整体回滚，但对象存储没有事务——不挂这个回调的话，桶里就留下一份永远不会被任何记录
+     * 指向的文件。事务同步只在真有事务时注册，单独调用时走上面的 catch。</p>
+     */
+    private void registerRollbackCleanup(String bucket, String... keys) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) cleanup(bucket, keys);
+            }
+        });
     }
 
     /**
@@ -532,11 +648,39 @@ public class MediaService {
             if (journalRefs > 0 || tripRefs > 0 || themeRefs > 0 || momentRefs > 0) continue;
             MediaAsset asset = assetMapper.selectById(assetId);
             if (asset == null) continue;
-            removeObjectQuietly(asset.getBucketName(), asset.getOriginalObjectKey());
-            removeObjectQuietly(asset.getBucketName(), asset.getDisplayObjectKey());
-            removeObjectQuietly(asset.getBucketName(), asset.getThumbnailObjectKey());
             assetMapper.deleteById(assetId);
+            // 文件要等数据库真的提交了再删。反过来的话，事务一回滚，记录还在、文件没了，
+            // 页面上就是一张永远裂着的图——宁可在桶里留下一个可以重试清理的孤儿对象。
+            deleteObjectsAfterCommit(asset.getBucketName(), asset.getOriginalObjectKey(),
+                    asset.getDisplayObjectKey(), asset.getMediumObjectKey(), asset.getThumbnailObjectKey());
         }
+    }
+
+    /** 事务提交后再删对象；没有事务时立即删。 */
+    private void deleteObjectsAfterCommit(String bucket, String... keys) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            for (String key : keys) removeObjectQuietly(bucket, key);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (String key : keys) removeObjectQuietly(bucket, key);
+            }
+        });
+    }
+
+    /**
+     * 这些图片如果已经没有任何地方引用，就把文件和记录一起清掉。
+     *
+     * <p>给随手记这类有自己关系表的模块用：它们解除关系之后，media 模块才知道该不该
+     * 回收。判断覆盖日记、旅行封面、主题封面和其他随手记——只要还有一处在用就跳过。</p>
+     */
+    @Transactional
+    public void releaseIfUnreferenced(Collection<Long> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) return;
+        detachCoverReferences(assetIds);
+        deleteOrphanAssets(assetIds);
     }
 
     /** 删除单个对象存储文件，失败只记录告警日志。 */
@@ -611,6 +755,34 @@ public class MediaService {
             throw new BusinessException("IMAGE_PROCESS_ERROR", "图片重新编码失败", HttpStatus.BAD_REQUEST);
         }
     }
+    /**
+     * 解码之前先按文件头里声明的尺寸拦一道像素上限。
+     *
+     * <p>{@code ImageIO.read} 一上来就会为整张位图分配内存（一张 30000×30000 的图是
+     * 3.6 GB），等它读完再检查像素数已经晚了。ImageReader 只读文件头就能拿到宽高。</p>
+     *
+     * <p>读不到尺寸时放行：这里只是一道提前的闸门，解码之后还有一次真实尺寸检查。</p>
+     */
+    private void checkPixelLimit(byte[] bytes) throws IOException {
+        try (javax.imageio.stream.ImageInputStream stream =
+                     ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (stream == null) return;
+            Iterator<javax.imageio.ImageReader> readers = ImageIO.getImageReaders(stream);
+            if (!readers.hasNext()) return;
+            javax.imageio.ImageReader reader = readers.next();
+            try {
+                reader.setInput(stream, true, true);
+                long pixels = (long) reader.getWidth(0) * reader.getHeight(0);
+                if (pixels > properties.upload().maxPixels())
+                    throw BusinessException.badRequest("图片像素超过限制");
+            } catch (IOException | IllegalStateException | IndexOutOfBoundsException ignored) {
+                // 读不出头信息就交给后面的真实解码去判断
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
     /** 读取 EXIF 方向标记，读不到时按 1（正向）处理。 */
     private int readOrientation(byte[] bytes) {
         try {
@@ -631,8 +803,9 @@ public class MediaService {
      * <p>用途是上传后按拍摄时间排序、按坐标推荐城市，属于锦上添花，
      * 所以任何解析失败都静默退回空值，绝不能因为 EXIF 有问题就让上传失败。</p>
      *
-     * <p>注意 EXIF 的拍摄时间不带时区，这里按系统默认时区解释——个人项目里
-     * 照片基本来自本人设备，这个近似不会造成困扰。</p>
+     * <p>EXIF 的拍摄时间不带时区，按站点时区解释而不是容器的默认时区：后者取决于
+     * 部署环境，同一张照片换台机器导入就会落到不同的一天，而 {@code APP_SITE_TIMEZONE}
+     * 是作者明确配过的。</p>
      */
     private CaptureInfo readCaptureInfo(byte[] bytes) {
         try {
@@ -640,8 +813,9 @@ public class MediaService {
             OffsetDateTime capturedAt = null;
             var exif = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
             if (exif != null) {
-                java.util.Date date = exif.getDateOriginal(TimeZone.getDefault());
-                if (date != null) capturedAt = date.toInstant().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+                ZoneId zone = clock.zone();
+                java.util.Date date = exif.getDateOriginal(TimeZone.getTimeZone(zone));
+                if (date != null) capturedAt = date.toInstant().atZone(zone).toOffsetDateTime();
             }
             BigDecimal latitude = null, longitude = null;
             var gps = metadata.getFirstDirectoryOfType(GpsDirectory.class);

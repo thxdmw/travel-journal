@@ -50,6 +50,32 @@ export async function pendingPhotos(journalId: number | string | null | undefine
   }
 }
 
+/**
+ * 本机临时草稿转正后，把还没传上去的照片改挂到真实日记 id 上。
+ *
+ * 用 put 覆盖同一条记录而不是新增：keyPath 是 key，key 不变意味着正文里的
+ * pendingKey 依然对得上，也不会因为搬家而重复上传一张。
+ *
+ * @return 实际迁移成功的张数
+ */
+export async function reassignPhotos(
+  fromJournalId: number | string | null | undefined,
+  toJournalId: number | string | null | undefined,
+): Promise<number> {
+  if (fromJournalId == null || toJournalId == null) return 0
+  const queued = await pendingPhotos(fromJournalId)
+  let moved = 0
+  for (const item of queued) {
+    try {
+      await runOn(PHOTO_STORE, 'readwrite', store => store.put({ ...item, journalId: Number(toJournalId) }))
+      moved++
+    } catch {
+      // 迁不动的那张仍留在旧 id 下，最坏是这次接不上续传，不会丢原图
+    }
+  }
+  return moved
+}
+
 /** 传完了或者作者放弃了，就把这一张从队列里去掉。 */
 export async function dropPhoto(key: string | null | undefined): Promise<void> {
   if (!key) return

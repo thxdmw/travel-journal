@@ -318,3 +318,11 @@ button, input, textarea { font: inherit; }
   .day-route-list li { grid-template-columns:48px 1fr; }
   .day-route-list span { grid-column:2; white-space:normal; }
 }
+
+/*
+ * 日记分页。写到第 13 篇之后，没有这几个按钮前面那些就再也点不到了。
+ */
+.journal-pager { display:flex; gap:16px; align-items:center; justify-content:center; margin:36px 0 8px; color:var(--tj-muted); font-size:14px; }
+.journal-pager button { padding:8px 18px; border:1px solid var(--tj-border); border-radius:999px; background:var(--tj-surface); color:var(--tj-primary); font-size:14px; cursor:pointer; transition:.2s; }
+.journal-pager button:hover:not(:disabled) { border-color:var(--tj-accent); color:var(--tj-accent); }
+.journal-pager button:disabled { opacity:.45; cursor:not-allowed; }

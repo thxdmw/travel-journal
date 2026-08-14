@@ -52,4 +52,6 @@ COPY --from=builder /build/target/travel-journal.jar app.jar
 # EXPOSE 只声明镜像默认端口；host 网络下的实际监听端口仍由 SERVER_PORT 决定。
 EXPOSE 8080
 ENV SPRING_PROFILES_ACTIVE=prod
-ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-jar", "/app/travel-journal/app.jar"]
+# 容器统一跑在 UTC：站点「今天是几号」由 APP_SITE_TIMEZONE 经 SiteClock 决定，
+# 数据库时间戳本来就存 UTC。把业务时区写死在 JVM 参数里，换个部署地就得改镜像。
+ENTRYPOINT ["java", "-Duser.timezone=UTC", "-jar", "/app/travel-journal/app.jar"]

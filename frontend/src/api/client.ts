@@ -16,9 +16,13 @@ export const http: AxiosInstance = axios.create({
   timeout: 30_000,
 })
 
-/** 请求失败时 Spring 返回的 `ApiResponse`，只有 message 对前端有用。 */
+/** 请求失败时 Spring 返回的 `ApiResponse`。 */
 interface ErrorPayload {
   message?: string
+  code?: string
+  requestId?: string
+  /** 校验失败时是字段名到提示的映射。 */
+  data?: unknown
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,13 +43,38 @@ function unwrap(response: AxiosResponse<unknown>): unknown {
   return payload
 }
 
+/** 校验失败时后端把字段错误放在 data 里；其他情况 data 可能是任意结构。 */
+function toFields(data: unknown): Record<string, string> | null {
+  if (!isRecord(data)) return null
+  const fields: Record<string, string> = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === 'string') fields[key] = value
+  }
+  return Object.keys(fields).length ? fields : null
+}
+
+/**
+ * 把各种失败收敛成一个 ApiError。
+ *
+ * 以前这里只留了 message。线上排查时，用户能提供的全部信息就是界面上那句中文提示，
+ * 对应不到服务端日志里的任何一行——所以业务码、requestId 和字段错误都要留住，
+ * UI 仍然只展示 message。
+ */
 function toApiError(error: unknown): ApiError {
-  const response = axios.isAxiosError(error) ? error.response : undefined
+  const axiosError = axios.isAxiosError(error) ? error : undefined
+  const response = axiosError?.response
   const payload = response?.data as ErrorPayload | undefined
-  const wrapped = new Error(payload?.message || '网络请求失败') as ApiError
+  const timeout = axiosError?.code === 'ECONNABORTED' || axiosError?.code === 'ETIMEDOUT'
+  const wrapped = new Error(payload?.message || (timeout ? '请求超时' : '网络请求失败')) as ApiError
   wrapped.status = response?.status ?? 0
   // 没有 response 说明请求根本没走通（断网、超时、被拦截），和「服务端拒绝」要分开处理
   wrapped.network = !response
+  wrapped.timeout = timeout
+  wrapped.code = payload?.code ?? null
+  // 响应体里没有就退到响应头：两处都是同一个 id
+  wrapped.requestId = payload?.requestId
+    ?? (typeof response?.headers?.['x-request-id'] === 'string' ? response.headers['x-request-id'] : null)
+  wrapped.fields = toFields(payload?.data)
   return wrapped
 }
 

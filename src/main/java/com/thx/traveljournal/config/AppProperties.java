@@ -10,12 +10,25 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * @param baseUrl 站点对外地址，用于生成绝对链接
  */
 public record AppProperties(String baseUrl, Admin admin, Upload upload, Minio minio, MapSettings map,
-                            Site site, Ai ai) {
+                            Site site, Ai ai, Security security) {
     @ConstructorBinding
-    public AppProperties {}
+    public AppProperties {
+        security = security == null ? Security.DEFAULT : security;
+    }
 
     public AppProperties(String baseUrl, Admin admin, Upload upload, Minio minio) {
-        this(baseUrl, admin, upload, minio, MapSettings.DEFAULT, Site.DEFAULT, Ai.DISABLED);
+        this(baseUrl, admin, upload, minio, MapSettings.DEFAULT, Site.DEFAULT, Ai.DISABLED, Security.DEFAULT);
+    }
+
+    /**
+     * 安全相关配置。
+     *
+     * @param trustedProxies 可信反向代理的 IP，逗号分隔。只有直连方在这个名单里时，
+     *                       才会采信 {@code X-Forwarded-For}——那个头客户端随便填，
+     *                       无条件采信等于让登录限流形同虚设。留空表示不信任任何转发头。
+     */
+    public record Security(String trustedProxies) {
+        public static final Security DEFAULT = new Security("");
     }
     /**
      * AI 整理随手记。

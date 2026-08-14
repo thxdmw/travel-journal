@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
           <router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link><router-link to="/years">年度回顾</router-link>
         </nav>
         <a class="admin-link" href="/admin/" :title="profile.displayName + ' · 管理后台'" aria-label="进入管理后台">
-          <img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="管理员头像"><span v-else>旅</span>
+          <img v-if="profile.avatarUrl" :src="profile.avatarUrl" loading="lazy" decoding="async" alt="管理员头像"><span v-else>旅</span>
         </a>
       </div>
     </header>

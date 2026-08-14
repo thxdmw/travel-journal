@@ -76,6 +76,39 @@ describe('JournalsPage', () => {
     expect(mocks.push).toHaveBeenLastCalledWith({ path: '/journals', query: { q: '京都', tag: 'spring' } })
   })
 
+  it('只有一页时不显示翻页', async () => {
+    const wrapper = mount(JournalsPage, { global: { components: { RouterLink } } })
+    await flushPromises()
+    expect(wrapper.find('.journal-pager').exists()).toBe(false)
+    expect(mocks.journals).toHaveBeenCalledWith(1, 12, undefined, undefined)
+  })
+
+  it('从地址栏恢复页码，翻页也写回地址栏', async () => {
+    // 写到第 13 篇之后，没有这条路径前面那些日记就再也点不到了
+    mocks.route.query = { page: '2' }
+    mocks.journals.mockResolvedValue({ items: [journal()], page: 2, pageSize: 12, total: 30, totalPages: 3 })
+    const wrapper = mount(JournalsPage, { global: { components: { RouterLink } } })
+    await flushPromises()
+
+    expect(mocks.journals).toHaveBeenCalledWith(2, 12, undefined, undefined)
+    expect(wrapper.get('.journal-pager').text()).toContain('第 2 / 3 页')
+
+    await wrapper.findAll('.journal-pager button')[1]?.trigger('click')
+    expect(mocks.push).toHaveBeenLastCalledWith({ path: '/journals', query: { page: '3' } })
+  })
+
+  it('换筛选条件时回到第一页', async () => {
+    mocks.route.query = { page: '3' }
+    mocks.journals.mockResolvedValue({ items: [journal()], page: 3, pageSize: 12, total: 30, totalPages: 3 })
+    const wrapper = mount(JournalsPage, { global: { components: { RouterLink } } })
+    await flushPromises()
+
+    await wrapper.get('input[type="search"]').setValue('京都')
+    await wrapper.get('.search-box button').trigger('click')
+    // 新结果集里第 3 页可能根本不存在，页码必须丢掉
+    expect(mocks.push).toHaveBeenLastCalledWith({ path: '/journals', query: { q: '京都' } })
+  })
+
   it('请求失败时显示可恢复的空状态', async () => {
     mocks.journals.mockRejectedValue(new Error('断网'))
     const wrapper = mount(JournalsPage, { global: { components: { RouterLink } } })

@@ -6,3 +6,9 @@ server:
 logging:
   level:
     com.thx.traveljournal: DEBUG
+# 开发环境保留接口文档
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

@@ -30,6 +30,10 @@ export interface JournalEntry {
   templateId: number | null
   templateVersion: number | null
   tags: string[] | null
+  /** 所属旅行标题。只有列表接口回填，独立日记为 null。 */
+  tripTitle?: string | null
+  /** 草稿保存的乐观锁版本号，每次成功写入自增 1。 */
+  revision?: number | null
 }
 
 /** 公开端的日记卡片，对应 `PublicContentService.JournalCard`。 */
@@ -77,8 +81,16 @@ export interface JournalRequest {
 /** 自动保存的请求体：字段全部可选，缺席的沿用库里的旧值。 */
 export type JournalDraftRequest = Partial<JournalRequest>
 
-/** 明确解除旅行归属时草稿接口需要额外携带此标记。 */
-export type JournalEditorDraftRequest = JournalDraftRequest & { detachFromTrip?: boolean }
+/**
+ * 明确解除旅行归属时草稿接口需要额外携带此标记。
+ *
+ * `expectedRevision` 是并发保护：带上手里这份的版本号，服务端才分得清
+ * 「基于最新内容的保存」和「绕远路才到的旧请求」，后者会被 409 挡下来。
+ */
+export type JournalEditorDraftRequest = JournalDraftRequest & {
+  detachFromTrip?: boolean
+  expectedRevision?: number | null
+}
 
 /** 开一篇空草稿。三个字段都能缺席，编辑器一进页面就调。 */
 export interface JournalDraftInit {

@@ -9,8 +9,18 @@ export interface TripListParams {
   keyword?: string
 }
 
+/** 旅行下拉用的轻量选项。 */
+export interface TripOption {
+  id: number
+  title: string
+  status: TripStatus
+}
+
 export const tripApi = {
   list: (params?: TripListParams) => get<PageResponse<Trip>>('/admin/trips', withParams({ ...params })),
+
+  /** 选择器专用：只有 id 和标题，不分页，旅行再多也不会被静默截断。 */
+  options: () => get<TripOption[]>('/admin/trips/options'),
 
   get: (id: number) => get<Trip>('/admin/trips/' + id),
 

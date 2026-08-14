@@ -3,11 +3,13 @@ package com.thx.traveljournal.auth.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.thx.traveljournal.auth.entity.AdminUser;
 import com.thx.traveljournal.auth.mapper.AdminUserMapper;
+import com.thx.traveljournal.auth.service.ClientIpResolver;
 import com.thx.traveljournal.auth.service.LoginAttemptService;
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -44,6 +46,7 @@ public class AuthController {
     private final AdminUserMapper mapper;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
+    private final ClientIpResolver clientIpResolver;
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
     public record ChangePasswordRequest(@NotBlank String currentPassword,
@@ -60,6 +63,11 @@ public class AuthController {
         try {
             Authentication auth = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(body.username(), body.password()));
+            // 认证通过后换一个 session id。这条登录流程是手工写的，绕过了 Spring Security
+            // 表单登录自带的 Session Fixation 防护：不换的话，攻击者预先塞给受害者的那个
+            // session id 会在登录成功后直接变成一个已认证会话。
+            HttpSession existing = request.getSession(false);
+            if (existing != null) request.changeSessionId();
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(auth);
             SecurityContextHolder.setContext(context);
@@ -124,9 +132,8 @@ public class AuthController {
         return new AdminInfo(user.getId(), user.getUsername(), user.getDisplayName(), avatarUrl, themeKey);
     }
 
-    /** 取客户端 IP。部署在反向代理后面时以 X-Forwarded-For 的第一段为准。 */
+    /** 取客户端 IP，是否采信转发头由可信代理配置决定。 */
     private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        return forwarded == null ? request.getRemoteAddr() : forwarded.split(",")[0].trim();
+        return clientIpResolver.resolve(request);
     }
 }

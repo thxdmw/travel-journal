@@ -22,6 +22,7 @@ import { publicApi } from '@/api/public'
 import AdminAppShell from '@/admin/AdminAppShell.vue'
 import { createDashboardPage } from '@/admin/factories/dashboard'
 import { createJournalEditorPage } from '@/admin/factories/journal-editor'
+import { createJournalManagerPage } from '@/admin/factories/journal-manager'
 import { createLoginPage } from '@/admin/factories/login'
 import { createMomentsPage } from '@/admin/factories/moments'
 import { createProfilePage } from '@/admin/factories/profile'
@@ -73,6 +74,7 @@ const pages={
   TripWorkspace:createTripWorkspacePage({message,warning,error,info,fail,confirm}),
   Moments:createMomentsPage({session,message,warning,error,info,fail,confirm,composeConfirm:text=>ElMessageBox.confirm(text,'再整理一次',{confirmButtonText:'追加',cancelButtonText:'替换整篇',distinguishCancelAndClose:true,type:'info'})}),
   JournalEditor:createJournalEditorPage({message,info,warning,fail,confirm}),
+  JournalManager:createJournalManagerPage({message,fail,confirm}),
   TemplateManager:createTemplateManagerPage({message,warning,fail,confirm}),
   Theme:createThemeStudioPage({session,updateUser,message,fail,confirm}),
   Profile:createProfilePage({session,updateUser,message,fail}),
@@ -81,7 +83,10 @@ const pages={
 const routes:RouteRecordRaw[]=[
   {path:'/login',component:pages.Login,meta:{public:true,title:'登录'}},{path:'/',component:pages.Dashboard,meta:{title:'管理首页'}},
   {path:'/trips',component:pages.Trips,meta:{title:'旅行管理'}},{path:'/trips/:id',component:pages.TripWorkspace,meta:{title:'旅行工作台'}},
-  {path:'/moments',component:pages.Moments,meta:{title:'随手记'}},{path:'/journals/:id',component:pages.JournalEditor,meta:{title:'编辑日记',full:true}},
+  {path:'/moments',component:pages.Moments,meta:{title:'随手记'}},
+  // /journals 必须排在 /journals/:id 前面，否则「日记管理」会被当成 id 走进编辑器
+  {path:'/journals',component:pages.JournalManager,meta:{title:'日记管理'}},
+  {path:'/journals/:id',component:pages.JournalEditor,meta:{title:'编辑日记',full:true}},
   {path:'/templates',component:pages.TemplateManager,meta:{title:'日记模板'}},{path:'/tags',component:pages.TagManager,meta:{title:'标签管理'}},
   {path:'/themes',component:pages.Theme,meta:{title:'主题外观'}},{path:'/profile',component:pages.Profile,meta:{title:'个人资料'}},
 ]

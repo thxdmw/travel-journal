@@ -20,6 +20,7 @@ function coverSrcset(url: string | null): string | undefined {
       :srcset="coverSrcset(item.coverUrl)"
       sizes="(max-width: 700px) 92vw, (max-width: 1100px) 46vw, 31vw"
       loading="lazy"
+      decoding="async"
       :alt="item.title"
     >
     <div v-else class="card-photo placeholder">远行手记</div>

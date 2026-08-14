@@ -30,7 +30,7 @@ class MapLocationServiceTest {
                 "amap", "test-web-service-key", true, "AUTO", "AMAP", "", "",
                 "/api/public/_AMapService", "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 "© OpenStreetMap contributors", "");
-        return new AppProperties(null, null, null, null, settings, null, null);
+        return new AppProperties(null, null, null, null, settings, null, null, null);
     }
 
     /** 青城山附近一点，明确在中国境内，GCJ-02 转 WGS84 后数值应该确实发生偏移。 */

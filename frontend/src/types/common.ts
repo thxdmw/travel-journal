@@ -42,9 +42,23 @@ export interface PageResponse<T> {
  * 保留 `status` 和 `network` 两个判定位，让业务层能区分「服务端拒绝」和
  * 「根本没连上」——这两种情况给用户的提示和重试策略都不一样。
  */
+/**
+ * 统一的请求失败。
+ *
+ * message 是给人看的中文，其余几项是给排查用的：出问题时用户只会说「保存失败了」，
+ * 有 requestId 才能在服务端日志里定位到究竟是哪一次请求。
+ */
 export interface ApiError extends Error {
   status: number
   network: boolean
+  /** 业务错误码，例如 VALIDATION_ERROR、FORBIDDEN；网络层失败时为空。 */
+  code: string | null
+  /** 服务端为这次请求生成的追踪 id，对应日志里的 X-Request-Id。 */
+  requestId: string | null
+  /** 字段级校验错误，key 是字段名。 */
+  fields: Record<string, string> | null
+  /** 是否是超时（而不是被服务端拒绝或断网）。 */
+  timeout: boolean
 }
 
 /** 坐标系。数据库长期标准是 WGS84，GCJ02 只出现在高德来源的历史数据里。 */

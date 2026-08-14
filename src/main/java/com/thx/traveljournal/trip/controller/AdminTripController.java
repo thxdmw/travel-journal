@@ -2,6 +2,7 @@ package com.thx.traveljournal.trip.controller;
 
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.api.PageResponse;
+import com.thx.traveljournal.common.api.Pagination;
 import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
@@ -79,7 +80,21 @@ public class AdminTripController {
     public ApiResponse<PageResponse<Trip>> list(@RequestParam(defaultValue="1") long page,
                                                 @RequestParam(defaultValue="20") long pageSize,
                                                 @RequestParam(required=false) String keyword) {
-        return ApiResponse.ok(service.list(page, Math.min(pageSize, 100), keyword));
+        Pagination.check(page, pageSize);
+        Pagination.checkKeyword(keyword);
+        return ApiResponse.ok(service.list(page, pageSize, keyword));
+    }
+
+    /**
+     * 旅行选择器用的轻量列表：只有 id 和标题。
+     *
+     * <p>编辑器、随手记和日记管理里的「所属旅行」下拉以前直接借用分页列表的前 100 条，
+     * 旅行再多就会被静默截断——下拉里找不到的旅行，作者根本不知道它还在。这里不分页，
+     * 但每行只有两个字段，比拉 100 个完整旅行还轻。</p>
+     */
+    @GetMapping("/trips/options")
+    public ApiResponse<List<TripService.TripOption>> tripOptions() {
+        return ApiResponse.ok(service.options());
     }
     @PostMapping("/trips")
     public ApiResponse<Trip> create(@Valid @RequestBody TripRequest request) {

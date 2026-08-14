@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * 定时回收一直空着的日记草稿。
@@ -27,15 +28,31 @@ public class EmptyDraftCleaner {
 
     private final JournalService journalService;
 
-    /** 每小时扫一次。个人站点数据量很小，这里的开销可以忽略。 */
+    /**
+     * 每小时扫一次。个人站点数据量很小，这里的开销可以忽略。
+     *
+     * <p>删除逐篇发起而不是整轮一个事务：一篇的图片清理失败就回滚整轮的话，一条坏数据
+     * 能让清理永远不生效，而且日志上什么都看不出来。异常一律带堆栈，否则「清理没跑」
+     * 这种问题只能靠猜。</p>
+     */
     @Scheduled(fixedDelay = 3_600_000L, initialDelay = 300_000L)
     public void purge() {
+        List<Long> stale;
         try {
-            int removed = journalService.purgeStaleEmptyDrafts(QUIET_PERIOD);
-            if (removed > 0) log.info("已回收 {} 篇超过 24 小时仍然空白的日记草稿", removed);
+            stale = journalService.staleEmptyDraftIds(QUIET_PERIOD);
         } catch (Exception e) {
-            // 清理失败不该影响正常使用，下一轮再试
-            log.warn("回收空白草稿失败：{}", e.getMessage());
+            log.warn("查询待回收的空白草稿失败，下一轮再试", e);
+            return;
         }
+        int removed = 0;
+        for (Long id : stale) {
+            try {
+                journalService.delete(id);
+                removed++;
+            } catch (Exception e) {
+                log.warn("回收空白草稿 {} 失败，本轮跳过", id, e);
+            }
+        }
+        if (removed > 0) log.info("已回收 {} 篇超过 24 小时仍然空白的日记草稿", removed);
     }
 }

@@ -56,6 +56,25 @@ public class TripService {
         return PageResponse.of(result.getRecords(), page, pageSize, result.getTotal());
     }
 
+    /**
+     * 旅行选择器用的轻量选项，按开始日期倒序。
+     *
+     * @param id     旅行 id
+     * @param title  旅行标题
+     * @param status 旅行状态，随手记靠它默认选中正在进行的那一场
+     */
+    public record TripOption(Long id, String title, String status) {}
+
+    /** 只查三列，不做分页——下拉里静默少几个旅行，比多查两列糟糕得多。 */
+    public List<TripOption> options() {
+        return tripMapper.selectList(new LambdaQueryWrapper<Trip>()
+                        .select(Trip::getId, Trip::getTitle, Trip::getStatus)
+                        .orderByDesc(Trip::getStartDate))
+                .stream()
+                .map(trip -> new TripOption(trip.getId(), trip.getTitle(), trip.getStatus()))
+                .toList();
+    }
+
     public Trip get(Long id) {
         Trip trip = tripMapper.selectById(id);
         if (trip == null) throw BusinessException.notFound("旅行不存在");

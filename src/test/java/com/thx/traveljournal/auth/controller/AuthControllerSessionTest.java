@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuthControllerSessionTest {
     @Test
     void anonymousSessionShouldReturnSuccessWithNullUser() {
-        AuthController controller = new AuthController(null, null, null, null, null);
+        AuthController controller = new AuthController(null, null, null, null, null, null);
 
         var response = controller.session(null);
 

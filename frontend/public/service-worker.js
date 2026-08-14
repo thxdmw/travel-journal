@@ -22,7 +22,13 @@
 // 页面会用 Vite 产物版本注册 `?build=` URL，每次产物变化都会触发 SW 升级。
 const VERSION = new URL(self.location.href).searchParams.get('build') || 'v24';
 const SHELL_CACHE = 'tj-shell-' + VERSION;
-const MEDIA_CACHE = 'tj-media-' + VERSION;
+/*
+ * 媒体缓存刻意不带构建版本。
+ *
+ * 图片内容不会变（换图会换 id），却因为缓存名里带着前端版本号，每发一次普通前端更新
+ * 就被整个清空一次——旅行中攒下的几百张图要重新下一遍，而它们其实一张都没变。
+ */
+const MEDIA_CACHE = 'tj-media-v1';
 /*
  * 首屏必须有的东西。装的时候就抓下来，第一次断网也能打开。
  *
@@ -49,7 +55,9 @@ async function shellAssets() {
     const response = await fetch('/app-manifest.json', { cache: 'no-store' });
     if (!response.ok) return SHELL_ASSETS;
     const manifest = await response.json();
-    const generated = Array.isArray(manifest.assets) ? manifest.assets : [];
+    // precache 是清单里剔掉大图之后的应用壳；老清单没有这个字段时退回 assets
+    const generated = Array.isArray(manifest.precache) ? manifest.precache
+      : (Array.isArray(manifest.assets) ? manifest.assets : []);
     return [...new Set([...SHELL_ASSETS, ...generated])];
   } catch {
     return SHELL_ASSETS;
@@ -137,8 +145,17 @@ self.addEventListener('fetch', event => {
   // 如果让旧 SW 用 stale-while-revalidate 回旧清单，页面会永远注册旧版本。
   if (url.pathname === '/app-manifest.json' || url.pathname === '/service-worker.js') return;
 
-  // 图片内容不会变（换图会换 id），拿到就一直有效
   if (url.pathname.startsWith('/api/media/')) {
+    /*
+     * 私有图片一律不进缓存，直连网络：
+     *
+     *   original     只有管理员能看的原图。存进缓存目录，等于把它留在了一台
+     *                可能不只自己在用的设备上，而且删掉日记之后它还在。
+     *   previewToken 草稿预览链接授权的图片。令牌会过期、会被作者撤销，
+     *                缓存一份就等于把撤销这件事架空了。
+     */
+    if (url.pathname.endsWith('/original') || url.searchParams.has('previewToken')) return;
+    // 其余图片内容不会变（换图会换 id），拿到就一直有效
     event.respondWith(cacheFirst(request));
     return;
   }

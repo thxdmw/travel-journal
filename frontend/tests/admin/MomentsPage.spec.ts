@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   pendingMoments: vi.fn(), queueMoment: vi.fn(), updatePendingMoment: vi.fn(), dropPendingMoment: vi.fn(),
   push: vi.fn(), replace: vi.fn(),
 }))
-vi.mock('@/api/trip', () => ({ tripApi: { list: mocks.tripList } }))
+vi.mock('@/api/trip', () => ({ tripApi: { options: mocks.tripList } }))
 vi.mock('@/api/moment', () => ({ momentApi: {
   list: mocks.momentList, aiStatus: mocks.aiStatus, create: mocks.create, update: mocks.update,
   remove: mocks.remove, addPhoto: mocks.addPhoto, removePhoto: mocks.removePhoto,
@@ -45,7 +45,7 @@ describe('MomentsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    mocks.tripList.mockResolvedValue({ items: [trip], page: 1, pageSize: 100, total: 1, totalPages: 1 })
+    mocks.tripList.mockResolvedValue([trip])
     mocks.momentList.mockResolvedValue([moment])
     mocks.aiStatus.mockResolvedValue({ available: false })
     mocks.pendingMoments.mockResolvedValue([])
@@ -56,7 +56,8 @@ describe('MomentsPage', () => {
   it('默认选择进行中的旅行并按服务端日期分组', async () => {
     const { wrapper } = mountPage()
     await flushPromises()
-    expect(mocks.tripList).toHaveBeenCalledWith({ page: 1, pageSize: 100 })
+    // 走轻量选项接口，旅行超过 100 场也不会在下拉里被静默截断
+    expect(mocks.tripList).toHaveBeenCalledWith()
     expect(mocks.momentList).toHaveBeenCalledWith(3)
     expect(wrapper.get('.moment-day').text()).toContain('10月2日')
     expect(wrapper.get('.moment-item').text()).toContain('山谷里起雾了')

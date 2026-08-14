@@ -1,5 +1,10 @@
-/* 公开站正式 ESM 入口：页面与运行时全部直接使用 TypeScript 模块。 */
-import 'element-plus/dist/index.css'
+/*
+ * 公开站正式 ESM 入口：页面与运行时全部直接使用 TypeScript 模块。
+ *
+ * 这里刻意没有 Element Plus：公开端一个 el-* 组件都没用，但只要引一行它的 CSS，
+ * 打包器就会把整个库归进公开端的 chunk 图——首页因此白白多下 873KB JS 和 341KB CSS。
+ * 后台仍然照常使用，那是 admin.ts 的事。
+ */
 import 'leaflet/dist/leaflet.css'
 import '@/styles/themes/travel-classic.css'
 import '@/styles/public.css'

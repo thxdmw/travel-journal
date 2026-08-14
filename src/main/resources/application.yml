@@ -50,6 +50,11 @@ springdoc:
     path: /swagger-ui.html
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
+  security:
+    # 可信反向代理的 IP，逗号分隔。只有直连方在这个名单里，才会采信 X-Forwarded-For：
+    # 那个头由客户端自己填，无条件采信意味着换个假 IP 就能绕开登录限流。
+    # 直接对外暴露（没有 Nginx）时留空。
+    trusted-proxies: ${APP_TRUSTED_PROXIES:}
   site:
     # 季节主题按站点所在地判断，而不是访客设备的时区——否则东京的访客看到夏、
     # 悉尼的访客看到冬，同一个站点在同一天会长得不一样。
