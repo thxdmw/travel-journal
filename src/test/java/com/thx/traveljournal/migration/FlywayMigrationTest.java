@@ -54,8 +54,8 @@ class FlywayMigrationTest {
             assertThat(flyway.info().current())
                     .isNotNull();
 
-            assertThat(flyway.info().current().getVersion())
-                    .isEqualTo(flyway.info().target().getVersion());
+            assertThat(flyway.info().pending())
+                    .isEmpty();
 
             try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
 
