@@ -8,8 +8,9 @@
  *       先用缓存里的那份秒开，同时在后台取新的，下次进来就是新版本。
  *       Vite 资源带内容 hash，所以拿到旧的一次不会出错。
  *
- *   图片（/api/media/…/display）          cache-first
- *       图片内容不会变（改图会换 id），拿到就一直有效。
+ *   图片（/api/media/…/display）          短新鲜期 + 条件校验
+ *       内容不会变（改图会换 id），但权限会变——作者可能撤回发布。所以内容长期
+ *       复用，权限每分钟回服务端确认一次，被拒时立刻删掉本地那一份。
  *
  *   其他 /api 请求                        完全不碰
  *       日记正文、旅行数据必须是最新的，宁可失败也不能给一份旧的——
@@ -134,16 +135,63 @@ function storable(response) {
   return !/no-store/i.test(control);
 }
 
-async function cacheFirst(request) {
+/**
+ * 缓存里这一份存了多久。
+ *
+ * 用响应自己的 Date 头，不另外维护一张时间表——多一份状态就多一处会不同步的地方。
+ * 读不到就当它已经过期，宁可多校验一次。
+ */
+function cachedAgeMs(response) {
+  const at = Date.parse(response.headers.get('Date') || '');
+  return Number.isNaN(at) ? Infinity : Date.now() - at;
+}
+
+/**
+ * 媒体缓存的新鲜期。
+ *
+ * 过了这段时间就必须回服务端问一次「现在还能看吗」。图片内容永远不变，所以这个窗口
+ * 只影响权限的生效速度：作者撤回发布之后，最多这么久就再也拿不到了。
+ */
+const MEDIA_FRESH_MS = 60 * 1000;
+
+/**
+ * 图片：内容长期复用，权限每次校验。
+ *
+ * 曾经这里是纯 cache-first。图片内容不变，看起来很合理，但权限是会变的——一张已经
+ * 公开并被缓存的照片，作者撤回发布之后，cache-first 仍然会把它拿出来，撤回等于没做。
+ *
+ * 所以拆成两件事：新鲜期内直接给缓存（省掉一次往返）；过期之后带上 If-None-Match
+ * 回服务端，既走一遍权限判断，内容没变时对象存储也只回一个几百字节的 304。
+ * 服务端明确拒绝时立刻把这一条删掉——之后连离线也拿不到它。
+ */
+async function media(request) {
   const cache = await caches.open(MEDIA_CACHE);
   const cached = await cache.match(request);
-  if (cached) return cached;
-  const response = await fetch(request);
-  if (response && response.ok && storable(response)) {
-    await cache.put(request, response.clone());
-    trim(MEDIA_CACHE, MEDIA_LIMIT);
+  if (cached && cachedAgeMs(cached) < MEDIA_FRESH_MS) return cached;
+
+  const validators = {};
+  const etag = cached && cached.headers.get('ETag');
+  if (etag) validators['If-None-Match'] = etag;
+
+  try {
+    const response = await fetch(request, { headers: validators });
+    // 撤回发布、删除图片、退出登录：一律立刻清掉本地那一份
+    if (response.status === 403 || response.status === 404) {
+      await cache.delete(request);
+      return response;
+    }
+    // 内容没变，服务端也认了这次访问：继续用缓存里的那一份
+    if (response.status === 304 && cached) return cached;
+    if (response.ok && storable(response)) {
+      await cache.put(request, response.clone());
+      trim(MEDIA_CACHE, MEDIA_LIMIT);
+    }
+    return response;
+  } catch (error) {
+    // 断网了。旅途中翻看已经下载过的照片是主要场景，这时给缓存比给一个错误有用
+    if (cached) return cached;
+    throw error;
   }
-  return response;
 }
 
 self.addEventListener('fetch', event => {
@@ -171,7 +219,7 @@ self.addEventListener('fetch', event => {
      * 按服务端下发的 Cache-Control 决定存不存。
      */
     if (url.pathname.endsWith('/original') || url.searchParams.has('previewToken')) return;
-    event.respondWith(cacheFirst(request));
+    event.respondWith(media(request));
     return;
   }
   /*

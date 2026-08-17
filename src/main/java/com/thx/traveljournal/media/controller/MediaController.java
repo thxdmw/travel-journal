@@ -17,7 +17,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URI;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 图片接口：后台的上传、排序、说明、封面和删除，以及所有人都会用到的图片访问地址。
@@ -74,13 +73,9 @@ public class MediaController {
     /**
      * 302 跳转到对象存储的预签名地址，图片流量不经过应用本身。
      *
-     * <p>响应带 {@code Cache-Control}，让浏览器在一段时间内直接复用这次跳转结果。
-     * 不加缓存头的话，每翻一页、每回一次首页，页面上每张图都要重新打一次应用、
-     * 重新算一次预签名，图多的日记页尤其明显。</p>
-     *
-     * <p>缓存时长取预签名有效期打七折：跳转结果本身在 TTL 之后就失效了，
-     * 留出余量避免用户拿着快过期的地址去请求对象存储。用 {@code private} 是因为
-     * 这是带签名的个人化地址，不能被 CDN 或代理共享缓存。</p>
+     * <p>缓存策略见 {@link #cachePolicyFor}：这个接口是权限关口，每次访问都要经过它，
+     * 图片内容的复用交给下游。{@code private} 是因为跳转目标是带签名的个人化地址，
+     * 不能被 CDN 或任何共享缓存留下。</p>
      */
     @GetMapping("/api/media/{mediaId}/{variant}")
     public ResponseEntity<Void> access(@PathVariable Long mediaId, @PathVariable String variant,
@@ -111,6 +106,17 @@ public class MediaController {
         if (previewJournalId != null || "original".equals(variant)) return CacheControl.noStore();
         // 匿名能拿到就说明它是公开的，不必再查一次；管理员身份下才需要确认
         if (admin && !service.publiclyVisible(mediaId)) return CacheControl.noStore();
-        return CacheControl.maxAge(service.redirectCacheSeconds(), TimeUnit.SECONDS).cachePrivate();
+        /*
+         * 公开图片：可以存，但每次都要回来问一次。
+         *
+         * 图片内容永远不变（换图会换 id），权限却是会变的——作者随时可能撤回发布。
+         * 以前这里给的是几十分钟的 max-age，于是撤回之后那几十分钟里，任何缓存过的
+         * 浏览器仍然照常显示它，撤回等于没做。
+         *
+         * no-cache 不是「不缓存」，是「用之前必须校验」：内容照旧留在本地，但每次
+         * 使用前都要经过这个接口的权限判断。真正的内容复用交给下游的 If-None-Match
+         * ——校验通过时对象存储回一个 304，只有几百字节。
+         */
+        return CacheControl.noCache().cachePrivate();
     }
 }

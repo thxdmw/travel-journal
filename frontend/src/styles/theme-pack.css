@@ -596,6 +596,22 @@
   touch-action: manipulation;
 }
 .tj-offline-banner__close:hover,.tj-offline-banner__close:focus-visible { background: rgba(255, 255, 255, .26); outline: none; }
+/*
+ * 新版本提示复用离线横幅那一套外观，只多一个「刷新」按钮。
+ * 不自动刷新是刻意的：作者可能正在编辑器里打字。
+ */
+.tj-update-banner__apply {
+  flex: 0 0 auto;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 99px;
+  color: #20221f;
+  background: #fff;
+  font: 600 13px/1.5 var(--tj-sans);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.tj-update-banner__apply:hover,.tj-update-banner__apply:focus-visible { background: rgba(255, 255, 255, .82); outline: none; }
 /* 编辑器手机端底部有工具栏，横幅要让开它，不然会压在「照片」按钮上 */
 @media (max-width: 860px) {
   .editor-page ~ .tj-offline-banner,

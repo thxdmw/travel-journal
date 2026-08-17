@@ -246,6 +246,10 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       }),{flush:'post'});
       // 弹窗开合的那一刻就把 inset 调整到位，别等下一次 visualViewport 事件
       watch([editorOpen,catalogOpen],()=>viewport());
+      watch(editorOpen,()=>{
+        // 弹窗有淡入淡出，渲染完那一帧之后浏览器还可能再滚一次，所以补一帧
+        void nextTick(()=>{restorePageScroll();requestAnimationFrame(restorePageScroll);});
+      });
       watch(()=>dataBinding.value?.selectedIds,()=>applyBinding(),{deep:true});
       watch(()=>dataBinding.value?.recordId,()=>applyBinding());
       watch(()=>dataBinding.value?.fields,()=>applyBinding(),{deep:true});
@@ -351,10 +355,43 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         imageTab.value='content';
         nextTick(()=>editorOpen.value=true);
       }
-      function edit(index:number){const block=document.value.blocks[index];if(!block)return;draft.value=JSON.parse(JSON.stringify(block)) as EditorBlock;editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
-      function editOnDoubleClick(event:MouseEvent,index:number){
-        if((event.target as Element).closest('button,a,input,textarea,select,[role="button"]'))return;
+      function edit(index:number){const block=document.value.blocks[index];if(!block)return;pinPageScroll();draft.value=JSON.parse(JSON.stringify(block)) as EditorBlock;editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
+      /*
+       * 手机上单击就打开配置，桌面仍然是双击。
+       *
+       * 双击在移动端不只是「两次点击」：浏览器要先等一段时间判断这是不是 double-tap-to-zoom，
+       * 期间还可能真的动一下视口缩放。配合 CSS 的 touch-action:manipulation 把这套手势关掉，
+       * 双击带来的那一下抖动就从根上没有了。桌面保留双击是因为鼠标点一下常常只是想定位，
+       * 单击即弹窗会很吵。
+       */
+      const coarsePointer=window.matchMedia?.('(pointer: coarse)').matches??false;
+      function isInteractive(target:EventTarget|null){
+        return target instanceof Element&&!!target.closest('button,a,input,textarea,select,[role="button"]');
+      }
+      function openConfigOnTap(event:MouseEvent,index:number){
+        if(!coarsePointer||isInteractive(event.target))return;
         edit(index);
+      }
+      function editOnDoubleClick(event:MouseEvent,index:number){
+        if(coarsePointer||isInteractive(event.target))return;
+        edit(index);
+      }
+
+      /*
+       * 弹窗开合前后把编辑器的滚动位置钉住。
+       *
+       * 弹窗一开一关会引起焦点转移、软键盘收放和 body overflow 变化，浏览器顺手滚一下
+       * .editor-page 是常事——对作者来说就是「点开图片再关掉，正文跑到别处去了」。
+       * 记住开之前的位置，等弹窗渲染完再放回去。
+       */
+      let pinnedScrollTop=0;
+      function editorPage(){return window.document.querySelector<HTMLElement>('.editor-page');}
+      function pinPageScroll(){pinnedScrollTop=editorPage()?.scrollTop??0;}
+      function restorePageScroll(){
+        const page=editorPage();
+        if(!page)return;
+        // 差一两像素是正常的舍入，不值得写回去再触发一次滚动
+        if(Math.abs(page.scrollTop-pinnedScrollTop)>2)page.scrollTop=pinnedScrollTop;
       }
       function backToCatalog(){editorOpen.value=false;draft.value=null;nextTick(()=>catalogOpen.value=true);}
       function confirmEdit(){
@@ -671,7 +708,8 @@ v-for="tone in CALLOUT_TONES" :key="tone[0]"
 
           <article
 v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType(block.type)}" :data-editor-block-id="block.id"
-            title="双击打开编辑" @dblclick="editOnDoubleClick($event,index)">
+            :title="coarsePointer?'点击打开编辑':'双击打开编辑'"
+            @click="openConfigOnTap($event,index)" @dblclick="editOnDoubleClick($event,index)">
             <header><span>{{label(block.type)}}</span><div>
               <button type="button" :disabled="index===0" @click="move(index,-1)">↑</button><button type="button" :disabled="index===document.blocks.length-1" @click="move(index,1)">↓</button>
               <button type="button" @click="edit(index)">编辑</button><button type="button" class="danger" @click="remove(index)">删除</button>

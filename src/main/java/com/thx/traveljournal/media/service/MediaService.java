@@ -27,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.tika.Tika;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -239,14 +240,34 @@ public class MediaService {
      * <p>必须在事务里调用：锁随事务提交才释放，中间的计数和插入才是原子的。</p>
      */
     private int lockAndNextSortOrder(Long journalId) {
+        lockJournal(journalId);
+        List<JournalMedia> existing = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId));
+        if (existing.size() >= properties.upload().maxImagesPerJournal())
+            throw BusinessException.badRequest("单篇日记图片数量已达上限");
+        /*
+         * 用现有最大序号 +1，不能用条数。
+         *
+         * [0,1,2] 里删掉中间那张，剩下的是 [0,2] 而条数是 2，再上传一张就又得到一个 2——
+         * 两张图并列同一个 sortOrder，此后的顺序就看数据库返回谁在前，作者排好的次序会
+         * 自己乱掉。序号只保证单调，不保证连续；连续性由 reorder 负责。
+         */
+        return existing.stream().map(JournalMedia::getSortOrder)
+                .filter(java.util.Objects::nonNull)
+                .max(Integer::compareTo).map(max -> max + 1).orElse(0);
+    }
+
+    /**
+     * 锁住日记行。
+     *
+     * <p>{@code journal_media} 的一致性全靠这一把锁：上传、挂已有图片、删除、手工重排、
+     * 按拍摄时间重排——五条路径都会读一遍现有集合再写回去，两条同时跑就会互相覆盖。
+     * 锁的粒度是单篇日记，不同日记之间照常并行。</p>
+     */
+    private void lockJournal(Long journalId) {
         JournalEntry locked = journalMapper.selectOne(new QueryWrapper<JournalEntry>()
                 .eq("id", journalId).last("for update"));
         if (locked == null) throw BusinessException.notFound("日记不存在");
-        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, journalId));
-        if (count >= properties.upload().maxImagesPerJournal())
-            throw BusinessException.badRequest("单篇日记图片数量已达上限");
-        return (int) count;
     }
 
     /**
@@ -261,6 +282,7 @@ public class MediaService {
     @Transactional
     public int sortByCaptureTime(Long journalId) {
         requireJournal(journalId);
+        lockJournal(journalId);
         List<JournalMedia> relations = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId)
                 .orderByAsc(JournalMedia::getSortOrder, JournalMedia::getId));
@@ -356,6 +378,9 @@ public class MediaService {
     /** 重排某篇日记的图片顺序，传入的 id 列表必须与该日记现有图片完全一致。 */
     @Transactional
     public void reorder(Long journalId, List<Long> relationIds) {
+        // 先锁日记：并发的上传会在这中间插进一张新图，那样「列表必须与现有图片一致」的
+        // 校验要么误报失败，要么把刚上传的那张漏掉不排序
+        lockJournal(journalId);
         List<JournalMedia> current = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId));
         if (current.size() != relationIds.size() ||
@@ -387,6 +412,8 @@ public class MediaService {
     @Transactional
     public void deleteRelation(Long relationId) {
         JournalMedia relation = requireRelation(relationId);
+        // 锁同一篇日记，和上传、重排串行化
+        lockJournal(relation.getJournalEntryId());
         MediaAsset asset = requireAsset(relation.getMediaAssetId());
         JournalEntry journal = requireJournal(relation.getJournalEntryId());
         if (documentService.mediaIds(journal.getContentJson()).contains(asset.getId())) {
@@ -485,30 +512,44 @@ public class MediaService {
     public MediaView attachExisting(Long journalId, Long mediaAssetId, String caption) {
         requireJournal(journalId);
         requireAsset(mediaAssetId);
+        /*
+         * 先锁日记再查，是这一段能保证「只有一条关系」的关键。
+         *
+         * 顺序反过来（先查、没有再锁）就还是 check-then-act：随手记成批整理时两个请求
+         * 同时查不到，然后各插一条，同一张照片在日记里出现两次。锁在前面，第二个请求
+         * 拿到锁时已经能看到第一个插进去的那条。
+         *
+         * 数据库上还有 uk_journal_media_entry_asset 兜底，两边都要：应用层保证正常路径
+         * 只插一次，约束保证任何漏网的并发都插不进去。
+         */
+        lockJournal(journalId);
         JournalMedia existing = journalMediaMapper.selectOne(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId)
                 .eq(JournalMedia::getMediaAssetId, mediaAssetId).last("limit 1"));
         if (existing != null) return toView(existing);
-        // 和上传同一条竞态：随手记批量整理时也会并发建关系，计数和分配序号必须在行锁之后
         int sortOrder = lockAndNextSortOrder(journalId);
         JournalMedia relation = new JournalMedia();
         relation.setJournalEntryId(journalId);
         relation.setMediaAssetId(mediaAssetId);
         relation.setCaption(caption);
         relation.setSortOrder(sortOrder);
-        journalMediaMapper.insert(relation);
+        try {
+            journalMediaMapper.insert(relation);
+        } catch (DuplicateKeyException conflict) {
+            /*
+             * 走到这里说明有人绕过了行锁（比如另一个进程直连数据库）。唯一约束挡住了重复
+             * 插入，这时该返回那条已经存在的关系，而不是把 500 抛给调用方——两个并发请求
+             * 都应该得到「这张图已经挂在这篇日记上」这个正确结果。
+             */
+            JournalMedia winner = journalMediaMapper.selectOne(new LambdaQueryWrapper<JournalMedia>()
+                    .eq(JournalMedia::getJournalEntryId, journalId)
+                    .eq(JournalMedia::getMediaAssetId, mediaAssetId).last("limit 1"));
+            if (winner == null) throw conflict;
+            return toView(winner);
+        }
         return toView(relation);
     }
 
-    /**
-     * 图片跳转响应可以被浏览器缓存多久（秒）。
-     *
-     * <p>取预签名有效期的 70%：跳转到的地址在 TTL 之后就失效了，留出余量避免
-     * 用户拿着快过期的地址去请求对象存储。至少给 60 秒，免得 TTL 配得极小时形同没有缓存。</p>
-     */
-    public long redirectCacheSeconds() {
-        return Math.max(60, properties.minio().presignedUrlTtlMinutes() * 60L * 7 / 10);
-    }
 
     /**
      * 生成图片的对象存储预签名访问地址。

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { momentApi } from '@/api/moment'
 import { tripApi } from '@/api/trip'
 import { dropPendingMoment, pendingMoments, queueMoment, updatePendingMoment } from '@/draft/moments'
+import { createLocalPreview, releaseLocalPreview } from '@/media/local-preview'
 import { render, type DayRouteController } from '@/route/day-route'
 import { simpleMap } from '@/route/simple-map'
 import { useRoute, useRouter } from 'vue-router'
@@ -58,7 +59,17 @@ const grouped = computed<MomentGroup[]>(() => {
   })
   return Array.from(groups, ([day, items]) => ({ day, items, unsorted: items.filter(item => !item.sorted).length }))
 })
-const draftPreviews = computed(() => draft.files.map(file => ({ name: file.name, url: URL.createObjectURL(file) })))
+/*
+ * 待发送照片的本机预览。
+ *
+ * 以前这里是一个 computed：`draft.files.map(file => URL.createObjectURL(file))`。三个毛病
+ * 叠在一起——computed 里带副作用，每次重算都生成一批全新的 Object URL；模板又用 url 当
+ * :key，URL 一变 Vue 就把 <img> 销毁重建，于是手机那张几 MB 的原图被反复解码，页面连闪
+ * 好几次；旧 URL 还从来没人 revoke。
+ *
+ * 改成显式持有：选照片时生成一次 256px 缩略图，删除和提交时释放。key 用稳定的 id。
+ */
+const draftPreviews = ref<Array<{ id: string, name: string, url: string }>>([])
 const canSubmit = computed(() => Boolean(tripId.value && (draft.content.trim() || draft.files.length)))
 
 function localDate(date: Date): string {
@@ -128,6 +139,7 @@ async function submit() {
     const payload: MomentRequest = { clientId: id, tripId: tripId.value, content: draft.content.trim(), placeName: draft.placeName.trim() || undefined, mood: draft.mood.trim() || undefined, latitude: draft.latitude, longitude: draft.longitude, ...occurrencePayload() }
     if (!await queueMoment({ clientId: id, tripId: tripId.value, payload, photos })) throw new Error('这台设备的离线存储不可用或空间不足，请先不要关闭页面')
     Object.assign(draft, { content: '', placeName: '', mood: '', latitude: null, longitude: null, files: [] })
+    clearDraftPreviews()
     await refreshPending()
     if (navigator.onLine) void syncPending()
     props.message(navigator.onLine ? '已安全记在本机，正在同步' : '已安全记在本机，联网后自动同步')
@@ -174,15 +186,32 @@ async function syncPending() {
 async function retryPending(item: PendingMoment) { await updatePendingMoment(item.clientId, { state: 'pending', error: null }); await refreshPending(); void syncPending() }
 async function discardPending(item: PendingMoment) { try { await props.confirm('放弃这条尚未同步的随手记吗？本机文字和照片会被删除。') } catch { return }; await dropPendingMoment(item.clientId); await refreshPending() }
 
-function pickPhotos(event: Event) {
+async function pickPhotos(event: Event) {
   const input = event.target as HTMLInputElement
   const selected = Array.from(input.files || []).filter(file => file.type.startsWith('image/'))
   const available = Math.max(0, 9 - draft.files.length)
-  draft.files.push(...selected.slice(0, available))
+  const accepted = selected.slice(0, available)
   if (selected.length > available) props.warning('一条随手记最多保留 9 张照片')
   input.value = ''
+  for (const file of accepted) {
+    const id = clientId('shot')
+    draft.files.push(file)
+    // 缩到 256px 再显示：把手机原图直接塞进 <img> 会让主线程卡在解码上
+    draftPreviews.value.push({ id, name: file.name, url: await createLocalPreview(file) })
+  }
 }
-function dropDraftPhoto(index: number) { draft.files.splice(index, 1) }
+
+function dropDraftPhoto(index: number) {
+  draft.files.splice(index, 1)
+  const [removed] = draftPreviews.value.splice(index, 1)
+  releaseLocalPreview(removed?.url)
+}
+
+/** 提交或清空草稿后统一释放，避免这些 URL 一直挂在文档上。 */
+function clearDraftPreviews() {
+  draftPreviews.value.forEach(item => releaseLocalPreview(item.url))
+  draftPreviews.value = []
+}
 function capture() { if (window.matchMedia?.('(pointer:coarse)').matches) photoSheet.value = true; else photoInput.value?.click() }
 function locate() {
   if (!navigator.geolocation) { props.warning('这台设备不支持定位'); return }
@@ -230,12 +259,12 @@ const onOnline = () => { online.value = true; if (!props.session.offline) void s
 const onOffline = () => { online.value = false; void refreshPending() }
 const onSessionReady = () => { if (props.session.user && !props.session.offline) void syncPending() }
 onMounted(async () => { await loadTrips(); await Promise.all([load(), refreshPending()]); window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline); window.addEventListener('travel-session-ready', onSessionReady); if (navigator.onLine) void syncPending(); try { aiAvailable.value = (await momentApi.aiStatus()).available } catch { aiAvailable.value = false } })
-onBeforeUnmount(() => { closeRoute(); draftPreviews.value.forEach(item => URL.revokeObjectURL(item.url)); window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); window.removeEventListener('travel-session-ready', onSessionReady) })
+onBeforeUnmount(() => { closeRoute(); clearDraftPreviews(); window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); window.removeEventListener('travel-session-ready', onSessionReady) })
 </script>
 
 <template>
   <div class="moments-page"><div class="page-head"><div><h2>随手记</h2><p>路上看到什么就记一条，晚上一键整理成日记。</p></div><el-select v-model="tripId" filterable placeholder="选择旅行" class="moments-trip"><el-option v-for="item in trips" :key="item.id" :label="item.title" :value="item.id" /></el-select></div>
-    <section class="moment-composer panel"><el-input v-model="draft.content" type="textarea" :rows="3" resize="none" placeholder="现在看到了什么？一句话就够。" /><div v-if="draftPreviews.length" class="moment-shots"><figure v-for="(item, index) in draftPreviews" :key="item.url"><img :src="item.url" alt=""><button type="button" @click="dropDraftPhoto(index)">×</button></figure></div><div class="moment-composer-meta"><el-input v-model="draft.placeName" placeholder="在哪儿（可选）" class="moment-place" /><el-input v-model="draft.mood" placeholder="心情（可选）" maxlength="10" class="moment-mood" /></div><div class="moment-composer-actions"><button type="button" @click="capture"><b>📷</b><span>照片</span></button><button type="button" :class="{ active: draft.latitude != null }" :disabled="locating" @click="locate"><b>📍</b><span>{{ draft.latitude != null ? '已定位' : (locating ? '定位中' : '位置') }}</span></button><span class="moment-spacer"></span><el-button type="primary" :loading="saving" :disabled="!canSubmit" @click="submit">记下</el-button></div></section>
+    <section class="moment-composer panel"><el-input v-model="draft.content" type="textarea" :rows="3" resize="none" placeholder="现在看到了什么？一句话就够。" /><div v-if="draftPreviews.length" class="moment-shots"><figure v-for="(item, index) in draftPreviews" :key="item.id"><img :src="item.url" decoding="async" alt=""><button type="button" @click="dropDraftPhoto(index)">×</button></figure></div><div class="moment-composer-meta"><el-input v-model="draft.placeName" placeholder="在哪儿（可选）" class="moment-place" /><el-input v-model="draft.mood" placeholder="心情（可选）" maxlength="10" class="moment-mood" /></div><div class="moment-composer-actions"><button type="button" @click="capture"><b>📷</b><span>照片</span></button><button type="button" :class="{ active: draft.latitude != null }" :disabled="locating" @click="locate"><b>📍</b><span>{{ draft.latitude != null ? '已定位' : (locating ? '定位中' : '位置') }}</span></button><span class="moment-spacer"></span><el-button type="primary" :loading="saving" :disabled="!canSubmit" @click="submit">记下</el-button></div></section>
     <section v-if="pending.length" class="moment-pending panel" aria-live="polite"><header><div><strong>待同步</strong><small>{{ pending.length }} 条已安全保存在这台设备</small></div><span :class="{ active: syncing }">{{ !online ? '等待网络' : (syncing ? '正在同步' : '等待重试') }}</span></header><article v-for="item in pending" :key="item.clientId"><time>{{ timeLabel(item.payload.occurredAt, item.payload.occurredZoneId) }}</time><div><p v-if="item.payload.content">{{ item.payload.content }}</p><small><template v-if="item.photos.length">{{ item.photos.length }} 张照片 · </template>{{ item.error || (item.state === 'syncing' ? '正在同步' : '已保存在本机') }}</small></div><button v-if="item.state === 'failed'" type="button" @click="retryPending(item)">重试</button><button type="button" class="danger" @click="discardPending(item)">放弃</button></article></section>
     <div v-loading="loading" class="moment-timeline"><section v-for="group in grouped" :key="group.day" class="moment-day"><header><h3>{{ dayLabel(group.day) }}</h3><small>{{ group.items.length }} 条<template v-if="group.unsorted"> · {{ group.unsorted }} 条待整理</template></small><el-button size="small" plain @click="toggleRoute(group)">{{ routeDay === group.day ? '收起路线' : '看路线' }}</el-button><el-button size="small" type="primary" plain :loading="composing === group.day" @click="compose(group, false)">整理成日记</el-button><el-button v-if="aiAvailable" size="small" type="primary" :loading="composing === `${group.day}-ai`" @click="compose(group, true)">✦ AI 整理</el-button></header><div v-if="routeDay === group.day" class="moment-route"><div ref="routeEl" class="moment-route-map"></div><button type="button" class="moment-route-play" :class="{ playing: replaying }" @click="toggleReplay">{{ replaying ? '停止回放' : '▶ 回放这一天' }}</button></div>
       <article v-for="item in group.items" :key="item.id" class="moment-item" :class="{ 'is-sorted': item.sorted }"><time>{{ timeLabel(item.occurredAt, item.occurredZoneId) }}</time><div class="moment-body"><template v-if="editing?.id === item.id"><el-input v-model="editing.content" type="textarea" :rows="3" /><div class="moment-edit-meta"><el-input v-model="editing.placeName" placeholder="地点" /><el-input v-model="editing.mood" placeholder="心情" /></div><div class="moment-edit-actions"><el-button size="small" @click="editing = null">取消</el-button><el-button size="small" type="primary" @click="saveEdit">保存</el-button></div></template><template v-else><p v-if="item.content">{{ item.content }}</p><div v-if="item.photos.length" class="moment-shots"><figure v-for="photo in item.photos" :key="photo.id"><img :src="photo.thumbnailUrl" loading="lazy" decoding="async" alt=""><button type="button" @click="removePhoto(item, photo.id)">×</button></figure></div><footer><span v-if="item.placeName">📍 {{ item.placeName }}</span><span v-else-if="item.latitude != null">📍 已记录坐标</span><span v-if="item.mood">· {{ item.mood }}</span><span v-if="item.sorted" class="moment-sorted">已整理</span><button type="button" @click="startEdit(item)">修改</button><button type="button" class="danger" @click="removeMoment(item)">删除</button></footer></template></div></article>

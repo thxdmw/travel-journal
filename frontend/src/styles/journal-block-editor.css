@@ -95,7 +95,14 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-catalog--quick{grid-template-columns:repeat(4,minmax(0,1fr));padding:0}
 .block-catalog-more{display:block;width:100%;margin-top:10px;padding:12px;border:1px dashed var(--tj-border);border-radius:10px;background:transparent;color:var(--tj-muted);font-size:13px;cursor:pointer}
 .block-catalog-more:hover{border-color:var(--tj-accent);color:var(--tj-accent)}
-.block-editor-card{overflow:hidden;border:1px solid var(--tj-border);border-radius:var(--tj-radius);background:var(--tj-surface);transition:border-color .2s,box-shadow .2s}
+/*
+ * touch-action:manipulation 关掉的是双击缩放这套手势。
+ *
+ * 手机上双击一个区块，浏览器要先等一小段时间判断这是不是 double-tap-to-zoom，期间
+ * 还可能真的动一下视口——那就是「双击打开图片配置，页面闪一下」的来源。手机端本来
+ * 也已经改成单击打开，这里把双击手势一并关掉，双指缩放照常可用。
+ */
+.block-editor-card{overflow:hidden;border:1px solid var(--tj-border);border-radius:var(--tj-radius);background:var(--tj-surface);transition:border-color .2s,box-shadow .2s;touch-action:manipulation}
 .block-editor-card:hover{border-color:var(--tj-accent);box-shadow:0 8px 28px color-mix(in srgb,var(--tj-primary) 9%,transparent)}
 .block-editor-card>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;border-bottom:1px solid var(--tj-border);background:var(--tj-surface-soft);color:var(--tj-muted);font-size:12px}
 .block-editor-card>header div{display:flex;gap:3px}

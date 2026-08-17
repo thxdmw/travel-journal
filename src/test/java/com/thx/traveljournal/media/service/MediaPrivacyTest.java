@@ -212,6 +212,8 @@ class MediaPrivacyTest {
     private MediaService serviceWithJournal(com.thx.traveljournal.journal.entity.JournalEntry journal) {
         JournalMapper journalMapper = mock(JournalMapper.class);
         when(journalMapper.selectById(3L)).thenReturn(journal);
+        // 删关系前会 SELECT ... FOR UPDATE 锁住日记行，和上传、重排串行化
+        when(journalMapper.selectOne(any())).thenReturn(journal);
         AppProperties properties = new AppProperties("http://localhost",
                 new AppProperties.Admin("admin", "password", "旅行者"),
                 new AppProperties.Upload(20, 50, 50_000_000),

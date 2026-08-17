@@ -35,6 +35,16 @@ function mountEditor(document: JournalDocument) {
   })
 }
 
+/** 模拟触摸设备/鼠标设备。组件在 setup 时读一次，所以要在挂载之前设好。 */
+function setPointer(coarse: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: coarse && query.includes('coarse'),
+    media: query,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  })) as unknown as typeof window.matchMedia
+}
+
 /** 「直接开始写」的那个输入框。 */
 const ghost = '.block-inline--ghost textarea'
 
@@ -59,5 +69,44 @@ describe('JournalBlockEditor 起笔输入框', () => {
     expect(mountEditor(documentWith('paragraph')).find(ghost).exists()).toBe(false)
     // 小标题、引用、提示卡同样是能直接落笔的组件
     expect(mountEditor(documentWith('image', 'quote')).find(ghost).exists()).toBe(false)
+  })
+})
+
+/*
+ * 手机上单击就打开配置。
+ *
+ * 双击在移动端不只是「点两次」：浏览器要先判断这是不是 double-tap-to-zoom，期间还可能
+ * 真的动一下视口缩放，那一下就是作者看到的闪烁。配合 CSS 的 touch-action:manipulation，
+ * 双击手势从根上不再参与。
+ */
+describe('图片区块的打开方式', () => {
+  it('手机上单击区块就打开配置', async () => {
+    setPointer(true)
+    const wrapper = mountEditor(documentWith('image'))
+
+    await wrapper.get('.block-editor-card').trigger('click')
+
+    expect(wrapper.find('.block-config-dialog, .block-config-layout').exists()).toBe(true)
+  })
+
+  it('桌面上单击不打开，双击才打开', async () => {
+    setPointer(false)
+    const wrapper = mountEditor(documentWith('image'))
+
+    await wrapper.get('.block-editor-card').trigger('click')
+    expect(wrapper.find('.block-config-layout').exists()).toBe(false)
+
+    await wrapper.get('.block-editor-card').trigger('dblclick')
+    expect(wrapper.find('.block-config-layout').exists()).toBe(true)
+  })
+
+  it('点区块里的按钮不会顺带打开配置', async () => {
+    setPointer(true)
+    const wrapper = mountEditor(documentWith('image', 'divider'))
+
+    // 上移/下移/删除这些按钮在卡片内部，点它们不该弹出配置
+    await wrapper.get('.block-editor-card header button').trigger('click')
+
+    expect(wrapper.find('.block-config-layout').exists()).toBe(false)
   })
 })
