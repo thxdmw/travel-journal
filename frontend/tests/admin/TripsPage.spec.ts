@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   clearCover: vi.fn(),
   themeList: vi.fn(),
   push: vi.fn(),
+  deletionSummary: vi.fn(),
+  remove: vi.fn(),
 }))
 vi.mock('@/api/trip', () => ({ tripApi: {
   list: mocks.list,
@@ -17,6 +19,8 @@ vi.mock('@/api/trip', () => ({ tripApi: {
   update: mocks.update,
   uploadCover: mocks.uploadCover,
   clearCover: mocks.clearCover,
+  deletionSummary: mocks.deletionSummary,
+  remove: mocks.remove,
 } }))
 vi.mock('@/api/theme', () => ({ themeApi: { list: mocks.themeList } }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
@@ -74,14 +78,15 @@ function mountPage() {
   const message = vi.fn()
   const warning = vi.fn()
   const fail = vi.fn()
+  const confirm = vi.fn().mockResolvedValue(undefined)
   const wrapper = mount(TripsPage, {
-    props: { message, warning, fail },
+    props: { message, warning, fail, confirm },
     global: {
       components: { ElButton, ElInput, ElSelect, ElOption, ElDatePicker, ElDialog, ElForm, ElFormItem, ElEmpty },
       directives: { loading: () => undefined },
     },
   })
-  return { wrapper, message, warning, fail }
+  return { wrapper, message, warning, fail, confirm }
 }
 
 describe('TripsPage', () => {
@@ -92,6 +97,14 @@ describe('TripsPage', () => {
     mocks.update.mockResolvedValue(trip)
     mocks.clearCover.mockResolvedValue(undefined)
     mocks.push.mockResolvedValue(undefined)
+    mocks.deletionSummary.mockResolvedValue({
+      title: '京都四月', journalCount: 3, momentCount: 12, photoCount: 40,
+      stopCount: 2, itineraryCount: 5, expenseCount: 8,
+    })
+    mocks.remove.mockResolvedValue({
+      title: '京都四月', journalCount: 3, momentCount: 12, photoCount: 40,
+      stopCount: 2, itineraryCount: 5, expenseCount: 8,
+    })
   })
 
   it('加载旅行并进入对应工作台', async () => {
@@ -126,5 +139,42 @@ describe('TripsPage', () => {
     await flushPromises()
     expect(mocks.list).toHaveBeenLastCalledWith({ page: 1, pageSize: 100, keyword: '京都' })
     expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: '网络错误' }))
+  })
+
+  /*
+   * 删除是不可撤销的，确认框必须先说清楚这一下会带走什么。
+   * 只问一句「确定吗」等于把一整场旅行的日记和照片压在一次误点上。
+   */
+
+  it('删除前先清点，并把数量写进确认框', async () => {
+    const { wrapper, confirm, message } = mountPage()
+    await flushPromises()
+    await wrapper.get('.admin-trip-card footer button').trigger('click')
+
+    await wrapper.get('.dialog footer button:first-child').trigger('click')
+    await flushPromises()
+
+    expect(mocks.deletionSummary).toHaveBeenCalledWith(7)
+    const asked = confirm.mock.calls[0]?.[0] as string
+    expect(asked).toContain('京都四月')
+    expect(asked).toContain('3 篇日记')
+    expect(asked).toContain('12 条随手记')
+    expect(asked).toContain('40 张照片')
+    // 只是想收起来的话该用归档，确认框里要说出来
+    expect(asked).toContain('已归档')
+    expect(mocks.remove).toHaveBeenCalledWith(7)
+    expect(message).toHaveBeenCalledWith('旅行已删除')
+  })
+
+  it('确认框里取消就什么都不做', async () => {
+    const { wrapper, confirm } = mountPage()
+    await flushPromises()
+    confirm.mockRejectedValueOnce(new Error('cancel'))
+    await wrapper.get('.admin-trip-card footer button').trigger('click')
+
+    await wrapper.get('.dialog footer button:first-child').trigger('click')
+    await flushPromises()
+
+    expect(mocks.remove).not.toHaveBeenCalled()
   })
 })

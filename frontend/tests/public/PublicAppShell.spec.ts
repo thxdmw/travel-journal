@@ -61,6 +61,52 @@ describe('PublicAppShell', () => {
     wrapper.unmount()
   })
 
+  /*
+   * 导航高亮。
+   *
+   * router-link 自带的 router-link-active 在这个站上不够用：年度回顾一进页面就
+   * replace 到 /years/2026，参数从空变成 2026，自带高亮当场掉；旅行和日记的详情页
+   * 匹配的又是另一条路由记录。所以高亮按路径前缀自己算，这里逐个钉住。
+   */
+
+  /** 取当前带高亮的那些菜单文字。 */
+  function highlighted(wrapper: ReturnType<typeof mountShell>['wrapper']) {
+    return wrapper.findAll('.public-nav a.is-current').map(link => link.text())
+  }
+
+  it.each([
+    ['/', ['首页']],
+    ['/years', ['年度回顾']],
+    // 关键用例：这是「切到年度回顾时下划线消失」的那个地址
+    ['/years/2026', ['年度回顾']],
+    ['/trips', ['旅行']],
+    ['/trips/kyoto-2026', ['旅行']],
+    ['/journals/day-4', ['日记']],
+    ['/map', ['足迹地图']],
+  ])('停在 %s 时高亮 %s', async (path, expected) => {
+    const { wrapper } = mountShell({ currentPath: () => path })
+    await flushPromises()
+
+    expect(highlighted(wrapper)).toEqual(expected)
+    wrapper.unmount()
+  })
+
+  it('首页只在精确匹配时高亮，不会因为「/」是所有路径的前缀而一直亮', async () => {
+    const { wrapper } = mountShell({ currentPath: () => '/trips' })
+    await flushPromises()
+
+    expect(highlighted(wrapper)).not.toContain('首页')
+    wrapper.unmount()
+  })
+
+  it('地址上带查询串或锚点也照常高亮', async () => {
+    const { wrapper } = mountShell({ currentPath: () => '/years/2026?from=home' })
+    await flushPromises()
+
+    expect(highlighted(wrapper)).toEqual(['年度回顾'])
+    wrapper.unmount()
+  })
+
   it('主题预览模式使用固定导航且不请求公开资料', async () => {
     const { wrapper } = mountShell({ isThemePreview: true })
     await flushPromises()

@@ -1,6 +1,8 @@
 package com.thx.traveljournal.auth.service;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -11,8 +13,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 已登录设备。
@@ -29,6 +33,18 @@ import java.util.Map;
 public class LoginDeviceService {
     /** 会话属性名，存这次登录的设备描述。 */
     static final String DEVICE_ATTRIBUTE = "travel-journal.login-device";
+    /**
+     * 设备标识 Cookie。
+     *
+     * <p>会话 cookie 关掉浏览器、应用重启、清一次站点数据就没了，再登录就是一个全新会话，
+     * 而上一条会话记录还躺在库里没到期——于是同一台手机在「登录设备」里出现两次、三次，
+     * 分不清哪个是现在这台。这个 cookie 活得比会话长，专门用来回答「你还是刚才那台吗」。</p>
+     *
+     * <p>它不是凭据：泄露了也登不进任何账号，只是一个随机串。</p>
+     */
+    static final String DEVICE_COOKIE = "tj-device";
+    /** 设备标识的存活时间，400 天是浏览器允许的上限附近，够覆盖「一年没登录」。 */
+    private static final int DEVICE_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 
     private final FindByIndexNameSessionRepository<? extends Session> sessions;
     private final ClientIpResolver clientIpResolver;
@@ -42,12 +58,81 @@ public class LoginDeviceService {
     public record LoginDevice(String sessionId, String deviceName, String ip,
                               OffsetDateTime loggedInAt, OffsetDateTime lastActiveAt, boolean current) {}
 
-    /** 登录成功时记下这台设备。 */
-    public void remember(HttpSession session, HttpServletRequest request) {
-        session.setAttribute(DEVICE_ATTRIBUTE, Map.of(
-                "deviceName", describe(request.getHeader("User-Agent")),
-                "ip", clientIpResolver.resolve(request),
-                "loggedInAt", OffsetDateTime.now(ZoneOffset.UTC).toString()));
+    /**
+     * 登录成功时记下这台设备，并让同一台设备上的旧会话立刻作废。
+     *
+     * <p>「在手机上登录了两次，列表里却有两条记录」就是这里要解决的：第二次登录会拿到
+     * 一个新会话，旧那条不会自己消失，要等 max-inactive 过期。对作者来说这两条长得
+     * 一模一样，既看不出哪条是现在这台，也不敢随便踢。所以认出是同一台设备之后，
+     * 直接把它名下的旧会话删掉——那些会话反正已经没有任何浏览器还拿着它的 cookie。</p>
+     *
+     * @return 顺带清掉的旧会话数
+     */
+    public int remember(String username, HttpSession session,
+                        HttpServletRequest request, HttpServletResponse response) {
+        String deviceId = resolveDeviceId(request, response);
+        /*
+         * 值用 HashMap 而不是 Map.of：ip 可能解析不出来，而 Map.of 遇到 null 直接抛 NPE，
+         * 那会让整个登录失败——为了记一条设备名把人挡在门外，代价完全不对等。
+         */
+        Map<String, String> device = new HashMap<>();
+        device.put("deviceName", describe(request.getHeader("User-Agent")));
+        device.put("ip", clientIpResolver.resolve(request));
+        device.put("deviceId", deviceId);
+        device.put("loggedInAt", OffsetDateTime.now(ZoneOffset.UTC).toString());
+        session.setAttribute(DEVICE_ATTRIBUTE, device);
+        return revokeSameDevice(username, deviceId, session.getId());
+    }
+
+    /**
+     * 取这台设备的标识，没有就现发一个并种进 cookie。
+     *
+     * <p>cookie 在响应里种，所以第一次登录时列表里仍然只有一条；从第二次开始，
+     * 同一台设备的重复登录就会覆盖掉上一条而不是并排堆着。</p>
+     */
+    private String resolveDeviceId(HttpServletRequest request, HttpServletResponse response) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (DEVICE_COOKIE.equals(cookie.getName()) && isDeviceId(cookie.getValue())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        String issued = UUID.randomUUID().toString();
+        Cookie cookie = new Cookie(DEVICE_COOKIE, issued);
+        cookie.setPath("/");
+        // 前端一行 JS 都用不上它，关掉脚本访问纯属白拿的加固
+        cookie.setHttpOnly(true);
+        cookie.setSecure(request.isSecure());
+        cookie.setMaxAge(DEVICE_COOKIE_MAX_AGE_SECONDS);
+        cookie.setAttribute("SameSite", "Lax");
+        response.addCookie(cookie);
+        return issued;
+    }
+
+    /** 只认自己发出去的那种格式，免得被伪造的 cookie 值污染会话属性。 */
+    private boolean isDeviceId(String value) {
+        if (value == null) return false;
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    /** 删掉这个账号在同一台设备上留下的其他会话。 */
+    private int revokeSameDevice(String username, String deviceId, String currentSessionId) {
+        int removed = 0;
+        for (Session session : sessions.findByPrincipalName(username).values()) {
+            if (session.getId().equals(currentSessionId)) continue;
+            Map<String, String> device = session.getAttribute(DEVICE_ATTRIBUTE);
+            if (device == null || !deviceId.equals(device.get("deviceId"))) continue;
+            sessions.deleteById(session.getId());
+            removed++;
+        }
+        return removed;
     }
 
     /** 某个账号当前所有的登录设备，最近活跃的排在前面。 */

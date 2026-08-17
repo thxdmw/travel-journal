@@ -93,8 +93,9 @@ app:
     verify-on-startup: ${MINIO_VERIFY_ON_STARTUP:true}
   journal:
     empty-draft-cleanup:
-      # 编辑器一进页面就先开一篇空草稿，好让拍照和打字立刻有 id 可用。
-      # 真正没人动过的空草稿满 24 小时后由服务端统一回收，见 EmptyDraftCleaner。
+      # 新建页会先把草稿攒在本地，写了东西才落服务端，所以空记录已经少了很多；
+      # 但从旅行工作台开日记等路径仍然会留下空草稿。满 24 小时没人动过的由服务端
+      # 统一回收，见 EmptyDraftCleaner。
       enabled: ${APP_EMPTY_DRAFT_CLEANUP:true}
   ai:
     # 留空表示不启用 AI 整理。整理随手记照常可用，只是不润色文字。

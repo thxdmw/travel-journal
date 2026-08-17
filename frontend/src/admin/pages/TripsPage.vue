@@ -10,6 +10,7 @@ export interface TripsPageDeps {
   message(text: string): void
   warning(text: string): void
   fail(error: unknown): void
+  confirm(text: string): Promise<unknown>
 }
 
 interface FormHandle {
@@ -27,6 +28,7 @@ const editing = ref<number | null>(null)
 const keyword = ref('')
 const formRef = ref<FormHandle | null>(null)
 const saving = ref(false)
+const deleting = ref(false)
 const coverInput = ref<HTMLInputElement | null>(null)
 const coverFile = ref<File | null>(null)
 const coverPreview = ref('')
@@ -148,6 +150,52 @@ async function save() {
   }
 }
 
+/**
+ * 删除整场旅行。
+ *
+ * <p>先向服务端要一份清点，把「这一下会带走什么」原原本本写进确认框——日记、随手记
+ * 和照片都不可恢复，只问一句「确定吗」是不够的。想留着看但不想它出现在列表里，
+ * 应该改成「已归档」而不是删除，确认框里也这么说。</p>
+ */
+async function remove() {
+  const tripId = editing.value
+  if (!tripId) return
+  let detail = ''
+  try {
+    const summary = await tripApi.deletionSummary(tripId)
+    const parts = [
+      summary.journalCount ? `${summary.journalCount} 篇日记` : '',
+      summary.momentCount ? `${summary.momentCount} 条随手记` : '',
+      summary.photoCount ? `${summary.photoCount} 张照片` : '',
+      summary.stopCount ? `${summary.stopCount} 座城市` : '',
+      summary.itineraryCount ? `${summary.itineraryCount} 条行程` : '',
+      summary.expenseCount ? `${summary.expenseCount} 笔支出` : '',
+    ].filter(Boolean)
+    detail = parts.length ? `，同时删除 ${parts.join('、')}` : '（它下面还没有任何内容）'
+  } catch (error) {
+    props.fail(error)
+    return
+  }
+  try {
+    await props.confirm(`将永久删除旅行「${form.title}」${detail}。此操作不可恢复，`
+      + '只是想收起来的话请改成「已归档」。确定删除吗？')
+  } catch {
+    // 取消
+    return
+  }
+  deleting.value = true
+  try {
+    await tripApi.remove(tripId)
+    dialog.value = false
+    props.message('旅行已删除')
+    await load()
+  } catch (error) {
+    props.fail(error)
+  } finally {
+    deleting.value = false
+  }
+}
+
 function statusLabel(status: TripStatus): string {
   return tripStatusOptions.find(item => item.value === status)?.label || status
 }
@@ -174,7 +222,7 @@ onBeforeUnmount(releasePreview)
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px"><el-form-item label="状态" prop="status"><el-select v-model="form.status"><el-option v-for="item in tripStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item label="币种" prop="defaultCurrency"><el-input v-model="form.defaultCurrency" maxlength="3" placeholder="CNY" /></el-form-item></div>
         <el-form-item label="旅行专属主题"><el-select v-model="form.themeKey" clearable placeholder="继承全站主题"><el-option v-for="item in themes" :key="item.themeKey" :label="item.name" :value="item.themeKey" /></el-select></el-form-item>
         <el-form-item label="内部备注"><el-input v-model="form.internalNote" type="textarea" :rows="2" placeholder="只有后台能看到" /></el-form-item>
-      </el-form><template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
+      </el-form><template #footer><div class="dialog-footer-split"><el-button v-if="editing" type="danger" plain :loading="deleting" @click="remove">删除旅行</el-button><span v-else></span><span><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></span></div></template>
     </el-dialog>
   </div>
 </template>

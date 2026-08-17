@@ -27,6 +27,12 @@ class FakeCache {
   add() { return Promise.resolve() }
 }
 
+/** 发起请求的页面。SW 靠它分辨「这是公开站在看图」还是「后台在看草稿」。 */
+const PAGES: Record<string, { url: string }> = {
+  'public-page': { url: 'https://travel.example/#/journals/kyoto' },
+  'admin-page': { url: 'https://travel.example/admin/index.html' },
+}
+
 async function loadWorker(fetchImpl: typeof fetch) {
   const code = await readFile(resolve(process.cwd(), 'public/service-worker.js'), 'utf8')
   const listeners: Listeners = {}
@@ -35,7 +41,7 @@ async function loadWorker(fetchImpl: typeof fetch) {
     location: { href: 'https://travel.example/service-worker.js?build=test', origin: 'https://travel.example' },
     addEventListener: (type: string, handler: (event: unknown) => void) => { listeners[type] = handler },
     skipWaiting: vi.fn(),
-    clients: { claim: vi.fn() },
+    clients: { claim: vi.fn(), get: (id: string) => Promise.resolve(PAGES[id]) },
   }
   const cacheStorage = {
     open: (name: string) => {
@@ -51,10 +57,10 @@ async function loadWorker(fetchImpl: typeof fetch) {
 }
 
 /** 走一遍 fetch 事件，拿到 SW 打算回给页面的那个响应。 */
-async function handle(listeners: Listeners, url: string): Promise<Response | undefined> {
+async function handle(listeners: Listeners, url: string, clientId = 'public-page'): Promise<Response | undefined> {
   let answered: Promise<Response> | undefined
   const request = new Request(url)
-  listeners.fetch?.({ request, respondWith: (value: Promise<Response>) => { answered = value } })
+  listeners.fetch?.({ request, clientId, respondWith: (value: Promise<Response>) => { answered = value } })
   return answered ? await answered : undefined
 }
 
@@ -132,6 +138,60 @@ describe('Service Worker 图片缓存', () => {
     const response = await handle(listeners, IMAGE)
 
     expect(await response!.text()).toBe('old-bytes')
+  })
+
+  it('304 之后新鲜期重新开始，不会每次访问都回服务端', async () => {
+    const notModified = { status: 304, headers: new Headers() } as unknown as Response
+    const fetchImpl = vi.fn().mockResolvedValue(notModified)
+    const { listeners, cacheStorage } = await loadWorker(fetchImpl as unknown as typeof fetch)
+    const cache = await cacheStorage.open('tj-media-v1')
+    await cache!.put(IMAGE, cachedImage(120_000, { ETag: '"abc"' }))
+
+    // 第一次：缓存过期，回服务端校验，拿到 304
+    await handle(listeners, IMAGE)
+    // 第二次：服务端刚认可过，这一分钟内不该再问一遍
+    const again = await handle(listeners, IMAGE)
+
+    expect(await again!.text()).toBe('old-bytes')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('后台页面看到的图片不写进缓存，退出登录后翻不出草稿照片', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('draft-bytes', { status: 200 }))
+    const { listeners, cacheStorage } = await loadWorker(fetchImpl as unknown as typeof fetch)
+    const cache = await cacheStorage.open('tj-media-v1')
+
+    const response = await handle(listeners, IMAGE, 'admin-page')
+
+    expect(await response!.text()).toBe('draft-bytes')
+    // 关键：草稿图片和公开图片的地址一模一样，分不出来就不能留
+    expect(await cache!.match(IMAGE)).toBeUndefined()
+  })
+
+  it('公开页面看到的图片正常进缓存，断网时还能翻', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('public-bytes', { status: 200 }))
+    const { listeners, cacheStorage } = await loadWorker(fetchImpl as unknown as typeof fetch)
+    const cache = await cacheStorage.open('tj-media-v1')
+
+    await handle(listeners, IMAGE, 'public-page')
+
+    expect(await (await cache!.match(IMAGE))!.text()).toBe('public-bytes')
+  })
+
+  it('不再允许缓存时，本地那份旧的要一起删掉', async () => {
+    // 撤回发布之后，作者自己登录着再打开：服务端照常返回，但标明不许存
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('still-visible-to-admin', {
+      status: 200,
+      headers: { 'Cache-Control': 'no-store' },
+    }))
+    const { listeners, cacheStorage } = await loadWorker(fetchImpl as unknown as typeof fetch)
+    const cache = await cacheStorage.open('tj-media-v1')
+    // 公开时期留下的那一份
+    await cache!.put(IMAGE, cachedImage(120_000))
+
+    await handle(listeners, IMAGE)
+
+    expect(await cache!.match(IMAGE)).toBeUndefined()
   })
 
   it('服务端说 no-store 就不留在本地', async () => {

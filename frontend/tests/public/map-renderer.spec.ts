@@ -37,7 +37,9 @@ describe('公开端地图渲染器', () => {
       { cityName: '大阪', countryName: '日本', latitude: 34.69, longitude: 135.5 },
     ], { fit: true, route: true, maxZoom: 10 })
 
-    expect(deps.create).toHaveBeenCalledWith(element, { provider: 'OSM', zoom: 3, style: 'vintage' })
+    // scrollWheelZoom: false 是刻意的：光滚轮留给页面滚动，缩放只认 Ctrl + 滚轮
+    expect(deps.create).toHaveBeenCalledWith(element,
+      { provider: 'OSM', zoom: 3, style: 'vintage', scrollWheelZoom: false })
     expect(map.addMarker).toHaveBeenCalledTimes(2)
     expect(map.setRoute).toHaveBeenCalledWith([[35.01, 135.76], [34.69, 135.5]], {
       color: '#c96f4e', width: 4, dashed: true, animate: true,

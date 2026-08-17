@@ -8,11 +8,19 @@
  * 保留它是为了那些不经渲染器的容器（历史内容、直接塞进页面的片段）。已经带
  * data-responsive 的会被跳过，不会重复处理。
  *
- * 属性值必须和渲染器里那份保持一致，否则同一张图在两条路径下会挑出不同尺寸。
+ * 候选集直接复用渲染器那一份，不再各写一遍：两边只要有一处不同步，同一张图在两条
+ * 路径下就会被挑成不同尺寸。
  */
 
-/** 只认站内媒体地址的三档形态，其余一概不动。 */
-const MEDIA_URL = /^(.*\/api\/media\/\d+)\/(display|medium|thumbnail)$/
+import { mediaSrcset } from '@/journal/render'
+
+/**
+ * 只认站内媒体地址的三档形态，其余一概不动。
+ *
+ * 查询串单独捕获后原样带进每一档：草稿预览的图片地址带着 previewToken，
+ * 丢掉它就是 403。
+ */
+const MEDIA_URL = /^(.*\/api\/media\/\d+)\/(?:display|medium|thumbnail)(\?.*)?$/
 
 const SIZES = '(max-width: 700px) 92vw, (max-width: 1100px) 78vw, 68vw'
 
@@ -22,9 +30,9 @@ export function applyResponsiveImages(root: ParentNode | null | undefined): void
     // 处理过就跳过，正文重渲染时会重复扫到同一张
     if (image.dataset.responsive === 'on') return
     const match = image.getAttribute('src')?.match(MEDIA_URL)
-    if (!match) return
-    const base = match[1]
-    image.srcset = base + '/thumbnail 480w, ' + base + '/medium 768w, ' + base + '/display 1280w'
+    const base = match?.[1]
+    if (!base) return
+    image.srcset = mediaSrcset(base, match?.[2] ?? '')
     image.sizes = SIZES
     image.dataset.responsive = 'on'
   })

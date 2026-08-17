@@ -16,8 +16,10 @@ button, input, textarea { font: inherit; }
 .brand { font: 700 24px/1 var(--tj-serif); color: var(--tj-primary); letter-spacing: .08em; }
 .public-nav { position:absolute; left:50%; top:0; height:100%; display:flex; align-items:center; gap:32px; transform:translateX(-50%); }
 .public-nav a { position: relative; padding: 27px 0 24px; color: #4e504d; font-size: 15px; }
-.public-nav a.router-link-active { color: var(--tj-primary); }
-.public-nav a.router-link-active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 17px; height: 2px; background: var(--tj-accent); }
+/* is-current 由 PublicAppShell 按路径前缀给出，是这里真正管用的那个类：
+   router-link-active 在参数变化（/years → /years/2026）和详情页上都会掉，见那边注释 */
+.public-nav a.is-current { color: var(--tj-primary); }
+.public-nav a.is-current::after { content: ""; position: absolute; left: 0; right: 0; bottom: 17px; height: 2px; background: var(--tj-accent); }
 .admin-link { width:38px; height:38px; margin-left:auto; display:grid; place-items:center; overflow:hidden; border-radius:50%; background:var(--tj-primary); color:white; }
 .admin-link img { width:100%; height:100%; object-fit:cover; }
 .mobile-menu { display: none; margin-left: auto; border: 0; background: transparent; color: var(--tj-primary); font-size: 24px; }
@@ -135,7 +137,9 @@ button, input, textarea { font: inherit; }
 .review-stat span { color:var(--tj-muted); font-size:13px; }
 .review-note { margin:26px 0 0; color:var(--tj-muted); font-size:15px; line-height:1.9; }
 .review-note strong { color:var(--tj-primary); }
-.review-trips { margin:0; padding:0; list-style:none; display:grid; gap:12px; }
+/* 标题到第一条的距离，和条目之间的 gap 取同一个值：整块看起来才是一组等距的列表，
+   而不是「标题贴着第一条、后面几条各自分开」 */
+.review-trips { margin:12px 0 0; padding:0; list-style:none; display:grid; gap:12px; }
 .review-trips li { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; padding:14px 18px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small,8px); background:var(--tj-surface); }
 .review-trips a { color:var(--tj-primary); font:700 17px var(--tj-serif); }
 .review-trips span { color:var(--tj-muted); font-size:13px; }
@@ -241,7 +245,7 @@ button, input, textarea { font: inherit; }
   .public-nav.open { opacity:1; visibility:visible; translate:0 0; }
   .public-nav a { padding:11px 14px; border-radius:9px; color:var(--tj-text); font-size:15px; text-align:left; text-decoration:none!important; }
   .public-nav a::after { display:none!important; }
-  .public-nav a.router-link-active { color:var(--tj-primary); background:color-mix(in srgb,var(--tj-accent) 12%,transparent); font-weight:700; }
+  .public-nav a.is-current { color:var(--tj-primary); background:color-mix(in srgb,var(--tj-accent) 12%,transparent); font-weight:700; }
   .admin-link { display:grid; flex:0 0 36px; width:36px; height:36px; margin-left:0; text-decoration:none!important; }
   /* 菜单按钮紧挨着头像：margin-left:auto 把它推到右侧，头像跟在后面 */
   .mobile-menu { display:grid; place-items:center; width:36px; height:36px; margin-left:auto; padding:0; border-radius:9px; font-size:21px; }

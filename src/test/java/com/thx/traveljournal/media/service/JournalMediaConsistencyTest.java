@@ -25,6 +25,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -187,12 +188,46 @@ class JournalMediaConsistencyTest {
         when(assetMapper.selectById(20L)).thenReturn(asset(20L));
         when(assetMapper.selectByIds(any())).thenReturn(List.of(asset(20L)));
         when(relationMapper.selectOne(any())).thenReturn(relation(8L, 20L, 0));
+        when(relationMapper.selectCount(any())).thenReturn(1L);
 
         service.reorder(3L, List.of(8L));
         service.sortByCaptureTime(3L);
         service.deleteRelation(8L);
+        service.setCover(3L, 20L);
+        service.purgeJournalMedia(3L);
 
-        // 三条路径各锁一次；upload / attachExisting 由上面的用例覆盖
-        verify(journalMapper, atLeast(3)).selectOne(any());
+        // 五条路径各锁一次；upload / attachExisting 由上面的用例覆盖
+        verify(journalMapper, atLeast(5)).selectOne(any());
+    }
+
+    /*
+     * ============================================================ 设封面
+     *
+     * 设封面是这篇日记的一次写入，必须和正文保存走同一套并发协议。
+     */
+
+    @Test
+    void settingCoverDoesNotWriteBackTheWholeRowItRead() {
+        /*
+         * 「读出整行 → 改一个字段 → updateById」会把读到那一刻的 title、content_json
+         * 和 revision 一起写回去。中间只要有一次自动保存成功，刚写的正文就没了。
+         * 所以只能发字段级 UPDATE，绝不能碰 updateById。
+         */
+        when(relationMapper.selectCount(any())).thenReturn(1L);
+
+        service.setCover(3L, 20L);
+
+        verify(journalMapper, never()).updateById(any(JournalEntry.class));
+        verify(journalMapper).update(isNull(), any());
+    }
+
+    @Test
+    void settingCoverRejectsAnImageFromAnotherJournal() {
+        when(relationMapper.selectCount(any())).thenReturn(0L);
+
+        assertThatThrownBy(() -> service.setCover(3L, 99L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不属于当前日记");
+        verify(journalMapper, never()).update(any(), any());
     }
 }

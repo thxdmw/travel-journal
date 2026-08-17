@@ -101,9 +101,14 @@
     repeating-radial-gradient(circle at 20% 30%, transparent 0 22px, color-mix(in srgb, var(--tj-primary) 8%, transparent) 22px 23px),
     repeating-radial-gradient(circle at 78% 68%, transparent 0 28px, color-mix(in srgb, var(--tj-primary) 7%, transparent) 28px 29px);
 }
-/* 纹理是 fixed 的，内容必须抬到它上面，否则整页被盖住 */
-[data-background-texture]:not([data-background-texture="none"]) .public-shell,
-[data-background-texture]:not([data-background-texture="none"]) .public-header { position: relative; z-index: 1; }
+/*
+ * 纹理是 fixed 的，内容必须抬到它上面，否则整页被盖住。
+ *
+ * 但只该抬 .public-shell，不能连 .public-header 一起点名：头部是 position: sticky，
+ * 这里给它补一句 position: relative 就把它降级成了普通元素——只要主题开了背景纹理，
+ * 前台导航栏就跟着页面一起滚走。头部本来就在 .public-shell 里面，跟着它一起被抬起来。
+ */
+[data-background-texture]:not([data-background-texture="none"]) .public-shell { position: relative; z-index: 1; }
 
 /* ================================================================ 卡片风格 */
 /* 站内所有「面板类」元素共用一组变量，切换风格时一起变 */

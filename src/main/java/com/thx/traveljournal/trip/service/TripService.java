@@ -11,8 +11,14 @@ import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.common.util.SlugUtils;
 import com.thx.traveljournal.common.util.CoordinateConverter;
 import com.thx.traveljournal.itinerary.mapper.ItineraryMapper;
+import com.thx.traveljournal.itinerary.entity.ItineraryItem;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
+import com.thx.traveljournal.journal.service.JournalService;
+import com.thx.traveljournal.media.entity.JournalMedia;
+import com.thx.traveljournal.media.mapper.JournalMediaMapper;
+import com.thx.traveljournal.media.service.MediaService;
+import com.thx.traveljournal.moment.service.MomentService;
 import com.thx.traveljournal.trip.entity.Trip;
 import com.thx.traveljournal.trip.entity.TripStop;
 import com.thx.traveljournal.trip.mapper.TripMapper;
@@ -30,7 +36,9 @@ import java.util.Set;
 /**
  * 旅行服务：旅行本体和城市停靠点的增删改查。
  *
- * <p>按规范旅行不提供物理删除，不需要的旅行改成 ARCHIVED 归档。</p>
+ * <p>日常整理用「归档」（ARCHIVED）就够了，那是给「这趟走完了，先收起来」用的；
+ * {@link #delete} 是另一回事——它会把这次旅行连同下面的日记、随手记、照片、行程、
+ * 预算和支出一起抹掉，且不可撤销，只在作者确实要清掉一整场误建或作废的旅行时用。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -48,6 +56,17 @@ public class TripService {
     private final BudgetCategoryMapper budgetMapper;
     private final ExpenseMapper expenseMapper;
     private final JournalMapper journalMapper;
+    /*
+     * 级联删除要用到的三个下游服务。
+     *
+     * 这里刻意不自己写 SQL 去删 journal_media / moment_media：对象存储里的文件、
+     * 封面引用、以及「这张照片是不是还被别处引用」这些判断都在各自模块里，
+     * 绕过它们直接删表，留下的就是数据库干净、桶里全是孤儿文件。
+     */
+    private final MediaService mediaService;
+    private final JournalService journalService;
+    private final MomentService momentService;
+    private final JournalMediaMapper journalMediaMapper;
 
     public PageResponse<Trip> list(long page, long pageSize, String keyword) {
         LambdaQueryWrapper<Trip> query = new LambdaQueryWrapper<Trip>().orderByDesc(Trip::getStartDate);
@@ -115,6 +134,81 @@ public class TripService {
         prepare(trip);
         tripMapper.updateById(trip);
         return trip;
+    }
+
+    /**
+     * 删除一次旅行前的清点结果，给确认弹窗用。
+     *
+     * <p>删除是不可撤销的，作者有权在按下确认之前知道这一下会带走多少东西。</p>
+     */
+    public record DeletionSummary(String title, long journalCount, long momentCount, long photoCount,
+                                  long stopCount, long itineraryCount, long expenseCount) {}
+
+    /** 清点这次旅行下面挂着多少东西。 */
+    public DeletionSummary deletionSummary(Long tripId) {
+        Trip trip = get(tripId);
+        List<Long> journalIds = journalIdsOf(tripId);
+        long journalPhotos = journalIds.isEmpty() ? 0 : journalMediaMapper.selectCount(
+                new LambdaQueryWrapper<JournalMedia>().in(JournalMedia::getJournalEntryId, journalIds));
+        return new DeletionSummary(trip.getTitle(), journalIds.size(),
+                momentService.countByTrip(tripId),
+                // 随手记照片整理进日记后会被两边同时引用，这里按「会被删掉的关系条数」报，
+                // 说明的是规模而不是精确的文件数，作者要的就是一个量级感
+                journalPhotos + momentService.photoCountByTrip(tripId),
+                stopMapper.selectCount(new LambdaQueryWrapper<TripStop>().eq(TripStop::getTripId, tripId)),
+                itineraryMapper.selectCount(new LambdaQueryWrapper<ItineraryItem>()
+                        .eq(ItineraryItem::getTripId, tripId)),
+                expenseMapper.selectCount(new LambdaQueryWrapper<Expense>().eq(Expense::getTripId, tripId)));
+    }
+
+    /**
+     * 删除一次旅行，连同它下面的一切。
+     *
+     * <p>删除顺序不是随意的，每一步都有理由：</p>
+     *
+     * <pre>
+     * 锁住 trip 行        并发的日记新建、随手记上传都要先拿到它，删除期间进不来
+     * 随手记 + 照片        先解除关系，再交给 media 判断文件该不该回收
+     * 日记 + 图片          走 JournalService.delete，正文引用、封面引用、MinIO 文件一并处理
+     * 支出 → 预算分类      expense 指向 budget_category 且不是级联，必须先删支出
+     * 行程 → 城市          itinerary_item / expense 都可能指向 trip_stop
+     * 旅行封面             最后清，前面几步可能刚把它变成孤儿
+     * trip 本体
+     * </pre>
+     *
+     * <p>数据库上这些子表大多写着 {@code on delete cascade}，但级联只会删表里的行，
+     * 不会去对象存储里删文件，也不会判断一张照片是不是还被别的地方引用着。所以这里
+     * 逐层显式删，让每一层都经过自己模块的清理逻辑。</p>
+     *
+     * @return 删除前的清点结果，供前端提示「已删除 N 篇日记、M 条随手记」
+     */
+    @Transactional
+    public DeletionSummary delete(Long tripId) {
+        DeletionSummary summary = deletionSummary(tripId);
+        lock(tripId);
+        momentService.purgeTripMoments(tripId);
+        for (Long journalId : journalIdsOf(tripId)) journalService.delete(journalId);
+        expenseMapper.delete(new LambdaQueryWrapper<Expense>().eq(Expense::getTripId, tripId));
+        budgetMapper.delete(new LambdaQueryWrapper<BudgetCategory>().eq(BudgetCategory::getTripId, tripId));
+        itineraryMapper.delete(new LambdaQueryWrapper<ItineraryItem>().eq(ItineraryItem::getTripId, tripId));
+        stopMapper.delete(new LambdaQueryWrapper<TripStop>().eq(TripStop::getTripId, tripId));
+        mediaService.clearTripCover(tripId);
+        tripMapper.deleteById(tripId);
+        return summary;
+    }
+
+    /** 这次旅行下面的日记 id。 */
+    private List<Long> journalIdsOf(Long tripId) {
+        return journalMapper.selectList(new LambdaQueryWrapper<JournalEntry>()
+                        .select(JournalEntry::getId).eq(JournalEntry::getTripId, tripId))
+                .stream().map(JournalEntry::getId).toList();
+    }
+
+    /** 锁住旅行行，删除期间不接受新的日记、随手记挂进来。 */
+    private void lock(Long tripId) {
+        Trip locked = tripMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Trip>()
+                .eq("id", tripId).last("for update"));
+        if (locked == null) throw BusinessException.notFound("旅行不存在");
     }
 
     public Trip updateStatus(Long id, String status) {

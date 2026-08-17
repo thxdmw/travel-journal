@@ -76,6 +76,13 @@ export interface JournalRequest {
   templateVersion?: number | null
   /** 传 null 表示不改动标签，传空数组表示清空。 */
   tags?: string[] | null
+  /**
+   * 手里这份的版本号。更新已有日记时必填——服务端靠它分辨「基于最新内容的保存」
+   * 和「绕远路才到的旧请求」，缺席会被 400 挡下来（新建时不需要）。
+   */
+  expectedRevision?: number | null
+  /** 明确放弃并发保护、无条件覆盖服务端那一份。正常编辑流程不该用到。 */
+  force?: boolean
 }
 
 /** 自动保存的请求体：字段全部可选，缺席的沿用库里的旧值。 */
@@ -92,7 +99,7 @@ export type JournalEditorDraftRequest = JournalDraftRequest & {
   expectedRevision?: number | null
 }
 
-/** 开一篇空草稿。三个字段都能缺席，编辑器一进页面就调。 */
+/** 开一篇空草稿。字段都能缺席；新建页要等真的写了内容才会调它。 */
 export interface JournalDraftInit {
   tripId?: number | null
   tripStopId?: number | null

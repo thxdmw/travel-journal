@@ -17,6 +17,26 @@ const profile = ref<PublicProfile>({ displayName: '旅行者', avatarUrl: null, 
 
 watch(() => props.currentPath(), () => { menu.value = false })
 
+/**
+ * 这个导航项是不是当前所在的板块。
+ *
+ * 不能指望 router-link 自带的 router-link-active，它有两道过不去的坎：
+ *
+ *   1. 参数要对得上。`to="/years"` 在 `/years/:year?` 上解析出的 year 是空串，
+ *      而页面一挂载就 replace 到 /years/2026——参数从空变成 2026，高亮当场掉。
+ *      这就是「切到年度回顾时下划线消失」。
+ *   2. 记录要对得上。`/trips` 和 `/trips/:slug` 是两条独立记录，站在旅行详情页时
+ *      `to="/trips"` 那条记录并不在当前 matched 里，同样不高亮。
+ *
+ * 板块归属只有我们自己知道，所以按路径前缀判断。首页必须精确匹配，
+ * 否则 `/` 是所有路径的前缀，五个菜单会一起亮。
+ */
+function inSection(prefix: string): boolean {
+  const path = props.currentPath().split(/[?#]/)[0] ?? ''
+  if (prefix === '/') return path === '/'
+  return path === prefix || path.startsWith(prefix + '/')
+}
+
 function highlightPreviewTarget(selector: string) {
   if (!selector) return
   document.querySelectorAll(selector).forEach(element => {
@@ -70,7 +90,7 @@ onBeforeUnmount(() => {
         <router-link class="brand" to="/">远行手记</router-link>
         <button class="mobile-menu" type="button" :aria-expanded="menu" aria-label="打开前台导航" @click="menu = !menu">☰</button>
         <nav class="public-nav" :class="{ open: menu }">
-          <router-link to="/">首页</router-link><router-link to="/trips">旅行</router-link><router-link to="/journals">日记</router-link><router-link to="/map">足迹地图</router-link><router-link to="/years">年度回顾</router-link>
+          <router-link to="/" :class="{ 'is-current': inSection('/') }">首页</router-link><router-link to="/trips" :class="{ 'is-current': inSection('/trips') }">旅行</router-link><router-link to="/journals" :class="{ 'is-current': inSection('/journals') }">日记</router-link><router-link to="/map" :class="{ 'is-current': inSection('/map') }">足迹地图</router-link><router-link to="/years" :class="{ 'is-current': inSection('/years') }">年度回顾</router-link>
         </nav>
         <a class="admin-link" href="/admin/" :title="profile.displayName + ' · 管理后台'" aria-label="进入管理后台">
           <img v-if="profile.avatarUrl" :src="profile.avatarUrl" loading="lazy" decoding="async" alt="管理员头像"><span v-else>旅</span>

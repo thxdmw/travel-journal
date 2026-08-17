@@ -79,6 +79,37 @@ describe('正文图片的响应式属性', () => {
     expect(output).not.toContain('srcset=')
   })
 
+  it('草稿预览的图片也有 srcset，并且每一档都带着令牌', () => {
+    /*
+     * 预览链接下的图片地址长这样：/api/media/9/display?previewToken=xxx。
+     * 令牌是这些图片唯一的通行证，候选档位丢了它就是一整篇 403；而正则不接受
+     * 查询串的话，草稿预览在手机上又会照样去下 1280 那张。两件事都得成立。
+     */
+    const previewMedia = [{
+      id: 9,
+      caption: '清晨的鸭川',
+      thumbnailUrl: '/api/media/9/thumbnail?previewToken=abc',
+      mediumUrl: '/api/media/9/medium?previewToken=abc',
+      displayUrl: '/api/media/9/display?previewToken=abc',
+    }]
+
+    const output = renderBlock(imageBlock(), previewMedia)
+
+    expect(output).toContain('/api/media/9/thumbnail?previewToken=abc 480w')
+    expect(output).toContain('/api/media/9/medium?previewToken=abc 768w')
+    expect(output).toContain('/api/media/9/display?previewToken=abc 1280w')
+  })
+
+  it('兜底路径同样保留预览令牌', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<img src="/api/media/9/display?previewToken=abc">'
+
+    applyResponsiveImages(root)
+
+    expect(root.querySelector('img')!.getAttribute('srcset'))
+      .toContain('/api/media/9/medium?previewToken=abc 768w')
+  })
+
   it('整篇文档渲染走的是同一条图片输出', () => {
     const doc = emptyDocument()
     doc.blocks.push(imageBlock())

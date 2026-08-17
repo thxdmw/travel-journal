@@ -70,7 +70,7 @@ installThemeEffects({currentDefinition:()=>current()?.definitionJson})
 const pages={
   Login:createLoginPage({completeSession:user=>{session.user=user;session.checked=true;session.offline=false},rememberSession,applyTheme:apply,fail}),
   Dashboard:createDashboardPage({fail}),
-  Trips:createTripsPage({message,warning,fail}),
+  Trips:createTripsPage({message,warning,fail,confirm}),
   TripWorkspace:createTripWorkspacePage({message,warning,error,info,fail,confirm}),
   Moments:createMomentsPage({session,message,warning,error,info,fail,confirm,composeConfirm:text=>ElMessageBox.confirm(text,'再整理一次',{confirmButtonText:'追加',cancelButtonText:'替换整篇',distinguishCancelAndClose:true,type:'info'})}),
   JournalEditor:createJournalEditorPage({message,info,warning,fail,confirm}),

@@ -28,7 +28,12 @@ export const journalApi = {
 
   update: (id: number, body: JournalRequest) => put<JournalEntry>('/admin/journals/' + id, body),
 
-  /** 开一篇空草稿。编辑器一进页面就调，好让打字和拍照立刻有 id 可用。 */
+  /**
+   * 开一篇空草稿。
+   *
+   * 新建页不会一进来就调它：先在本地攒草稿，写了点什么才落服务端，
+   * 免得「点进去看一眼就退出」留下空记录。
+   */
   createDraft: (body?: JournalDraftInit) => post<JournalEntry>('/admin/journals/draft', body ?? {}),
 
   /** 自动保存：字段可以不全，后端按草稿标准校验（允许空标题、空正文）。 */

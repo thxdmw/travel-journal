@@ -14,6 +14,8 @@
 /* 没有封面的卡片也要占住同样的高度，否则一行里有图和无图的卡片会错位 */
 .trip-card-cover-empty { display:grid; place-items:center; border:1px dashed var(--tj-border); background:var(--tj-surface-soft); }
 .trip-card-cover-empty span { color:var(--tj-muted); font-size:12px; }
+/* 危险操作靠左、常规操作靠右：删除按钮和「保存」隔开，减少误点 */
+.dialog-footer-split { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 /* 旅行封面选择器：左侧预览方块，右侧操作按钮 */
 .cover-picker { display:flex; gap:14px; align-items:flex-start; width:100%; }
 .cover-preview { flex:0 0 168px; display:flex; align-items:center; justify-content:center; width:168px; height:104px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface-soft); cursor:pointer; overflow:hidden; }
@@ -50,7 +52,14 @@
 .budget-summary .item { min-width:0; padding:12px 14px; border:1px solid var(--tj-border); border-radius:9px; background:color-mix(in srgb,var(--tj-sand) 14%,var(--tj-surface)); }
 .budget-summary strong { display:block; overflow:hidden; margin-top:4px; color:var(--tj-primary); font-size:20px; text-overflow:ellipsis; white-space:nowrap; }
 .budget-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin:0 0 12px; }
-.budget-actions span { margin-right:auto; color:var(--tj-muted); font-size:12px; }
+/*
+ * 只挑直接子元素的那个提示文字。
+ *
+ * el-button 内部也是一个 <span>，后代选择器会一并命中它——「全部保存」四个字就变成
+ * 12px 的灰色，套在实心主色按钮上灰字看不清，看着像个禁用按钮。按钮是 <button>，
+ * 它里面那个 span 不是 .budget-actions 的直接子元素，加个 > 就区分开了。
+ */
+.budget-actions > span { margin-right:auto; color:var(--tj-muted); font-size:12px; }
 .over { color:var(--tj-danger)!important; }
 .form-hint { margin-left:6px; color:var(--tj-muted); font-weight:400; font-size:12px; }
 .template-writing { min-height:480px; display:grid; grid-template-columns:260px 1fr; gap:18px; }
@@ -194,7 +203,12 @@
 .theme-frame-wrap { flex:1; min-height:0; display:flex; justify-content:center; overflow:hidden; padding:12px; }
 [data-density="compact"] .panel-pad { padding:17px; }
 .profile-grid { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr); gap:20px; max-width:960px; }
-.profile-card,.password-card { align-self:start; }
+/*
+ * 同一行的两张卡片要一样高。
+ *
+ * 原来写的是 align-self:start，于是「头像与昵称」比「修改密码」矮一截，两张卡片
+ * 顶边齐、底边差出七八十像素，看着像没摆正。网格默认的 stretch 让它们各自撑满这一行。
+ */
 .profile-card h3,.password-card h3,.device-card h3 { margin:0 0 20px; color:var(--tj-primary); font:700 21px var(--tj-serif); }
 
 /* 登录设备。会话表就是设备清单，这里只负责让「哪台是本机、哪台该踢掉」一眼看清。 */
@@ -209,6 +223,14 @@
 .device-main small { color:var(--tj-muted); font-size:12px; word-break:break-all; }
 .device-badge { padding:1px 6px; border-radius:999px; background:var(--tj-primary); color:#fff; font:600 11px/1.6 var(--tj-sans,inherit); }
 .profile-card { display:flex; flex-direction:column; align-items:center; text-align:center; gap:14px; }
+/*
+ * 卡片里的内容是居中的，标题不跟着居中。
+ *
+ * align-items:center 会把 h3 缩到文字宽度再居中，于是「头像与昵称」这五个字浮在卡片
+ * 中间，右边「修改密码」却贴着左边——两个标题既不同起点也不同基线。标题撑满整行、
+ * 靠左，两张卡片的第一行才真正对上。
+ */
+.profile-card > h3 { align-self:stretch; text-align:left; }
 .profile-card p { margin:5px 0 0; color:var(--tj-muted); }
 .profile-card small { color:var(--tj-muted); line-height:1.6; }
 .profile-avatar { width:104px; height:104px; display:grid; place-items:center; overflow:hidden; border:4px solid var(--tj-surface); border-radius:50%; color:white; background:var(--tj-primary); box-shadow:0 0 0 1px var(--tj-border),var(--tj-shadow-soft); font:700 38px var(--tj-serif); }
@@ -250,7 +272,7 @@
   .budget-summary .item span { font-size:11px; white-space:nowrap; }
   .budget-summary strong { margin-top:2px; font-size:clamp(12px,3.6vw,17px); }
   .budget-actions { align-items:center; margin-bottom:10px; }
-  .budget-actions span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .budget-actions > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .budget-actions .el-button { flex:0 0 auto; min-height:38px; margin:0; }
   .budget-amount-input { width:100%; min-width:140px; }
   .budget-amount-input .el-input-number__decrease,.budget-amount-input .el-input-number__increase { display:none; }

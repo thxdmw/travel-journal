@@ -394,14 +394,36 @@ public class MediaService {
         }
     }
 
-    /** 把日记中的某张图片设为该日记封面。 */
+    /**
+     * 把日记中的某张图片设为该日记封面。
+     *
+     * <p>这里刻意不走「读实体 → 改一个字段 → {@code updateById}」。那种写法会把读到的
+     * 整行原样写回去，包含 title、content_json 和当时的 revision：</p>
+     *
+     * <pre>
+     * revision = 10
+     * 设封面：读出整篇日记（revision=10）
+     * 自动保存：正文写入成功，revision = 11
+     * 设封面：updateById(旧实体)  ← 正文、标题连同 revision 一起被写回 10
+     * </pre>
+     *
+     * <p>那等于绕开了日记的乐观锁，刚写的正文会被静默盖掉。所以只发一条字段级 UPDATE，
+     * 并且和正文保存一样推进 revision——封面也是这篇日记的一次改动，别处拿着旧版本
+     * 再保存时应该收到 409，而不是覆盖。</p>
+     *
+     * <p>行锁同样不能省：{@link #deleteRelation} 可能正好在「校验图片归属」和「写封面」
+     * 之间把这张图从日记上摘掉，那样会留下一个指向已删除图片的封面。</p>
+     */
+    @Transactional
     public void setCover(Long journalId, Long mediaId) {
-        JournalEntry journal = requireJournal(journalId);
+        lockJournal(journalId);
         long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId).eq(JournalMedia::getMediaAssetId, mediaId));
         if (count == 0) throw BusinessException.badRequest("图片不属于当前日记");
-        journal.setCoverMediaId(mediaId);
-        journalMapper.updateById(journal);
+        journalMapper.update(null, new LambdaUpdateWrapper<JournalEntry>()
+                .set(JournalEntry::getCoverMediaId, mediaId)
+                .setSql("revision = revision + 1")
+                .eq(JournalEntry::getId, journalId));
     }
 
     /**
@@ -434,6 +456,14 @@ public class MediaService {
      */
     @Transactional
     public int purgeJournalMedia(Long journalId) {
+        /*
+         * 和上传、挂载、重排、删单张走同一把锁。
+         *
+         * 少了这一句，「查出现有图片」和「删掉它们」之间会插进一次并发上传：新图片的
+         * journal_media 关系随着日记一起被级联删掉，media_asset 和对象存储里的文件却
+         * 没人再引用，成了永远清不掉的孤儿。
+         */
+        lockJournal(journalId);
         List<JournalMedia> relations = journalMediaMapper.selectList(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId));
         if (relations.isEmpty()) return 0;
@@ -449,14 +479,38 @@ public class MediaService {
      *
      * <p>旅行封面不挂在任何日记下，因此不产生 {@code journal_media} 关系行；
      * 旧封面如果没有别处引用会一并清理，避免对象存储里堆积无用文件。</p>
+     *
+     * <p>和日记图片一样分两阶段：解码、压四个规格、四次 MinIO 往返全在事务外做，
+     * 只有换封面那几行 SQL 在事务里。以前整段包在一个事务里，一次换封面能把数据库
+     * 连接占上好几秒，而连接池一共只有 10 个。</p>
+     */
+    public MediaView uploadTripCover(Long tripId, MultipartFile file) {
+        requireTrip(tripId);
+        PreparedImage prepared = prepareImage(file, "trips/" + tripId + "/cover/");
+        try {
+            return self.getObject().persistTripCover(tripId, prepared);
+        } catch (RuntimeException ex) {
+            cleanup(prepared.bucket(), prepared.keys());
+            throw ex;
+        }
+    }
+
+    /**
+     * 把已经传好的封面换上去：锁住旅行行 → 读旧封面 → 落库 → 清理旧图。
+     *
+     * <p>行锁决定了「读旧封面」和「写新封面」之间没有别人插进来。两个并发上传如果都
+     * 读到同一个旧封面 X，各自写上自己的 Y 和 Z，最后只有一个生效，另一张就成了
+     * 没人引用、也没人会去清理的孤儿文件。</p>
      */
     @Transactional
-    public MediaView uploadTripCover(Long tripId, MultipartFile file) {
-        Trip trip = requireTrip(tripId);
+    public MediaView persistTripCover(Long tripId, PreparedImage prepared) {
+        Trip trip = lockTrip(tripId);
         Long previousCover = trip.getCoverMediaId();
-        MediaAsset asset = storeImage(file, "trips/" + tripId + "/cover/");
-        trip.setCoverMediaId(asset.getId());
-        tripMapper.updateById(trip);
+        MediaAsset asset = prepared.asset();
+        assetMapper.insert(asset);
+        registerRollbackCleanup(prepared.bucket(), prepared.keys());
+        tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
+                .set(Trip::getCoverMediaId, asset.getId()).eq(Trip::getId, tripId));
         if (previousCover != null && !previousCover.equals(asset.getId())) deleteOrphanAssets(List.of(previousCover));
         return toView(null, asset, null, null);
     }
@@ -464,13 +518,26 @@ public class MediaService {
     /** 清空旅行封面，旧封面没有别处引用时一并删除。 */
     @Transactional
     public void clearTripCover(Long tripId) {
-        Trip trip = requireTrip(tripId);
+        // 和换封面串行化，否则「读旧封面」和「置空」之间可能被一次上传插进来
+        Trip trip = lockTrip(tripId);
         Long previousCover = trip.getCoverMediaId();
         if (previousCover == null) return;
         // 用条件更新显式置空：实体的 updateById 默认会跳过 null 字段，清不掉封面
         tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
                 .set(Trip::getCoverMediaId, null).eq(Trip::getId, tripId));
         deleteOrphanAssets(List.of(previousCover));
+    }
+
+    /**
+     * 锁住旅行行。
+     *
+     * <p>旅行封面是 {@code trip} 上的一个字段，换封面和清封面都是「先读旧值、再写新值、
+     * 然后按旧值清理文件」这种 check-then-act，必须串行化。</p>
+     */
+    private Trip lockTrip(Long tripId) {
+        Trip locked = tripMapper.selectOne(new QueryWrapper<Trip>().eq("id", tripId).last("for update"));
+        if (locked == null) throw BusinessException.notFound("旅行不存在");
+        return locked;
     }
 
     /**
@@ -500,6 +567,31 @@ public class MediaService {
     @Transactional
     public MediaView storeLoose(MultipartFile file, String keyPrefix) {
         return toView(null, storeImage(file, keyPrefix), null, null);
+    }
+
+    /*
+     * ============================================================ 松散图片的两阶段上传
+     *
+     * 随手记的照片和日记图片是同一件事：解码、EXIF、压四个规格、四次 MinIO 往返，
+     * 全都不该占着数据库连接和业务行锁。调用方先在事务外 prepareLoose，再在一个极短的
+     * 事务里 persistLoose 落库；中途失败用 discardPrepared 把已经传上去的文件删干净。
+     */
+
+    /** 阶段 A：把文件处理好、传进对象存储，完全不碰数据库。 */
+    public PreparedImage prepareLoose(MultipartFile file, String keyPrefix) {
+        return prepareImage(file, keyPrefix);
+    }
+
+    /** 阶段 B：把准备好的图片登记成 media_asset。必须在调用方的事务里调用。 */
+    public MediaView persistLoose(PreparedImage prepared) {
+        assetMapper.insert(prepared.asset());
+        registerRollbackCleanup(prepared.bucket(), prepared.keys());
+        return toView(null, prepared.asset(), null, null);
+    }
+
+    /** 阶段 B 失败时的补偿：把阶段 A 已经写进对象存储的文件删掉。 */
+    public void discardPrepared(PreparedImage prepared) {
+        cleanup(prepared.bucket(), prepared.keys());
     }
 
     /**

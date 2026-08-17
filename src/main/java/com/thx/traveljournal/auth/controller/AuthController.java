@@ -74,8 +74,9 @@ public class AuthController {
             context.setAuthentication(auth);
             SecurityContextHolder.setContext(context);
             contextRepository.saveContext(context, request, response);
-            // 记下这次登录发生在哪台设备上，「个人资料 → 登录设备」按它展示
-            devices.remember(request.getSession(), request);
+            // 记下这次登录发生在哪台设备上，「个人资料 → 登录设备」按它展示；
+            // 同一台设备上遗留的旧会话会在这里一并清掉，列表里一台设备只留一条
+            devices.remember(body.username(), request.getSession(), request, response);
             attempts.success(ip);
             AdminUser user = find(body.username());
             user.setLastLoginAt(OffsetDateTime.now(ZoneOffset.UTC));

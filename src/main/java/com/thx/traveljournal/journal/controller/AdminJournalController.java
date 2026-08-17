@@ -70,17 +70,37 @@ public class AdminJournalController {
                                  /** 标签名列表，传 null 表示不改动标签，传空列表表示清空 */
                                  List<String> tags,
                                  /** 客户端手上这份的版本号；不匹配时返回 409 而不是覆盖 */
-                                 Integer expectedRevision) {}
+                                 Integer expectedRevision,
+                                 /** 明确放弃并发保护，无条件覆盖服务端那一份 */
+                                 Boolean force) {}
 
     /** 只带版本号的请求体，用于发布和撤回这类纯状态转换。 */
-    public record RevisionRequest(Integer expectedRevision) {}
+    public record RevisionRequest(Integer expectedRevision, Boolean force) {}
 
     /**
      * 开一篇空草稿的请求体，三个字段都可以缺席。
      *
-     * <p>编辑器一打开就调它，好让拍照、打字和自动保存立刻有 id 可用。</p>
+     * <p>不是打开编辑器就调：新建页先在本地攒草稿，等真的写了点什么（标题、正文、
+     * 图片、日期改动）才落一篇服务端草稿，免得「点进去看一眼就退出」留下一堆空记录。</p>
      */
     public record DraftRequest(Long tripId, Long tripStopId, LocalDate occurredOn) {}
+
+    /**
+     * 每一次会改动日记的写入都必须表态：要么带上手里那份的版本号，要么明确声明强制覆盖。
+     *
+     * <p>以前 {@code expectedRevision} 缺席表示「不做并发检查」，于是漏传和「故意不传」
+     * 长得一模一样：新写的客户端只要忘了这个字段，就静默退回到 last-write-wins，
+     * 而这正是乐观锁要挡的那种数据丢失。默认必须是安全的那一边，放弃保护要说出来。</p>
+     *
+     * @return 传给服务层的版本号；强制覆盖时为 null
+     */
+    private Integer revisionGuard(Integer expectedRevision, Boolean force) {
+        if (Boolean.TRUE.equals(force)) return null;
+        if (expectedRevision == null)
+            throw BusinessException.badRequest("缺少 expectedRevision：请带上当前这份日记的版本号，"
+                    + "确实要无条件覆盖时显式传 force=true");
+        return expectedRevision;
+    }
 
     /**
      * 草稿自动保存的请求体。字段与 {@link JournalRequest} 一致，但全部可选。
@@ -104,9 +124,11 @@ public class AdminJournalController {
                                       /**
                                        * 客户端手上那份草稿的版本号。带上它，服务端才分得清
                                        * 「这是基于最新内容的保存」还是「一个绕了远路才到的旧请求」。
-                                       * 省略表示不做并发检查。
+                                       * 必填，确实要无条件覆盖时传 {@code force=true}。
                                        */
-                                      Integer expectedRevision) {}
+                                      Integer expectedRevision,
+                                      /** 明确放弃并发保护，无条件覆盖服务端那一份 */
+                                      Boolean force) {}
 
     @GetMapping
     public ApiResponse<PageResponse<JournalEntry>> list(@RequestParam(defaultValue="1") long page,
@@ -123,7 +145,12 @@ public class AdminJournalController {
         // 正文和标签在服务层同一个事务里写，避免出现「内容存了、标签没存」的半成品
         return ApiResponse.ok(service.createWithTags(toEntity(request), request.tags()));
     }
-    /** 开一篇空草稿并立刻返回 id，编辑器据此挂上自动保存和图片上传。 */
+    /**
+     * 开一篇空草稿并立刻返回 id，编辑器据此挂上自动保存和图片上传。
+     *
+     * <p>新建页不会一进来就调它：先在 IndexedDB 里攒本地草稿，等作者真的写了点什么
+     * 再落服务端草稿，免得「点进去看一眼就退出」在库里留下空记录。</p>
+     */
     @PostMapping("/draft")
     public ApiResponse<JournalEntry> createDraft(@RequestBody(required = false) DraftRequest request) {
         DraftRequest body = request == null ? new DraftRequest(null, null, null) : request;
@@ -143,7 +170,8 @@ public class AdminJournalController {
     public ApiResponse<JournalEntry> saveDraft(@PathVariable Long id, @RequestBody JsonNode raw) {
         JournalDraftRequest request = readDraft(raw);
         JournalService.DraftPatch patch = new JournalService.DraftPatch(presentFields(raw),
-                Boolean.TRUE.equals(request.detachFromTrip()), request.expectedRevision());
+                Boolean.TRUE.equals(request.detachFromTrip()),
+                revisionGuard(request.expectedRevision(), request.force()));
         return ApiResponse.ok(service.updateDraftWithTags(id, toEntity(request), patch, request.tags()));
     }
 
@@ -188,7 +216,7 @@ public class AdminJournalController {
     @PutMapping("/{id}")
     public ApiResponse<JournalEntry> update(@PathVariable Long id, @Valid @RequestBody JournalRequest request) {
         return ApiResponse.ok(service.updateWithTags(id, toEntity(request), request.tags(),
-                request.expectedRevision()));
+                revisionGuard(request.expectedRevision(), request.force())));
     }
 
     /** 日记下的图片张数，前端删除前调用，用于在确认弹窗里说明会连带删除多少张图。 */
@@ -246,15 +274,19 @@ public class AdminJournalController {
         return ApiResponse.ok();
     }
 
+    /*
+     * 发布和撤回同样要带版本号。
+     *
+     * 请求体不再允许整体缺席：一个「什么都不传」的 POST 以前等于「无条件切换状态」，
+     * 而状态转换和正文保存共用同一条乐观锁链路，少一半保护整条链路就都不成立了。
+     */
     @PostMapping("/{id}/publish")
-    public ApiResponse<JournalEntry> publish(@PathVariable Long id,
-                                             @RequestBody(required = false) RevisionRequest request) {
-        return ApiResponse.ok(service.publish(id, request == null ? null : request.expectedRevision()));
+    public ApiResponse<JournalEntry> publish(@PathVariable Long id, @RequestBody RevisionRequest request) {
+        return ApiResponse.ok(service.publish(id, revisionGuard(request.expectedRevision(), request.force())));
     }
     @PostMapping("/{id}/unpublish")
-    public ApiResponse<JournalEntry> unpublish(@PathVariable Long id,
-                                               @RequestBody(required = false) RevisionRequest request) {
-        return ApiResponse.ok(service.unpublish(id, request == null ? null : request.expectedRevision()));
+    public ApiResponse<JournalEntry> unpublish(@PathVariable Long id, @RequestBody RevisionRequest request) {
+        return ApiResponse.ok(service.unpublish(id, revisionGuard(request.expectedRevision(), request.force())));
     }
 
     /** 把请求体转成实体，顺便校验并归一化主题选择（选了不存在或已停用的主题会被拒绝）。 */

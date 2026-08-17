@@ -84,8 +84,17 @@ const routes: RouteRecordRaw[] = isThemePreview
       { path: '/journals', component: JournalsPage },
       { path: '/journals/:slug', component: JournalDetail },
       { path: '/preview/:token', component: JournalDetail, props: { preview: true } },
-      { path: '/years', component: YearReviewPage },
-      { path: '/years/:year', component: YearReviewPage },
+      /*
+       * 「年度回顾」用一条可选参数的路由，不拆成两条。
+       *
+       * 页面一挂载就会 replace 到 /years/<最近一年>。拆成两条记录时那是一次跨记录跳转，
+       * 组件会被销毁重建，刚拉回来的年份列表白拉一遍；合成一条则是同一条记录内的参数
+       * 变化，组件复用，由页面里 watch route.params.year 接着加载。
+       *
+       * 注意这条路由和导航高亮无关：高亮由 PublicAppShell 自己按路径前缀判断，
+       * router-link 自带的 router-link-active 在这里靠不住，原因见那边的注释。
+       */
+      { path: '/years/:year?', component: YearReviewPage },
       { path: '/map', component: FootprintMap },
     ]
 

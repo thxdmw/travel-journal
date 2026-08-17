@@ -16,6 +16,17 @@ export interface TripOption {
   status: TripStatus
 }
 
+/** 删除一次旅行前的清点结果，对应 `TripService.DeletionSummary`。 */
+export interface TripDeletionSummary {
+  title: string
+  journalCount: number
+  momentCount: number
+  photoCount: number
+  stopCount: number
+  itineraryCount: number
+  expenseCount: number
+}
+
 export const tripApi = {
   list: (params?: TripListParams) => get<PageResponse<Trip>>('/admin/trips', withParams({ ...params })),
 
@@ -27,6 +38,17 @@ export const tripApi = {
   create: (body: TripRequest) => post<Trip>('/admin/trips', body),
 
   update: (id: number, body: TripRequest) => put<Trip>('/admin/trips/' + id, body),
+
+  /** 删除前的清点，用于在确认弹窗里说清楚这一下会带走多少东西。 */
+  deletionSummary: (id: number) => get<TripDeletionSummary>('/admin/trips/' + id + '/deletion-summary'),
+
+  /**
+   * 删除旅行及其全部关联数据，不可撤销。
+   *
+   * 日常整理请改状态为「已归档」；这个接口是给误建、作废的旅行准备的，
+   * 日记、随手记、照片文件、行程、预算和支出会一并消失。
+   */
+  remove: (id: number) => del<TripDeletionSummary>('/admin/trips/' + id),
 
   changeStatus: (id: number, status: TripStatus) =>
     put<Trip>('/admin/trips/' + id + '/status', { status }),

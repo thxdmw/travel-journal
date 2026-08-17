@@ -11,6 +11,7 @@
  *   图片（/api/media/…/display）          短新鲜期 + 条件校验
  *       内容不会变（改图会换 id），但权限会变——作者可能撤回发布。所以内容长期
  *       复用，权限每分钟回服务端确认一次，被拒时立刻删掉本地那一份。
+ *       只有公开页面请求到的图片才会写进缓存，后台看到的那些一律不留（见 cacheableFrom）。
  *
  *   其他 /api 请求                        完全不碰
  *       日记正文、旅行数据必须是最新的，宁可失败也不能给一份旧的——
@@ -127,23 +128,74 @@ async function staleWhileRevalidate(request) {
 /**
  * 服务端说了不许存，就不存。
  *
- * 公开图片和草稿图片共用同一个 /api/media/ 地址，区别只在响应头里：非公开的那些
- * 带 Cache-Control: no-store。光靠 URL 形状分辨不出来，所以以服务端的判断为准。
+ * 注意这是一层兜底，不是唯一防线：/api/media/ 会 302 到对象存储，fetch 跟完重定向
+ * 之后 response.headers 是对象存储那一跳的响应头，应用自己下发的 Cache-Control
+ * 已经看不到了。真正把草稿图片挡在缓存外面的是下面那条「后台页面发起的图片不进缓存」。
  */
 function storable(response) {
   const control = response.headers.get('Cache-Control') || '';
   return !/no-store/i.test(control);
 }
 
+/** 自己盖的校验时间戳。见 cachedAgeMs 的说明。 */
+const VALIDATED_AT = 'x-sw-validated-at';
+
 /**
- * 缓存里这一份存了多久。
+ * 把响应重新包一层，盖上「这一份是什么时候被服务端认可的」。
  *
- * 用响应自己的 Date 头，不另外维护一张时间表——多一份状态就多一处会不同步的地方。
+ * 不能直接改 Response 的头（它是只读的），所以连身体一起重建一个。
+ */
+async function stamp(response) {
+  const headers = new Headers(response.headers);
+  headers.set(VALIDATED_AT, String(Date.now()));
+  return new Response(await response.blob(), {
+    status: response.status, statusText: response.statusText, headers,
+  });
+}
+
+/**
+ * 缓存里这一份，距离上次被服务端认可过了多久。
+ *
+ * 曾经读的是响应自带的 Date 头。那样 304 之后年龄不会归零——服务端明明刚说过
+ * 「还能看」，下一次访问因为 Date 还是当初下载那一刻，又得再问一遍，所谓
+ * 「60 秒新鲜期」实际上只在首次下载后生效一次，之后每次翻看照片都要多一趟往返。
+ * 所以时间戳自己盖：它记的是「最后一次通过权限校验」，正是这个窗口该衡量的东西。
+ *
  * 读不到就当它已经过期，宁可多校验一次。
  */
 function cachedAgeMs(response) {
+  const stamped = Number(response.headers.get(VALIDATED_AT));
+  if (Number.isFinite(stamped) && stamped > 0) return Date.now() - stamped;
   const at = Date.parse(response.headers.get('Date') || '');
   return Number.isNaN(at) ? Infinity : Date.now() - at;
+}
+
+/**
+ * 这一份新下载的图片可以写进缓存吗。
+ *
+ * 判断依据是「谁发起的这次请求」，而不是响应头。草稿图片和公开图片的 URL 完全一样，
+ * 应用下发的 Cache-Control 又在 302 之后读不到了，所以只剩发起方这一个可靠信号：
+ *
+ *   后台页面     可能正在看草稿照片。存进 Cache Storage 之后，退出登录、撤回发布
+ *                都拦不住它被翻出来——那两个操作就成了摆设。一律不存。
+ *   公开页面     只可能请求已发布日记里的图片，本来就是谁都能看的。存，
+ *                这也是旅途中断网还能翻看照片的全部来源。
+ *
+ * 认不出发起方（没有 clientId）时按不确定处理，也就是不存：少一份离线缓存是体验问题，
+ * 多一份不该存的照片是隐私问题。
+ *
+ * 注意这只管「写」。已经在缓存里的那些都是从公开页面存进去的，读取照常，
+ * 权限变化由后面的过期重校验负责。
+ */
+async function cacheableFrom(clientId) {
+  if (!clientId || !self.clients || !self.clients.get) return false;
+  try {
+    const client = await self.clients.get(clientId);
+    if (!client || !client.url) return false;
+    return !new URL(client.url).pathname.startsWith('/admin');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -164,7 +216,7 @@ const MEDIA_FRESH_MS = 60 * 1000;
  * 回服务端，既走一遍权限判断，内容没变时对象存储也只回一个几百字节的 304。
  * 服务端明确拒绝时立刻把这一条删掉——之后连离线也拿不到它。
  */
-async function media(request) {
+async function media(request, clientId) {
   const cache = await caches.open(MEDIA_CACHE);
   const cached = await cache.match(request);
   if (cached && cachedAgeMs(cached) < MEDIA_FRESH_MS) return cached;
@@ -180,11 +232,26 @@ async function media(request) {
       await cache.delete(request);
       return response;
     }
-    // 内容没变，服务端也认了这次访问：继续用缓存里的那一份
-    if (response.status === 304 && cached) return cached;
-    if (response.ok && storable(response)) {
-      await cache.put(request, response.clone());
-      trim(MEDIA_CACHE, MEDIA_LIMIT);
+    // 内容没变，服务端也认了这次访问：继续用缓存里的那一份，
+    // 并把校验时间戳往前推——刚问过一次，接下来这一分钟不必再问
+    if (response.status === 304 && cached) {
+      await cache.put(request, await stamp(cached.clone()));
+      return cached;
+    }
+    if (response.ok) {
+      if (storable(response) && await cacheableFrom(clientId)) {
+        await cache.put(request, await stamp(response.clone()));
+        trim(MEDIA_CACHE, MEDIA_LIMIT);
+      } else {
+        /*
+         * 这一份不该留在本地，而本地可能还留着上一份。
+         *
+         * 只是「不再 put」是不够的：一张图公开时被缓存过，作者撤回之后自己登录着
+         * 再打开它，服务端会照常返回（管理员看得见）并标明不许存——此时必须顺手把
+         * 旧的那份删掉，否则它会一直躺到过期。
+         */
+        await cache.delete(request);
+      }
     }
     return response;
   } catch (error) {
@@ -219,7 +286,8 @@ self.addEventListener('fetch', event => {
      * 按服务端下发的 Cache-Control 决定存不存。
      */
     if (url.pathname.endsWith('/original') || url.searchParams.has('previewToken')) return;
-    event.respondWith(media(request));
+    // clientId 指向发起这次请求的页面，media 用它判断这一份能不能写进缓存
+    event.respondWith(media(request, event.clientId));
     return;
   }
   /*

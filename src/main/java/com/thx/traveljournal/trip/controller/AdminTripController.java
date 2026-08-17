@@ -23,7 +23,8 @@ import java.util.Map;
 /**
  * 后台旅行接口：旅行本体、城市停靠点和旅行封面的管理。
  *
- * <p>按规范旅行不提供物理删除入口，不再需要的旅行改成 ARCHIVED 归档。</p>
+ * <p>日常整理用 ARCHIVED 归档；{@link #delete} 是不可撤销的物理删除，会连带清掉
+ * 这次旅行下面的日记、随手记、照片文件、行程、预算和支出。</p>
  */
 @RestController
 @RequestMapping("/api/admin")
@@ -112,6 +113,27 @@ public class AdminTripController {
     }
     @GetMapping("/trips/{id}/dashboard")
     public ApiResponse<Map<String,Object>> dashboard(@PathVariable Long id) { return ApiResponse.ok(service.dashboard(id)); }
+
+    /**
+     * 删除前的清点：这次旅行下面挂着多少日记、随手记、照片、行程和支出。
+     *
+     * <p>删除不可撤销，确认弹窗要能说清楚代价，而不是只问一句「确定吗」。</p>
+     */
+    @GetMapping("/trips/{id}/deletion-summary")
+    public ApiResponse<TripService.DeletionSummary> deletionSummary(@PathVariable Long id) {
+        return ApiResponse.ok(service.deletionSummary(id));
+    }
+
+    /**
+     * 删除一次旅行及其全部关联数据。
+     *
+     * <p>日常整理请用「归档」；这个接口是给误建、作废的旅行准备的，日记、随手记、
+     * 照片文件、行程、预算和支出会一并消失，无法恢复。</p>
+     */
+    @DeleteMapping("/trips/{id}")
+    public ApiResponse<TripService.DeletionSummary> delete(@PathVariable Long id) {
+        return ApiResponse.ok(service.delete(id));
+    }
 
     /**
      * 直接上传一张图片作为旅行封面。

@@ -46,7 +46,16 @@ async function renderMapInto(
   const resolved = forcedProvider ? { provider: forcedProvider } : await resolveProvider()
   let map: TravelMapInstance
   try {
-    map = await create(element, { provider: resolved.provider, zoom: 3, style: mapTokens().style }) as TravelMapInstance
+    /*
+     * 底图自带的滚轮缩放必须关掉。
+     *
+     * 页面里的地图是内容的一部分，不是一个需要独占滚轮的应用。开着它，读者一路往下
+     * 滚，滚到地图上页面就停住、地图开始放大——想继续读下去还得先把鼠标挪开。
+     * 缩放交给下面那个只认 Ctrl 的处理器，光滚轮一律留给页面滚动。
+     */
+    map = await create(element, {
+      provider: resolved.provider, zoom: 3, style: mapTokens().style, scrollWheelZoom: false,
+    }) as TravelMapInstance
   } catch {
     showMapLoadFailure(element, settings, markers, resolved.provider)
     return null
@@ -57,7 +66,9 @@ async function renderMapInto(
   zoomHint.textContent = '按住 Ctrl + 滚轮缩放地图'
   element.appendChild(zoomHint)
   const ctrlWheel = (event: WheelEvent) => {
+    // 不按 Ctrl 就当没看见，事件继续冒泡上去，页面照常滚动
     if (!event.ctrlKey) return
+    // 按住 Ctrl 滚轮在浏览器里默认是「缩放整个页面」，这里要拦下来换成缩放地图
     event.preventDefault()
     event.stopPropagation()
     map.zoomBy(event.deltaY < 0 ? 1 : -1)
@@ -90,15 +101,15 @@ async function renderMapInto(
   }
   requestAnimationFrame(() => map.invalidateSize())
 
-  if (window.ResizeObserver) {
-    const observer = new ResizeObserver(() => map.invalidateSize())
-    observer.observe(element)
-    const destroyMap = map.destroy.bind(map)
-    map.destroy = () => {
-      observer.disconnect()
-      element.removeEventListener('wheel', ctrlWheel)
-      destroyMap()
-    }
+  // 尺寸观察是可选的，滚轮监听的解绑不是——两者以前捆在同一个 if 里，
+  // 没有 ResizeObserver 的环境会把监听器一直留在已经销毁的容器上
+  const observer = window.ResizeObserver ? new ResizeObserver(() => map.invalidateSize()) : null
+  observer?.observe(element)
+  const destroyMap = map.destroy.bind(map)
+  map.destroy = () => {
+    observer?.disconnect()
+    element.removeEventListener('wheel', ctrlWheel)
+    destroyMap()
   }
   return map
 }

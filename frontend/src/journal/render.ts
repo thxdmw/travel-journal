@@ -15,8 +15,14 @@ function mediaUrl(item: RenderableMedia | undefined, mediaId: unknown): string {
   return item?.displayUrl ? item.displayUrl : '/api/media/' + Number(mediaId) + '/display'
 }
 
-/** 只认站内媒体地址的三档形态，其余（本机预览 blob、外链）一概不动。 */
-const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(display|medium|thumbnail)$/
+/**
+ * 只认站内媒体地址的三档形态，其余（本机预览 blob、外链）一概不动。
+ *
+ * 末尾的查询串要单独捕获再原样带回每一档：草稿预览链接的图片地址长这样
+ * `/api/media/10/display?previewToken=xxx`，令牌丢了就是 403。以前正则不接受
+ * 查询串，于是正式文章有响应式尺寸，草稿预览却在手机上照样下 1280 那张。
+ */
+const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(?:display|medium|thumbnail)(\?.*)?$/
 
 /**
  * 图片标签的公共属性：站内图片直接带上 srcset，让浏览器一次就挑对尺寸。
@@ -30,12 +36,25 @@ const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(display|medium|thumbnail)$/
  * 为不经这里渲染的存量路径兜底。
  */
 function imageAttrs(src: string): string {
-  const base = src.match(MEDIA_VARIANTS)?.[1]
+  const match = src.match(MEDIA_VARIANTS)
+  const base = match?.[1]
   const responsive = base
-    ? ' srcset="' + esc(base + '/thumbnail 480w, ' + base + '/medium 768w, ' + base + '/display 1280w')
+    ? ' srcset="' + esc(mediaSrcset(base, match?.[2] ?? ''))
       + '" sizes="' + esc(RESPONSIVE_SIZES) + '" data-responsive="on"'
     : ''
   return ' src="' + esc(src) + '"' + responsive + ' loading="lazy" decoding="async"'
+}
+
+/**
+ * 三档候选图。
+ *
+ * 导出给 media/responsive.ts 复用：两条路径必须给出完全一样的候选集，
+ * 否则同一张图经不同路径处理会被浏览器挑成不同尺寸。
+ */
+export function mediaSrcset(base: string, query = ''): string {
+  return base + '/thumbnail' + query + ' 480w, '
+    + base + '/medium' + query + ' 768w, '
+    + base + '/display' + query + ' 1280w'
 }
 
 /** 正文里的图默认占内容宽度的 68%，猜小了会糊，所以宁可往大了写。 */

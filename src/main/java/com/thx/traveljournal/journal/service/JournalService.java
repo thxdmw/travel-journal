@@ -188,6 +188,9 @@ public class JournalService {
     public JournalEntry create(JournalEntry entry) {
         entry.setStatus("DRAFT");
         entry.setPublishedAt(null);
+        // 版本号显式写 0 而不是靠数据库默认值：insert 只会把自增 id 回填到实体上，
+        // 缺了它返回给前端的这份就没有 revision，下一次保存自然也带不上版本号
+        entry.setRevision(0);
         validate(entry, false);
         mapper.insert(entry);
         return entry;
@@ -196,7 +199,7 @@ public class JournalService {
     /**
      * 开一篇空草稿。旅行是可选归属：从旅行工作台进入时带上，直接写日记时可以为空。
      *
-     * <p>旅行途中打开编辑器就该能立刻拍照和打字，而不是先把标题、slug、日期填完再说。
+     * <p>旅行途中开始写就该能立刻拍照和打字，而不是先把标题、slug、日期填完再说。
      * 数据库上这四个字段都是 not null，所以缺的由服务端补默认值：标题空串、slug 自动生成、
      * 日期默认今天。作者随后在「日记信息」里改就行。</p>
      */
@@ -211,6 +214,9 @@ public class JournalService {
         entry.setContentJson(documentService.emptyDocument());
         entry.setStatus("DRAFT");
         entry.setPublishedAt(null);
+        // 同 create：insert 不回填数据库默认值，编辑器拿到的第一份必须已经带着版本号，
+        // 否则它的第一次自动保存就没有并发保护可用
+        entry.setRevision(0);
         validate(entry, false);
         mapper.insert(entry);
         return entry;
@@ -380,11 +386,11 @@ public class JournalService {
     /**
      * 回收放了很久仍然一片空白的草稿。
      *
-     * <p>编辑器一进页面就会先开一篇空草稿，好让拍照和打字立刻有 id 可用，所以
-     * 「点进去看一眼就退出」会留下垃圾记录。以前是退出时立刻删，但退出瞬间最后一次
-     * 自动保存可能还在路上，服务端此刻看到的空正文并不代表作者真的什么都没写——
-     * 删错一篇正文的代价远高于库里多留一条空记录。所以改成过了静默期再收，
-     * 期间作者随时可能回来接着写。</p>
+     * <p>新建页现在先把草稿攒在本地，等真的写了点什么才落一篇服务端草稿，所以空记录
+     * 已经少了很多；但从旅行工作台开日记、以及各种半途而废的路径仍然会留下空草稿。
+     * 退出时立刻删是不行的：退出瞬间最后一次自动保存可能还在路上，服务端此刻看到的
+     * 空正文并不代表作者真的什么都没写——删错一篇正文的代价远高于库里多留一条空记录。
+     * 所以改成过了静默期再收，期间作者随时可能回来接着写。</p>
      *
      * @param quietFor 最后一次更新之后至少要静默多久才回收
      * @return 实际清理掉的条数
