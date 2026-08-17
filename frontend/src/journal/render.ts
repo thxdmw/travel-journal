@@ -15,6 +15,32 @@ function mediaUrl(item: RenderableMedia | undefined, mediaId: unknown): string {
   return item?.displayUrl ? item.displayUrl : '/api/media/' + Number(mediaId) + '/display'
 }
 
+/** 只认站内媒体地址的三档形态，其余（本机预览 blob、外链）一概不动。 */
+const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(display|medium|thumbnail)$/
+
+/**
+ * 图片标签的公共属性：站内图片直接带上 srcset，让浏览器一次就挑对尺寸。
+ *
+ * 以前 srcset 是渲染完再由 media/responsive.ts 补的，那样浏览器要加载两次：
+ * `<img src=".../display">` 一插进 DOM 就开始下 1280 那张，等 srcset 补上之后又
+ * 按 sizes 重新评估、换一档重新下——图片先空一下再出现，就是打开图片配置弹窗时
+ * 看到的那一下闪烁。属性跟着 HTML 一起出生就没有第二次评估了。
+ *
+ * 带上 data-responsive 让 applyResponsiveImages 认出「这张已经处理过」，它继续
+ * 为不经这里渲染的存量路径兜底。
+ */
+function imageAttrs(src: string): string {
+  const base = src.match(MEDIA_VARIANTS)?.[1]
+  const responsive = base
+    ? ' srcset="' + esc(base + '/thumbnail 480w, ' + base + '/medium 768w, ' + base + '/display 1280w')
+      + '" sizes="' + esc(RESPONSIVE_SIZES) + '" data-responsive="on"'
+    : ''
+  return ' src="' + esc(src) + '"' + responsive + ' loading="lazy" decoding="async"'
+}
+
+/** 正文里的图默认占内容宽度的 68%，猜小了会糊，所以宁可往大了写。 */
+const RESPONSIVE_SIZES = '(max-width: 700px) 92vw, (max-width: 1100px) 78vw, 68vw'
+
 function blockTitle(block: JournalBlock): string {
   return block.title ? '<h2 class="journal-block__title">' + esc(block.title) + '</h2>' : ''
 }
@@ -48,11 +74,11 @@ function figure(block: JournalBlock, map: MediaMap): string {
   return (
     '<figure class="journal-figure ' +
     figureClasses(settings) +
-    '"><img src="' +
-    esc(src) +
-    '" alt="' +
+    '"><img' +
+    imageAttrs(src) +
+    ' alt="' +
     esc(caption || '旅行照片') +
-    '" loading="lazy">' +
+    '">' +
     (caption ? '<figcaption>' + esc(caption) + '</figcaption>' : '') +
     '</figure>'
   )
@@ -75,7 +101,7 @@ function gallery(block: JournalBlock, map: MediaMap): string {
       const caption = str(item?.caption) || '旅行照片'
       // previews 分支里 source 本身就是地址，不是 id
       const src = previews.length ? str(source) : mediaUrl(item, source)
-      return '<img src="' + esc(src) + '" alt="' + esc(caption) + '" loading="lazy">'
+      return '<img' + imageAttrs(src) + ' alt="' + esc(caption) + '">'
     })
     .join('')
   const layoutClass = mode ? 'journal-gallery--' + mode : ''
@@ -97,7 +123,7 @@ function postcard(block: JournalBlock, map: MediaMap): string {
   const src = data.previewUrl ? str(data.previewUrl) : mediaUrl(item, data.mediaId)
   const image =
     data.mediaId || data.previewUrl
-      ? '<img src="' + esc(src) + '" alt="' + esc(str(data.location) || '旅行明信片') + '" loading="lazy">'
+      ? '<img' + imageAttrs(src) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
       : '<div class="journal-postcard__placeholder">旅行明信片</div>'
   return (
     '<figure class="journal-postcard">' +
