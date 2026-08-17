@@ -5,6 +5,7 @@ import com.thx.traveljournal.auth.entity.AdminUser;
 import com.thx.traveljournal.auth.mapper.AdminUserMapper;
 import com.thx.traveljournal.auth.service.ClientIpResolver;
 import com.thx.traveljournal.auth.service.LoginAttemptService;
+import com.thx.traveljournal.auth.service.LoginDeviceService;
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,6 +44,7 @@ import java.time.ZoneOffset;
 public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository contextRepository;
+    private final LoginDeviceService devices;
     private final AdminUserMapper mapper;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
@@ -72,6 +74,8 @@ public class AuthController {
             context.setAuthentication(auth);
             SecurityContextHolder.setContext(context);
             contextRepository.saveContext(context, request, response);
+            // 记下这次登录发生在哪台设备上，「个人资料 → 登录设备」按它展示
+            devices.remember(request.getSession(), request);
             attempts.success(ip);
             AdminUser user = find(body.username());
             user.setLastLoginAt(OffsetDateTime.now(ZoneOffset.UTC));
@@ -108,13 +112,22 @@ public class AuthController {
     @PostMapping("/change-password")
     @Transactional
     public ApiResponse<Void> changePassword(@Valid @RequestBody ChangePasswordRequest body,
-                                            Authentication authentication) {
+                                            Authentication authentication,
+                                            HttpServletRequest request) {
         AdminUser user = find(authentication.getName());
         if (!passwordEncoder.matches(body.currentPassword(), user.getPasswordHash())) {
             throw BusinessException.badRequest("当前密码不正确");
         }
         user.setPasswordHash(passwordEncoder.encode(body.newPassword()));
         mapper.updateById(user);
+        /*
+         * 改完密码把其他设备全部踢下线。
+         *
+         * 改密码通常就是因为怀疑号被别人用了。会话是独立于密码的凭据，不主动作废的话
+         * 那些已经登录的设备照样能继续用——密码改了个寂寞。当前这台留着，免得自己也被登出。
+         */
+        HttpSession session = request.getSession(false);
+        devices.revokeOthers(user.getUsername(), session == null ? null : session.getId());
         return ApiResponse.ok();
     }
 

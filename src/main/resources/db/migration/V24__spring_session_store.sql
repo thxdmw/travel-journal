@@ -1,0 +1,39 @@
+-- 会话从 Tomcat 内存搬进数据库。
+--
+-- 手机上把网页装成 PWA 之后每次打开都要重新登录，原因有两个，缺一不可地叠在一起：
+-- 会话 cookie 没有 max-age，关掉就没了；会话本身在 Tomcat 内存里，应用一重启（每次部署）
+-- 全部失效。存进数据库两个问题一起解决。
+--
+-- 顺带拿到的是「已登录设备」列表：会话表本身就是设备清单，按 principal_name 查得到，
+-- 删掉一行那台设备立刻掉线，不需要再自己维护一张设备表和它的过期清理。
+--
+-- 表结构原样取自 spring-session-jdbc-3.5.7.jar 里的
+-- org/springframework/session/jdbc/schema-postgresql.sql，不做改动：
+-- Spring Session 的 SQL 是按这个结构写死的，改了列名或类型会在运行期才炸。
+-- 建表交给 Flyway，所以 spring.session.jdbc.initialize-schema 设为 never。
+
+CREATE TABLE SPRING_SESSION (
+	PRIMARY_ID CHAR(36) NOT NULL,
+	SESSION_ID CHAR(36) NOT NULL,
+	CREATION_TIME BIGINT NOT NULL,
+	LAST_ACCESS_TIME BIGINT NOT NULL,
+	MAX_INACTIVE_INTERVAL INT NOT NULL,
+	EXPIRY_TIME BIGINT NOT NULL,
+	PRINCIPAL_NAME VARCHAR(100),
+	CONSTRAINT SPRING_SESSION_PK PRIMARY KEY (PRIMARY_ID)
+);
+
+CREATE UNIQUE INDEX SPRING_SESSION_IX1 ON SPRING_SESSION (SESSION_ID);
+CREATE INDEX SPRING_SESSION_IX2 ON SPRING_SESSION (EXPIRY_TIME);
+CREATE INDEX SPRING_SESSION_IX3 ON SPRING_SESSION (PRINCIPAL_NAME);
+
+CREATE TABLE SPRING_SESSION_ATTRIBUTES (
+	SESSION_PRIMARY_ID CHAR(36) NOT NULL,
+	ATTRIBUTE_NAME VARCHAR(200) NOT NULL,
+	ATTRIBUTE_BYTES BYTEA NOT NULL,
+	CONSTRAINT SPRING_SESSION_ATTRIBUTES_PK PRIMARY KEY (SESSION_PRIMARY_ID, ATTRIBUTE_NAME),
+	CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION(PRIMARY_ID) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE SPRING_SESSION IS 'Spring Session 的会话表，同时充当「已登录设备」清单；删除一行即让该设备立刻掉线';
+COMMENT ON TABLE SPRING_SESSION_ATTRIBUTES IS 'Spring Session 的会话属性，登录设备信息（设备名、IP、登录时间）就存在这里';

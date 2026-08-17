@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -37,6 +38,7 @@ public class EmptyDraftCleaner {
      */
     @Scheduled(fixedDelay = 3_600_000L, initialDelay = 300_000L)
     public void purge() {
+        OffsetDateTime deadline = JournalService.purgeDeadline(QUIET_PERIOD);
         List<Long> stale;
         try {
             stale = journalService.staleEmptyDraftIds(QUIET_PERIOD);
@@ -47,8 +49,9 @@ public class EmptyDraftCleaner {
         int removed = 0;
         for (Long id : stale) {
             try {
-                journalService.delete(id);
-                removed++;
+                // 扫描结果只是候选：作者可能在这一轮循环期间回来接着写了，
+                // 所以真正的判空和删除放在同一个事务里、锁住行之后再做一次
+                if (journalService.deleteIfStillStaleEmpty(id, deadline)) removed++;
             } catch (Exception e) {
                 log.warn("回收空白草稿 {} 失败，本轮跳过", id, e);
             }

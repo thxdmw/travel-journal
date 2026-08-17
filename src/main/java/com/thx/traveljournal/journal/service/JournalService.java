@@ -156,7 +156,13 @@ public class JournalService {
     /** 全量更新日记并替换标签，同一个事务。 */
     @Transactional
     public JournalEntry updateWithTags(Long id, JournalEntry input, List<String> tags) {
-        JournalEntry updated = update(id, input);
+        return updateWithTags(id, input, tags, null);
+    }
+
+    /** 全量更新日记并替换标签，同一个事务，带乐观并发检查。 */
+    @Transactional
+    public JournalEntry updateWithTags(Long id, JournalEntry input, List<String> tags, Integer expectedRevision) {
+        JournalEntry updated = update(id, input, expectedRevision);
         tagService.replaceTags(id, tags);
         updated.setTags(tagService.namesOf(id));
         return updated;
@@ -257,7 +263,9 @@ public class JournalService {
         if (input.getOccurredOn() == null) input.setOccurredOn(current.getOccurredOn());
         if (input.getContentJson() == null) input.setContentJson(current.getContentJson());
         validate(input, false);
-        writeBack(input, clear, patch.expectedRevision());
+        // status 条件不能少：并发的「发布」如果先一步成功，这次保存必须失败，
+        // 否则会把刚发布的文章连同 published_at 一起写回草稿
+        writeBack(input, clear, patch.expectedRevision(), "DRAFT");
         return get(id);
     }
 
@@ -298,32 +306,58 @@ public class JournalService {
      * 对「作者明确清空的字段」就是静默丢弃。要清的列只能显式 set 出来。</p>
      */
     private void writeBack(JournalEntry entry, Collection<String> clear) {
-        writeBack(entry, clear, null);
+        writeBack(entry, clear, null, null);
     }
 
     /**
-     * 带乐观并发检查的写回。
+     * 带乐观并发检查的写回。日记的每一次写入都必须走这里。
      *
-     * <p>{@code expectedRevision} 非空时，UPDATE 会带上 {@code revision = ?} 的条件并原子
-     * 加一。两个标签页拿着同一个版本同时保存，只有先到的那个能改动行；后到的影响行数是 0，
-     * 直接 409，而不是把对方刚写的那段正文盖掉。</p>
+     * <p>两道条件缺一不可：</p>
+     *
+     * <p>{@code expectedRevision} 非空时 UPDATE 带上 {@code revision = ?} 并原子加一。两个
+     * 标签页拿着同一个版本同时保存，只有先到的那个能改动行；后到的影响行数是 0，直接 409，
+     * 而不是把对方刚写的那段正文盖掉。</p>
+     *
+     * <p>{@code expectedStatus} 是另一半，而且是更要命的那一半。以前发布走的是不带任何条件的
+     * {@code updateById}，既不看版本也不递增它，于是「读到 DRAFT 版本 10 → 另一边发布成功
+     * 但版本还是 10 → 自动保存的 CAS 照样匹配」——而草稿保存又会把 status 写回 DRAFT、把
+     * published_at 抹掉。那不是概率性覆盖，是必然的数据损坏。状态转换和正文保存必须用同一套
+     * 并发协议，条件里就得有 status。</p>
+     *
+     * <p>所以即使调用方没带版本号（老客户端、脚本），只要给了 {@code expectedStatus}，
+     * 状态被人改过的写入依然会被挡下来。</p>
      */
-    private void writeBack(JournalEntry entry, Collection<String> clear, Integer expectedRevision) {
-        boolean guarded = expectedRevision != null;
-        if (!guarded && (clear == null || clear.isEmpty())) {
+    private void writeBack(JournalEntry entry, Collection<String> clear,
+                           Integer expectedRevision, String expectedStatus) {
+        boolean guardRevision = expectedRevision != null;
+        boolean guardStatus = expectedStatus != null;
+        if (!guardRevision && !guardStatus && (clear == null || clear.isEmpty())) {
             mapper.updateById(entry);
             return;
         }
         UpdateWrapper<JournalEntry> wrapper = new UpdateWrapper<>();
         wrapper.eq("id", entry.getId());
         if (clear != null) clear.forEach(column -> wrapper.set(column, null));
-        if (guarded) {
-            wrapper.eq("revision", expectedRevision);
+        if (guardStatus) wrapper.eq("status", expectedStatus);
+        if (guardRevision) wrapper.eq("revision", expectedRevision);
+        if (guardRevision || guardStatus) {
+            /*
+             * 版本号只能由这里的 setSql 赋值一次。
+             *
+             * 实体上的非 null 字段都会被 MyBatis-Plus 生成一列 SET，发布和撤回传进来的
+             * 实体是从库里读出来的，revision 带着值——那样一条 UPDATE 里就会同时出现
+             * revision=? 和 revision = revision + 1，PostgreSQL 直接拒绝：
+             * multiple assignments to same column。置空让实体这一列被跳过。
+             *
+             * 调用方随后都会 get(id) 重新读，不受这次置空影响。
+             */
+            entry.setRevision(null);
+            // 状态转换也要推进版本号，否则并发的自动保存拿着旧版本仍然能匹配上
             wrapper.setSql("revision = revision + 1");
         }
         int affected = mapper.update(entry, wrapper);
-        if (guarded && affected == 0) {
-            throw BusinessException.conflict("这篇日记在别处已经有更新的版本，请先刷新再保存");
+        if ((guardRevision || guardStatus) && affected == 0) {
+            throw BusinessException.conflict("这篇日记在别处已经被改过（内容或发布状态），请刷新后重试");
         }
     }
 
@@ -381,16 +415,45 @@ public class JournalService {
      * @return 实际清理掉的条数
      */
     public int purgeStaleEmptyDrafts(Duration quietFor) {
+        OffsetDateTime deadline = purgeDeadline(quietFor);
         int removed = 0;
         for (Long id : staleEmptyDraftIds(quietFor)) {
             try {
-                delete(id);
-                removed++;
+                if (deleteIfStillStaleEmpty(id, deadline)) removed++;
             } catch (Exception e) {
                 log.warn("回收空白草稿 {} 失败，本轮跳过", id, e);
             }
         }
         return removed;
+    }
+
+    /**
+     * 锁住这一行，再确认一次它仍然该被回收，然后才删。
+     *
+     * <p>{@link #staleEmptyDraftIds} 给出的只是候选。从「扫描时判定为空」到「真正执行删除」
+     * 之间隔着整整一轮循环，作者完全可能在这个窗口里回来接着写：</p>
+     *
+     * <pre>
+     * 10:00:00  定时任务判定草稿 123 是空的
+     * 10:00:01  作者打开它，写了两段，自动保存成功
+     * 10:00:02  Cleaner 删掉 123        ← 刚写的东西没了
+     * </pre>
+     *
+     * <p>删错一篇正文的代价远高于库里多留一天的空记录，所以判空和删除必须在同一个事务里，
+     * 而且要先把行锁住——否则复查和删除之间又是一个新的窗口。</p>
+     *
+     * @return 是否真的删掉了；因为不再符合条件而跳过时返回 false
+     */
+    @Transactional
+    public boolean deleteIfStillStaleEmpty(Long id, OffsetDateTime deadline) {
+        JournalEntry entry = mapper.selectOne(new QueryWrapper<JournalEntry>()
+                .eq("id", id).last("for update"));
+        if (entry == null) return false;
+        // 期间被发布了、被改过了、或者作者刚写了点什么，都不再回收
+        if (entry.getUpdatedAt() == null || !entry.getUpdatedAt().isBefore(deadline)) return false;
+        if (!isEmptyDraft(entry)) return false;
+        delete(id);
+        return true;
     }
 
     /**
@@ -430,6 +493,11 @@ public class JournalService {
      * 如果当前是已发布状态，会按发布标准做更严格的校验（例如正文不能为空）。
      */
     public JournalEntry update(Long id, JournalEntry input) {
+        return update(id, input, null);
+    }
+
+    /** 全量更新，带乐观并发检查。{@code expectedRevision} 为空表示只校验状态没被改过。 */
+    public JournalEntry update(Long id, JournalEntry input, Integer expectedRevision) {
         JournalEntry entry = get(id);
         String currentStatus = entry.getStatus();
         OffsetDateTime publishedAt = entry.getPublishedAt();
@@ -445,28 +513,44 @@ public class JournalService {
         if (input.getTripStopId() == null) clear.add("trip_stop_id");
         if (input.getCoverMediaId() == null) clear.add("cover_media_id");
         if (input.getExcerpt() == null) clear.add("excerpt");
-        writeBack(input, clear);
+        writeBack(input, clear, expectedRevision, currentStatus);
         return get(id);
     }
 
     /** 发布日记，记录发布时间。发布后图片才允许被访客访问。 */
     public JournalEntry publish(Long id) {
+        return publish(id, null);
+    }
+
+    /**
+     * 发布日记，记录发布时间。发布后图片才允许被访客访问。
+     *
+     * <p>只有仍是草稿的日记才能发布：条件里带 {@code status = 'DRAFT'}，重复点击发布
+     * 或者与撤回撞车时，第二个请求得到 409 而不是覆盖出一个错乱的状态。</p>
+     */
+    public JournalEntry publish(Long id, Integer expectedRevision) {
         JournalEntry entry = get(id);
         requirePublishableMeta(entry);
         validate(entry, true);
         entry.setStatus("PUBLISHED");
         entry.setPublishedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        mapper.updateById(entry);
-        return entry;
+        writeBack(entry, Set.of(), expectedRevision, "DRAFT");
+        return get(id);
     }
 
     /** 撤回已发布日记，回到草稿状态，前台立即不可见。 */
     public JournalEntry unpublish(Long id) {
+        return unpublish(id, null);
+    }
+
+    /** 撤回已发布日记，回到草稿状态，前台立即不可见。只有已发布的才能撤回。 */
+    public JournalEntry unpublish(Long id, Integer expectedRevision) {
         JournalEntry entry = get(id);
         entry.setStatus("DRAFT");
         entry.setPublishedAt(null);
-        mapper.updateById(entry);
-        return entry;
+        // published_at 要真的写成 NULL，默认更新策略会跳过 null 字段
+        writeBack(entry, Set.of("published_at"), expectedRevision, "PUBLISHED");
+        return get(id);
     }
 
     /**

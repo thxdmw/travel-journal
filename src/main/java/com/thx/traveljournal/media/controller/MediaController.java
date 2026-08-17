@@ -92,10 +92,25 @@ public class MediaController {
         Long previewJournalId = previewToken == null || previewToken.isBlank()
                 ? null : previewService.resolveJournalId(previewToken);
         URI location = service.access(mediaId, variant, admin, previewJournalId);
-        CacheControl cache = previewJournalId != null
-                // 预览是私有且会被撤销的，不能让浏览器或任何中间层把它留下来
-                ? CacheControl.noStore()
-                : CacheControl.maxAge(service.redirectCacheSeconds(), TimeUnit.SECONDS).cachePrivate();
-        return ResponseEntity.status(302).cacheControl(cache).location(location).build();
+        return ResponseEntity.status(302)
+                .cacheControl(cachePolicyFor(mediaId, variant, admin, previewJournalId))
+                .location(location).build();
+    }
+
+    /**
+     * 这次响应能不能被缓存。
+     *
+     * <p>公开图片和私有图片共用同一个 URL，能不能留在本地取决于这张图本身公不公开，
+     * 而不是这次请求碰巧成功了没有。管理员在后台看的草稿图如果被 Service Worker
+     * 存进 Cache Storage，退出登录之后 cache-first 还会把它取出来——那时已经没有
+     * 任何一层会再去问服务端「你现在还有权看吗」。</p>
+     *
+     * <p>原图只有管理员能取，预览令牌会过期也会被撤销，两者一律不留。</p>
+     */
+    private CacheControl cachePolicyFor(Long mediaId, String variant, boolean admin, Long previewJournalId) {
+        if (previewJournalId != null || "original".equals(variant)) return CacheControl.noStore();
+        // 匿名能拿到就说明它是公开的，不必再查一次；管理员身份下才需要确认
+        if (admin && !service.publiclyVisible(mediaId)) return CacheControl.noStore();
+        return CacheControl.maxAge(service.redirectCacheSeconds(), TimeUnit.SECONDS).cachePrivate();
     }
 }

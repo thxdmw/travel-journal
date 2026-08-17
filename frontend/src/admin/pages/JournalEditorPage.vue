@@ -63,6 +63,8 @@ const localDraftId = ref<number | null>(null)
  * 每次保存都带上它，服务端认出版本对不上就返回 409，而不是默默覆盖。
  */
 const revision = ref<number | null>(null)
+/** 作者是否自己选过发生日期。没选过就以服务端站点时区的「今天」为准。 */
+const occurredOnTouched = ref(false)
 const conflicted = ref(false)
 const trips = ref<TripOption[]>([]); const currentTrip = ref<Trip | null>(null); const stops = ref<TripStop[]>([]); const media = ref<MediaView[]>([])
 const templates = ref<JournalTemplate[]>([]); const themes = ref<ThemeView[]>([])
@@ -100,7 +102,14 @@ function ensureLocalDraft() { if (id.value == null && localDraftId.value == null
 /** 上次没写完的本机临时草稿（指针记的是负数才算）。 */
 function pendingLocalDraftId() { const last = localDraft.pointer(); const value = last == null ? NaN : Number(last.journalId); return Number.isFinite(value) && value < 0 ? value : null }
 
-function today() { return new Date().toLocaleDateString('sv-SE') }
+/*
+ * 设备时区的今天，只用来在页面上先显示点什么。
+ *
+ * 真正写进库里的「今天」由后端的 SiteClock 按 app.site.timezone 决定：人在东京或者
+ * 纽约的午夜前后，设备日期和站点日期会差一天，而这是同一个人的同一个站点，不该出现
+ * 两个「今天」。所以作者没自己选日期时不把这个值发上去，草稿建好后用服务端的值回填。
+ */
+function deviceToday() { return new Date().toLocaleDateString('sv-SE') }
 function statusLabel(status: JournalStatus) { return status === 'PUBLISHED' ? '已发布' : '草稿' }
 function stopOfDay(day: string) { return stops.value.find(item => (!item.arrivalDate || item.arrivalDate <= day) && (!item.departureDate || item.departureDate >= day)) || null }
 async function loadTravelData(value: number | null) {
@@ -139,11 +148,17 @@ async function ensureDraft(): Promise<boolean> {
 }
 async function createServerDraft(): Promise<boolean> {
   try {
-    const created = await journalApi.createDraft({ tripId: form.tripId, occurredOn: form.occurredOn || today() })
+    const created = await journalApi.createDraft({
+      tripId: form.tripId,
+      // 作者自己选过日期才发上去；没选就交给站点时区决定，别让设备时区替它做主
+      occurredOn: occurredOnTouched.value ? form.occurredOn : null,
+    })
     // 只取服务端才有资格决定的字段。整份 applyEntry 会把刚敲进去的标题和正文用空白响应盖掉。
     id.value = created.id
     revision.value = created.revision ?? null
     if (!form.slug) form.slug = created.slug
+    // 服务端按站点时区定的日期才是权威，回填覆盖掉之前按设备时区显示的那个
+    if (!occurredOnTouched.value && created.occurredOn) form.occurredOn = created.occurredOn
     await adoptLocalDraft(created.id)
     const from = typeof route.query.from === 'string' ? route.query.from : undefined
     await router.replace({ path: `/journals/${created.id}`, query: from ? { from } : {} })
@@ -173,7 +188,7 @@ async function load() {
     const [tripOptions, availableTemplates, availableThemes] = await Promise.all([tripApi.options(), templateApi.list(true), themeApi.list(true)])
     trips.value = tripOptions; templates.value = availableTemplates; themes.value = availableThemes
     if (id.value) { applyEntry(await journalApi.get(id.value)); media.value = await mediaApi.list(id.value) }
-    else form.occurredOn ||= today()
+    else form.occurredOn ||= deviceToday()
     if (form.tripId) await loadTravelData(form.tripId)
     if (!form.tripStopId) form.tripStopId = stopOfDay(form.occurredOn)?.id || null
     selectedTemplate.value = templates.value.find(item => item.id === form.templateId) || null
@@ -294,9 +309,9 @@ async function save(silent = false) {
   })
 }
 async function validatePublish() { try { await formRef.value?.validate(); return true } catch { metaCollapsed.value = false; return false } }
-async function publish() { flushEditor(); await nextTick(); if (!await validatePublish() || !await save(true) || !id.value) return; await enqueue(async () => { try { await journalApi.publish(id.value!); form.status = 'PUBLISHED'; dirty.value = false; if (hasPendingContent()) await localDraft.put(id.value, localSnapshot()); else await localDraft.remove(id.value); autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('日记已发布') } catch (error) { props.fail(error) } }) }
-async function updatePublished() { flushEditor(); await nextTick(); if (!await validatePublish() || !id.value) return; await enqueue(async () => { saving.value = true; const snapshot = serverBody(); try { await journalApi.update(id.value!, snapshot as Parameters<typeof journalApi.update>[1]); if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('公开文章已更新') } catch (error) { autoSaveState.value = 'failed'; props.fail(error) } finally { saving.value = false } }) }
-async function unpublish() { if (!id.value) return; await enqueue(async () => { try { await journalApi.unpublish(id.value!); form.status = 'DRAFT'; dirty.value = false; props.message('日记已撤回') } catch (error) { props.fail(error) } }) }
+async function publish() { flushEditor(); await nextTick(); if (!await validatePublish() || !await save(true) || !id.value) return; await enqueue(async () => { try { const published = await journalApi.publish(id.value!, revision.value); revision.value = published.revision ?? null; form.status = 'PUBLISHED'; dirty.value = false; if (hasPendingContent()) await localDraft.put(id.value, localSnapshot()); else await localDraft.remove(id.value); autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('日记已发布') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
+async function updatePublished() { flushEditor(); await nextTick(); if (!await validatePublish() || !id.value) return; await enqueue(async () => { saving.value = true; const snapshot = serverBody(); try { const saved = await journalApi.update(id.value!, snapshot as Parameters<typeof journalApi.update>[1]); revision.value = saved.revision ?? null; if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('公开文章已更新') } catch (error) { if (await handleConflict(error)) return; autoSaveState.value = 'failed'; props.fail(error) } finally { saving.value = false } }) }
+async function unpublish() { if (!id.value) return; await enqueue(async () => { try { const draft = await journalApi.unpublish(id.value!, revision.value); revision.value = draft.revision ?? null; form.status = 'DRAFT'; dirty.value = false; props.message('日记已撤回') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
 
 const uploadConcurrency = 3
 /**
@@ -458,7 +473,7 @@ onBeforeUnmount(async () => {
       <div class="editor-actions"><el-button @click="openTemplate">{{ form.templateId ? '填写模板' : '从模板开始' }}</el-button><template v-if="form.status === 'PUBLISHED'"><el-button @click="openPublished">查看文章</el-button><el-button @click="unpublish">撤回</el-button><el-button type="primary" :loading="saving" :disabled="!dirty" @click="updatePublished">更新发布</el-button></template><template v-else><el-button @click="openArticlePreview">预览全文</el-button><el-button :disabled="!id" @click="makePreviewLink">预览链接</el-button><el-button type="primary" @click="publish">发布日记</el-button></template></div>
       <button type="button" class="editor-preview-btn" aria-label="预览全文" @click="openArticlePreview">👁</button><button type="button" class="editor-more" aria-label="日记信息与更多操作" @click="metaOpen = true">···</button></div>
     <button type="button" class="editor-meta-toggle" :aria-expanded="!metaCollapsed" @click="metaCollapsed = !metaCollapsed"><span>{{ metaCollapsed ? (form.title || '日记信息') : '收起日记信息' }}</span><i class="editor-meta-toggle__chev" /></button>
-    <el-form ref="formRef" :model="form" :rules="rules" class="editor-meta-group editor-meta-form" :class="{ collapsed: metaCollapsed, 'is-open': metaOpen }"><div class="editor-meta-inner"><div class="editor-meta"><el-form-item prop="title"><el-input v-model="form.title" placeholder="日记标题（发布前必填）" /></el-form-item><el-form-item prop="tripId"><el-select v-model="form.tripId" filterable clearable placeholder="所属旅行（可选）"><el-option v-for="item in trips" :key="item.id" :label="item.title" :value="item.id" /></el-select></el-form-item><el-form-item v-if="form.tripId"><el-select v-model="form.tripStopId" clearable placeholder="城市（可选）"><el-option v-for="item in stops" :key="item.id" :label="item.cityName" :value="item.id" /></el-select></el-form-item><el-form-item prop="occurredOn"><el-date-picker v-model="form.occurredOn" :editable="allowTextInput" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="发生日期（必填）" /></el-form-item></div>
+    <el-form ref="formRef" :model="form" :rules="rules" class="editor-meta-group editor-meta-form" :class="{ collapsed: metaCollapsed, 'is-open': metaOpen }"><div class="editor-meta-inner"><div class="editor-meta"><el-form-item prop="title"><el-input v-model="form.title" placeholder="日记标题（发布前必填）" /></el-form-item><el-form-item prop="tripId"><el-select v-model="form.tripId" filterable clearable placeholder="所属旅行（可选）"><el-option v-for="item in trips" :key="item.id" :label="item.title" :value="item.id" /></el-select></el-form-item><el-form-item v-if="form.tripId"><el-select v-model="form.tripStopId" clearable placeholder="城市（可选）"><el-option v-for="item in stops" :key="item.id" :label="item.cityName" :value="item.id" /></el-select></el-form-item><el-form-item prop="occurredOn"><el-date-picker v-model="form.occurredOn" :editable="allowTextInput" format="YYYY年MM月DD日" value-format="YYYY-MM-DD" placeholder="发生日期（必填）" @change="occurredOnTouched = true" /></el-form-item></div>
       <div class="editor-meta editor-meta-secondary"><el-form-item><el-input v-model="form.excerpt" maxlength="500" :placeholder="excerptHint" /></el-form-item><el-form-item><el-select v-model="form.themeKey" clearable placeholder="继承旅行 / 全站主题"><el-option v-for="item in themes" :key="item.themeKey" :label="item.name" :value="item.themeKey" /></el-select></el-form-item></div>
       <div class="editor-tags"><el-tag v-for="tag in form.tags" :key="tag" closable disable-transitions @close="removeTag(tag)">{{ tag }}</el-tag><el-input v-model="tagInput" size="small" class="tag-input" placeholder="加标签，回车确认" @keyup.enter="addTag" /></div><details class="editor-advanced"><summary>高级</summary><el-form-item prop="slug" label="网址 slug"><el-input v-model="form.slug" placeholder="留空由系统生成" /></el-form-item></details><div v-if="previewLink" class="preview-link-bar"><span>预览链接：</span><code>{{ previewLink }}</code></div>
       <div class="editor-sheet-actions"><el-button @click="openArticlePreview">预览全文</el-button><el-button @click="metaOpen = false; openTemplate()">{{ form.templateId ? '填写模板' : '从模板开始' }}</el-button><template v-if="form.status === 'PUBLISHED'"><el-button @click="openPublished">查看文章</el-button><el-button @click="unpublish">撤回</el-button><el-button type="primary" :loading="saving" :disabled="!dirty" @click="metaOpen = false; updatePublished()">更新发布</el-button></template><template v-else><el-button :disabled="!id" @click="makePreviewLink">预览链接</el-button><el-button type="primary" @click="metaOpen = false; publish()">发布日记</el-button></template></div></div></el-form>

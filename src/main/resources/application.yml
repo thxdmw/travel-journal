@@ -13,6 +13,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  session:
+    jdbc:
+      # 建表交给 Flyway（V24），这里不要让 Spring Session 自己再建一次
+      initialize-schema: never
   servlet:
     multipart:
       max-file-size: ${APP_UPLOAD_MAX_FILE_SIZE_MB:20}MB
@@ -25,10 +29,15 @@ server:
   forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
   servlet:
     session:
-      timeout: 7d
+      # 30 天不活跃才过期，活跃会自动续期。手机上装成 PWA 偶尔用一次也不会掉线，
+      # 真丢了设备可以在「个人资料 → 登录设备」里远程踢下线。
+      timeout: ${SERVER_SESSION_TIMEOUT:30d}
       cookie:
         http-only: true
         same-site: lax
+        # 不设 max-age 的是会话 cookie，浏览器一关就没了 —— 这正是「每次打开 PWA
+        # 都要重新登录」的直接原因。和 session timeout 保持一致。
+        max-age: ${SERVER_SESSION_TIMEOUT:30d}
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
@@ -48,6 +57,11 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+    # 接口文档默认关闭：它会把每个接口的路径、参数和示例列清楚，
+    # 对一个公网上的个人站点来说等于白送一份地图。开发环境在 application-dev.yml 里打开。
+    enabled: ${SPRINGDOC_UI_ENABLED:false}
+  api-docs:
+    enabled: ${SPRINGDOC_UI_ENABLED:false}
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
   security:

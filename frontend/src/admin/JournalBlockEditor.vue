@@ -244,6 +244,8 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       watch([draftPreview,editorOpen],()=>nextTick(()=>{
         if(editorOpen.value&&previewEl.value)enhance(previewEl.value);
       }),{flush:'post'});
+      // 弹窗开合的那一刻就把 inset 调整到位，别等下一次 visualViewport 事件
+      watch([editorOpen,catalogOpen],()=>viewport());
       watch(()=>dataBinding.value?.selectedIds,()=>applyBinding(),{deep:true});
       watch(()=>dataBinding.value?.recordId,()=>applyBinding());
       watch(()=>dataBinding.value?.fields,()=>applyBinding(),{deep:true});
@@ -267,6 +269,8 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         commit();
       }
       function isInline(type:string){return INLINE_BLOCKS.includes(type);}
+      /** 文档里有没有能直接落笔的组件（正文、小标题、引用、提示卡）。 */
+      const hasWritableBlock=computed(()=>document.value.blocks.some(block=>isInline(block.type)));
       function placeholderOf(block:EditorBlock){return PLACEHOLDERS[block.type as keyof typeof PLACEHOLDERS]||'';}
       function inlineInput(event:Event){const target=event.target as HTMLTextAreaElement;autoGrow(target);scheduleCommit();keepInlineCaretVisible(target,60);}
       function inlineFocus(index:number,event:FocusEvent){focusedIndex.value=index;keepInlineCaretVisible(event.target as HTMLTextAreaElement,180);}
@@ -463,14 +467,35 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       function applyViewport(){
         viewportFrame=null;
         const vv=window.visualViewport,bottom=vv?Math.max(0,window.innerHeight-vv.height-vv.offsetTop):0;
-        const metrics=[Math.round(vv?vv.height:window.innerHeight),Math.round(bottom)].join(':');
+        /*
+         * 弹窗盖住整个编辑器时，底部 inset 冻结成 0。
+         *
+         * 打开弹窗会让 body 的 overflow 变化，移动浏览器顺势收起或展开地址栏，
+         * visualViewport 跟着变一次 —— 而 .editor-page 的 padding-bottom 和固定底栏
+         * .editor-toolbar 的 bottom 都挂在 --browser-bottom-inset 上，于是背后那一整页
+         * 在弹窗弹出的同一帧里重排，看起来就是「双击图片，页面闪一下」。
+         *
+         * 弹窗此刻盖住了工具栏，本来也不需要为浏览器底栏留位置；它自己靠
+         * --visual-viewport-height 适配软键盘，那个仍然照常更新。
+         */
+        const sheetOpen=editorOpen.value||catalogOpen.value;
+        const inset=sheetOpen?0:bottom;
+        const metrics=[Math.round(vv?vv.height:window.innerHeight),Math.round(inset)].join(':');
         if(metrics===lastViewportMetrics)return;
         lastViewportMetrics=metrics;
         window.document.documentElement.style.setProperty('--visual-viewport-height',(vv?vv.height:window.innerHeight)+'px');
-        window.document.documentElement.style.setProperty('--browser-bottom-inset',bottom+'px');
+        window.document.documentElement.style.setProperty('--browser-bottom-inset',inset+'px');
         const active=window.document.activeElement;
         if(active instanceof HTMLTextAreaElement&&active.matches('[data-inline-input]'))keepInlineCaretVisible(active,40);
-        else if(editorOpen.value&&active&&/INPUT|TEXTAREA/.test(active.tagName))ensureVisible();
+        /*
+         * 只有弹窗自己的输入框才把光标滚进可视区。
+         *
+         * 少了 closest 这一层，正文里任何一个还聚着焦的输入框都会在弹窗打开时触发一次
+         * scrollIntoView({behavior:'smooth'}) —— 滚的是背后那一整页，看起来就是「双击
+         * 图片，页面闪一下」。文档末尾那个「直接开始写」的输入框正好是这种情况。
+         */
+        else if(editorOpen.value&&active instanceof HTMLElement
+          &&/INPUT|TEXTAREA/.test(active.tagName)&&active.closest('.el-dialog'))ensureVisible();
       }
       function viewport(){if(viewportFrame==null)viewportFrame=requestAnimationFrame(applyViewport);}
       function selectedMedia(item:MediaView){
@@ -591,11 +616,6 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
 
 <template>
       <div class="block-editor">
-        <div v-if="!document.blocks.length" class="block-inline block-inline--ghost">
-          <textarea
-class="block-inline-input block-inline-input--paragraph" rows="1"
-            placeholder="今天发生了什么？直接开始写，回车可以换行。" @input="startWriting"></textarea>
-        </div>
         <template v-for="(block,index) in document.blocks" :key="block.id">
           <div class="block-insert-line"><button type="button" aria-label="在这里添加内容" @click="openCatalog(index)">＋</button></div>
 
@@ -661,6 +681,18 @@ v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType
             <!-- eslint-enable vue/no-v-html -->
           </article>
         </template>
+        <!--
+          还没有任何能直接落笔的组件时，末尾始终留一个可以直接写的输入框。
+
+          以前这里的条件是「文档为空」，于是先传一张图再想写字的人会发现输入框没了，
+          得先去点「＋正文」——而「点开写日记就能直接打字」正是这个编辑器的前提。
+          已经有段落时不显示：那时点任意一段就能接着写，再多一个空框只会碍事。
+        -->
+        <div v-if="!hasWritableBlock" class="block-inline block-inline--ghost">
+          <textarea
+class="block-inline-input block-inline-input--paragraph" rows="1"
+            placeholder="今天发生了什么？直接开始写，回车可以换行。" @input="startWriting"></textarea>
+        </div>
         <div v-if="document.blocks.length" class="block-insert-line block-insert-line--last"><button type="button" @click="openCatalog(document.blocks.length)">＋</button><span>添加内容</span></div>
 
         <el-dialog v-model="catalogOpen" :title="catalogMode==='quick'?'添加内容':'全部内容类型'" width="min(880px,94vw)" class="block-catalog-dialog" append-to-body align-center destroy-on-close>

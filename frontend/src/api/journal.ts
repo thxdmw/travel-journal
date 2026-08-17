@@ -49,9 +49,18 @@ export const journalApi = {
   /** 删除前调用，用于在确认弹窗里说明会连带删除多少张图。 */
   mediaCount: (id: number) => get<{ count: number }>('/admin/journals/' + id + '/media-count'),
 
-  publish: (id: number) => post<JournalEntry>('/admin/journals/' + id + '/publish'),
+  /*
+   * 发布和撤回也要带版本号。
+   *
+   * 状态转换以前完全在乐观锁之外：不看版本也不递增版本，于是一次并发的自动保存
+   * 能拿着「发布前」的版本号照样匹配成功，把刚发布的文章连同发布时间一起写回草稿。
+   * 正文保存和状态转换必须用同一套并发协议。
+   */
+  publish: (id: number, expectedRevision?: number | null) =>
+    post<JournalEntry>('/admin/journals/' + id + '/publish', { expectedRevision }),
 
-  unpublish: (id: number) => post<JournalEntry>('/admin/journals/' + id + '/unpublish'),
+  unpublish: (id: number, expectedRevision?: number | null) =>
+    post<JournalEntry>('/admin/journals/' + id + '/unpublish', { expectedRevision }),
 
   createPreviewLink: (id: number) => post<PreviewLink>('/admin/journals/' + id + '/preview-link'),
 

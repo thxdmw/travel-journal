@@ -46,7 +46,7 @@ body { font-size: 10px; }
   min-height: 0;
   aspect-ratio: 16/9;
   border-radius: var(--tj-image-radius);
-  background: var(--tj-hero-image, url('/img/home-hero-kyoto.png')) center/cover;
+  background: var(--tj-hero-image, url('/img/home-hero-kyoto-960.webp')) center/cover;
   box-shadow: var(--tj-shadow-soft);
 }
 

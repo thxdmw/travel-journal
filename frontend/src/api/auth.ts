@@ -1,7 +1,8 @@
-import { get, post, put, upload } from './client'
+import { del, get, post, put, upload } from './client'
 import type {
   AdminInfo,
   ChangePasswordRequest,
+  LoginDevice,
   LoginRequest,
   ProfileUpdate,
 } from '@/types/auth'
@@ -30,4 +31,17 @@ export const authApi = {
   /** mode 传 AUTO 表示跟随季节，此时 themeKey 可以为空；不传就是锁定这一套。 */
   changeTheme: (themeKey: string | null, mode?: ThemeMode) =>
     put<ProfileUpdate>('/admin/profile/theme', { themeKey, mode }),
+
+  /*
+   * 已登录设备。
+   *
+   * 会话存在数据库里，所以这份列表就是设备清单本身——踢掉一台，它下一次请求就是未登录，
+   * 不存在「记录删了但人还在线」的中间状态。
+   */
+  devices: () => get<LoginDevice[]>('/admin/profile/devices'),
+
+  revokeDevice: (sessionId: string) =>
+    del<void>('/admin/profile/devices/' + encodeURIComponent(sessionId)),
+
+  revokeOtherDevices: () => del<{ removed: number }>('/admin/profile/devices'),
 }

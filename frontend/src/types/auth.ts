@@ -1,3 +1,4 @@
+import type { IsoDateTimeString } from './common'
 import type { ThemeMode, ThemeView } from './theme'
 
 /** 登录态里的管理员信息，对应后端 `AuthController.AdminInfo`。 */
@@ -33,4 +34,16 @@ export interface PublicProfile {
   avatarUrl: string | null
   themeKey: string | null
   theme: ThemeView | null
+}
+
+/** 一台已登录的设备，对应 `LoginDeviceService.LoginDevice`。 */
+export interface LoginDevice {
+  /** 会话标识，用来远程登出这一台。 */
+  sessionId: string
+  deviceName: string
+  ip: string | null
+  loggedInAt: IsoDateTimeString
+  lastActiveAt: IsoDateTimeString
+  /** 是不是当前正在用的这一台。 */
+  current: boolean
 }

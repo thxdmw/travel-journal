@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { authApi } from '@/api/auth'
 import { backupApi } from '@/api/template'
-import type { AdminInfo, ProfileUpdate } from '@/types/auth'
+import type { AdminInfo, LoginDevice, ProfileUpdate } from '@/types/auth'
 
 export interface ProfilePageDeps {
   session: { user: AdminInfo | null }
   updateUser(user: AdminInfo): void
   message(text: string): void
   fail(error: unknown): void
+  confirm(text: string): Promise<unknown>
 }
 
 const props = defineProps<ProfilePageDeps>()
@@ -17,6 +18,8 @@ const uploading = ref(false)
 const changingPassword = ref(false)
 const password = reactive({ currentPassword: '', newPassword: '', confirmPassword: '' })
 const avatarUrl = computed(() => props.session.user?.avatarUrl)
+const devices = ref<LoginDevice[]>([])
+const loadingDevices = ref(false)
 const editingName = ref(false)
 const nameDraft = ref('')
 const savingName = ref(false)
@@ -65,13 +68,69 @@ async function changePassword() {
     password.currentPassword = ''
     password.newPassword = ''
     password.confirmPassword = ''
-    props.message('密码修改成功')
+    props.message('密码修改成功，其他设备已退出登录')
+    await loadDevices()
   } catch (error) {
     props.fail(error)
   } finally {
     changingPassword.value = false
   }
 }
+
+/*
+ * ============================================================ 登录设备
+ *
+ * 会话存在数据库里，这份列表就是设备清单本身。踢掉一台，它下一次请求就是未登录。
+ */
+
+async function loadDevices() {
+  loadingDevices.value = true
+  try {
+    devices.value = await authApi.devices()
+  } catch (error) {
+    props.fail(error)
+  } finally {
+    loadingDevices.value = false
+  }
+}
+
+async function revokeDevice(device: LoginDevice) {
+  try {
+    await props.confirm(`确定让「${device.deviceName}」退出登录吗？`)
+  } catch {
+    return
+  }
+  try {
+    await authApi.revokeDevice(device.sessionId)
+    props.message('该设备已退出登录')
+    await loadDevices()
+  } catch (error) {
+    props.fail(error)
+  }
+}
+
+async function revokeOthers() {
+  try {
+    await props.confirm('确定让其他所有设备退出登录吗？当前这台不受影响。')
+  } catch {
+    return
+  }
+  try {
+    const result = await authApi.revokeOtherDevices()
+    props.message(result.removed ? `已让 ${result.removed} 台设备退出登录` : '没有其他设备在登录')
+    await loadDevices()
+  } catch (error) {
+    props.fail(error)
+  }
+}
+
+/** 列表里时间只需要看个大概，精确到分钟就够。 */
+function moment(value: string): string {
+  const at = new Date(value)
+  return Number.isNaN(at.getTime()) ? '—' : at.toLocaleString('zh-CN', { hour12: false }).replace(/:\d{2}$/, '')
+}
+
+onMounted(loadDevices)
 
 function startEditName() {
   nameDraft.value = props.session.user?.displayName || ''
@@ -137,6 +196,22 @@ function download(includePhotos: boolean) {
           <el-form-item label="确认新密码"><el-input v-model="password.confirmPassword" type="password" show-password autocomplete="new-password" /></el-form-item>
           <el-button type="primary" :loading="changingPassword" @click="changePassword">确认修改</el-button>
         </el-form>
+      </section>
+      <section class="panel panel-pad device-card"><h3>登录设备</h3>
+        <p>这里列出当前所有保持登录的设备。手机丢了、或者在别人电脑上登录过忘了退出，都可以在这里让它立刻掉线。</p>
+        <div v-loading="loadingDevices" class="device-list">
+          <article v-for="device in devices" :key="device.sessionId" class="device-item" :class="{ 'is-current': device.current }">
+            <div class="device-main">
+              <strong>{{ device.deviceName }}<span v-if="device.current" class="device-badge">本机</span></strong>
+              <small>{{ device.ip || '未知地址' }} · 登录于 {{ moment(device.loggedInAt) }}</small>
+              <small>最近活跃 {{ moment(device.lastActiveAt) }}</small>
+            </div>
+            <el-button v-if="!device.current" link type="danger" size="small" @click="revokeDevice(device)">退出登录</el-button>
+          </article>
+          <el-empty v-if="!devices.length && !loadingDevices" :image-size="48" description="没有其他登录记录" />
+        </div>
+        <el-button v-if="devices.length > 1" type="danger" plain @click="revokeOthers">让其他设备全部退出</el-button>
+        <small>修改密码时也会自动让其他设备退出登录。</small>
       </section>
       <section class="panel panel-pad backup-card"><h3>备份导出</h3>
         <p>把全部旅行、行程、预算和日记导出成一个 zip：每篇日记一份可恢复的 Block JSON，照片按日记分目录，另有 manifest.json 保存完整结构化数据。</p>

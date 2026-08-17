@@ -34,6 +34,8 @@ class JournalServiceTest {
         mapper=mock(JournalMapper.class);mediaMapper=mock(JournalMediaMapper.class);
         tripMapper=mock(TripMapper.class);Trip trip=new Trip();trip.setId(1L);
         when(tripMapper.selectById(1L)).thenReturn(trip);
+        // 带 CAS 条件的写回会检查影响行数；默认让它成功，需要模拟冲突的用例自己改成 0
+        when(mapper.update(any(JournalEntry.class),any())).thenReturn(1);
         service=new JournalService(mapper,tripMapper,mock(TripStopMapper.class),mediaMapper);
     }
 
@@ -126,10 +128,115 @@ class JournalServiceTest {
 
     /** 本次写回真正被 set 成 NULL 的列。 */
     private String capturedClearedColumns(){
+        return capturedWrapper().getSqlSet();
+    }
+
+    private com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<JournalEntry> capturedWrapper(){
         ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<JournalEntry>> captor=
                 ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
         verify(mapper).update(any(JournalEntry.class),captor.capture());
-        return ((com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<JournalEntry>)captor.getValue()).getSqlSet();
+        return (com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<JournalEntry>)captor.getValue();
+    }
+
+    /** 本次写回的 WHERE 条件（列名和参数值）。 */
+    private String capturedConditionSql(){
+        var wrapper=capturedWrapper();
+        String sql=wrapper.getSqlSegment();
+        for(var entry:wrapper.getParamNameValuePairs().entrySet())
+            sql=sql.replace("#{ew.paramNameValuePairs."+entry.getKey()+"}",String.valueOf(entry.getValue()));
+        return sql;
+    }
+
+    /*
+     * ============================================================ 并发协议
+     *
+     * 正文保存和状态转换必须用同一套并发控制。以前发布走的是不带任何条件的 updateById，
+     * 既不看版本也不递增版本，于是一次晚到的自动保存能拿着「发布前」的版本号照样匹配成功，
+     * 把刚发布的文章连同 published_at 一起写回草稿。
+     */
+
+    @Test
+    void publishGuardsOnBothDraftStatusAndRevision(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(entry);
+
+        service.publish(9L,10);
+
+        String where=capturedConditionSql();
+        assertThat(where).contains("status").contains("DRAFT").contains("revision").contains("10");
+        // 状态转换也必须推进版本号，否则并发的自动保存拿着旧版本仍然能匹配上
+        assertThat(capturedClearedColumns()).contains("revision = revision + 1");
+    }
+
+    @Test
+    void guardedWriteAssignsRevisionExactlyOnce(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setStatus("DRAFT");
+        // 发布传进来的实体是从库里读出来的，revision 带着值
+        entry.setRevision(12);
+        when(mapper.selectById(9L)).thenReturn(entry);
+
+        service.publish(9L,12);
+
+        /*
+         * 实体上每个非 null 字段都会生成一列 SET。revision 要是留着值，一条 UPDATE 里就会
+         * 同时出现 revision=? 和 revision = revision + 1，PostgreSQL 直接报
+         * multiple assignments to same column —— 发布会 500。
+         */
+        ArgumentCaptor<JournalEntry> captor=ArgumentCaptor.forClass(JournalEntry.class);
+        verify(mapper).update(captor.capture(),any());
+        assertThat(captor.getValue().getRevision()).isNull();
+        assertThat(capturedClearedColumns()).contains("revision = revision + 1");
+    }
+
+    @Test
+    void publishOnAnAlreadyPublishedEntryConflictsInsteadOfOverwriting(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(entry);
+        // 另一个请求先一步把它发布了：带 status='DRAFT' 的 UPDATE 匹配不到任何行
+        when(mapper.update(any(JournalEntry.class),any())).thenReturn(0);
+
+        assertThatThrownBy(()->service.publish(9L,10))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("已经被改过");
+    }
+
+    @Test
+    void draftSaveLosesToAConcurrentPublishInsteadOfRevertingIt(){
+        JournalEntry stored=validEntry();stored.setId(9L);stored.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(stored);
+        // 读到的还是 DRAFT，但真正 UPDATE 时那一行已经是 PUBLISHED 了
+        when(mapper.update(any(JournalEntry.class),any())).thenReturn(0);
+        JournalEntry input=new JournalEntry();input.setTitle("晚到的自动保存");
+
+        assertThatThrownBy(()->service.updateDraft(9L,input,
+                new JournalService.DraftPatch(java.util.Set.of("title"),false,10)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("已经被改过");
+        // 关键：不能把已发布的文章写回草稿
+        assertThat(capturedConditionSql()).contains("status").contains("DRAFT");
+    }
+
+    @Test
+    void unpublishRequiresPublishedStatusAndClearsPublishedAt(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setStatus("PUBLISHED");
+        entry.setPublishedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        when(mapper.selectById(9L)).thenReturn(entry);
+
+        service.unpublish(9L,7);
+
+        assertThat(capturedConditionSql()).contains("status").contains("PUBLISHED").contains("7");
+        assertThat(capturedClearedColumns()).contains("published_at");
+    }
+
+    @Test
+    void statusIsGuardedEvenWhenTheClientSendsNoRevision(){
+        JournalEntry entry=validEntry();entry.setId(9L);entry.setStatus("DRAFT");
+        when(mapper.selectById(9L)).thenReturn(entry);
+
+        service.publish(9L,null);
+
+        // 老客户端不带版本号时，至少不能让状态已经变过的写入蒙混过关
+        assertThat(capturedConditionSql()).contains("status").contains("DRAFT");
     }
 
     @Test
@@ -220,7 +327,8 @@ class JournalServiceTest {
 
         assertThat(published.getStatus()).isEqualTo("PUBLISHED");
         assertThat(published.getTripId()).isNull();
-        verify(mapper).updateById(entry);
+        // 发布也走带条件的 UPDATE，不再是无条件 updateById
+        verify(mapper).update(any(JournalEntry.class),any());
     }
 
     @Test
@@ -262,7 +370,7 @@ class JournalServiceTest {
         assertThatThrownBy(()->service.updateDraft(9L,input,
                 new JournalService.DraftPatch(java.util.Set.of("title"),false,4)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("更新的版本");
+                .hasMessageContaining("已经被改过");
     }
 
     @Test
@@ -310,6 +418,30 @@ class JournalServiceTest {
         assertThat(service.staleEmptyDraftIds(Duration.ofHours(24))).containsExactly(11L);
         // 图片只问一次，不按草稿篇数发查询
         verify(mediaMapper,times(1)).selectList(any());
+    }
+
+    @Test
+    void aDraftThatCameBackToLifeIsNotDeletedEvenThoughItWasACandidate(){
+        // 扫描时是空的，但作者在这一轮循环里回来写了两段并保存了
+        JournalEntry revived=emptyDraft(11L);
+        revived.setTitle("刚写的标题");
+        revived.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        when(mapper.selectOne(any())).thenReturn(revived);
+
+        assertThat(service.deleteIfStillStaleEmpty(11L,OffsetDateTime.now(ZoneOffset.UTC).minusHours(24))).isFalse();
+        verify(mapper,never()).deleteById(any(Long.class));
+    }
+
+    @Test
+    void aStillEmptyDraftIsDeletedAfterTheRecheck(){
+        JournalEntry stale=emptyDraft(11L);
+        stale.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC).minusHours(30));
+        when(mapper.selectOne(any())).thenReturn(stale);
+        when(mapper.selectById(11L)).thenReturn(stale);
+        when(mediaMapper.selectCount(any())).thenReturn(0L);
+
+        assertThat(service.deleteIfStillStaleEmpty(11L,OffsetDateTime.now(ZoneOffset.UTC).minusHours(24))).isTrue();
+        verify(mapper).deleteById(11L);
     }
 
     @Test

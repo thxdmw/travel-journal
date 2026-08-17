@@ -19,7 +19,7 @@ const demo = {
     { id: 'demo_summary', type: 'day-summary', version: 1, title: '', data: { items: [{ icon: '☀', label: '今日天气', value: '晴朗' }, { icon: '↟', label: '走过', value: '12 km' }] }, settings: {} },
   ],
 }
-const media = [{ id: 1, thumbnailUrl: '/img/home-hero-kyoto.png', mediumUrl: '/img/home-hero-kyoto.png', displayUrl: '/img/home-hero-kyoto.png' }]
+const media = [{ id: 1, thumbnailUrl: '/img/home-hero-kyoto-960.webp', mediumUrl: '/img/home-hero-kyoto-960.webp', displayUrl: '/img/home-hero-kyoto.webp' }]
 const root = document.querySelector<HTMLElement>('#demo')
 if (!root) throw new Error('主题卡片预览缺少 #demo 根节点')
 root.innerHTML = render(demo, media)

@@ -61,9 +61,33 @@ class MediaPrivacyTest {
                 new AppProperties.Admin("admin", "password", "旅行者"),
                 new AppProperties.Upload(20, 50, 50_000_000),
                 new AppProperties.Minio("http://localhost:9000", "key", "secret", "travel-journal", 60));
+        MediaService[] holder = new MediaService[1];
         service = new MediaService(assetMapper, relationMapper, visibilityMapper, mock(JournalMapper.class),
                 new JournalDocumentService(new ObjectMapper()), mock(TripMapper.class), mock(TripStopMapper.class),
-                minio, properties, new SiteClock(properties));
+                minio, properties, SelfProviders.of(holder), new SiteClock(properties));
+        holder[0] = service;
+    }
+
+    /*
+     * ============================================================ 缓存边界
+     *
+     * 公开图片和草稿图片共用同一个 /api/media/ 地址。Service Worker 曾经把除 original
+     * 和预览令牌以外的所有图片都按 cache-first 存进 Cache Storage——管理员在后台看过的
+     * 草稿图会留在设备上，退出登录后再访问同一个 URL 直接命中缓存，不再经过任何鉴权。
+     */
+
+    @Test
+    void draftImagesMustNotBeCacheable() {
+        when(visibilityMapper.countPublishedReferences(7L)).thenReturn(0L);
+
+        assertThat(service.publiclyVisible(7L)).isFalse();
+    }
+
+    @Test
+    void publishedImagesStayCacheable() {
+        when(visibilityMapper.countPublishedReferences(7L)).thenReturn(1L);
+
+        assertThat(service.publiclyVisible(7L)).isTrue();
     }
 
     private MediaAsset asset() {
@@ -192,8 +216,10 @@ class MediaPrivacyTest {
                 new AppProperties.Admin("admin", "password", "旅行者"),
                 new AppProperties.Upload(20, 50, 50_000_000),
                 new AppProperties.Minio("http://localhost:9000", "key", "secret", "travel-journal", 60));
-        return new MediaService(assetMapper, relationMapper, visibilityMapper, journalMapper,
+        MediaService[] holder = new MediaService[1];
+        holder[0] = new MediaService(assetMapper, relationMapper, visibilityMapper, journalMapper,
                 new JournalDocumentService(new ObjectMapper()), mock(TripMapper.class), mock(TripStopMapper.class),
-                minio, properties, new SiteClock(properties));
+                minio, properties, SelfProviders.of(holder), new SiteClock(properties));
+        return holder[0];
     }
 }

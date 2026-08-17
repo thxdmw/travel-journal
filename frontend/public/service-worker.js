@@ -123,12 +123,23 @@ async function staleWhileRevalidate(request) {
   return Response.error();
 }
 
+/**
+ * 服务端说了不许存，就不存。
+ *
+ * 公开图片和草稿图片共用同一个 /api/media/ 地址，区别只在响应头里：非公开的那些
+ * 带 Cache-Control: no-store。光靠 URL 形状分辨不出来，所以以服务端的判断为准。
+ */
+function storable(response) {
+  const control = response.headers.get('Cache-Control') || '';
+  return !/no-store/i.test(control);
+}
+
 async function cacheFirst(request) {
   const cache = await caches.open(MEDIA_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response && response.ok) {
+  if (response && response.ok && storable(response)) {
     await cache.put(request, response.clone());
     trim(MEDIA_CACHE, MEDIA_LIMIT);
   }
@@ -153,9 +164,13 @@ self.addEventListener('fetch', event => {
      *                可能不只自己在用的设备上，而且删掉日记之后它还在。
      *   previewToken 草稿预览链接授权的图片。令牌会过期、会被作者撤销，
      *                缓存一份就等于把撤销这件事架空了。
+     *
+     * 草稿图片的 display/medium/thumbnail 从 URL 上和公开图片长得一模一样，这里
+     * 拦不住。管理员在后台看过的草稿图曾经会被存进 Cache Storage，退出登录后
+     * cache-first 直接命中，不再经过任何鉴权。所以真正的判断交给 cacheFirst，
+     * 按服务端下发的 Cache-Control 决定存不存。
      */
     if (url.pathname.endsWith('/original') || url.searchParams.has('previewToken')) return;
-    // 其余图片内容不会变（换图会换 id），拿到就一直有效
     event.respondWith(cacheFirst(request));
     return;
   }

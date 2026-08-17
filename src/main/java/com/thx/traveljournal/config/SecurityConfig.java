@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.auth.service.AdminUserDetailsService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -30,6 +32,19 @@ import java.nio.charset.StandardCharsets;
 public class SecurityConfig {
     private final ObjectMapper objectMapper;
     private final AdminUserDetailsService userDetailsService;
+
+    /**
+     * 接口文档是否对外开放。
+     *
+     * <p>生产环境默认关掉：Swagger 页面会把每一个接口的路径、参数和示例列清楚，
+     * 对个人站点来说这是白送给扫描器的一份地图。开发环境照常可用。</p>
+     */
+    @Value("${springdoc.swagger-ui.enabled:false}")
+    private boolean apiDocsEnabled;
+
+    private static String[] apiDocsMatchers() {
+        return new String[] { "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**" };
+    }
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -77,9 +92,20 @@ public class SecurityConfig {
                             // 是先加载它们、再谈登录状态的
                             "/manifest.json", "/service-worker.js",
                             "/favicon.ico", "/api/public/**", "/api/media/**",
-                            "/api/admin/auth/login", "/api/admin/auth/session", "/actuator/health", "/actuator/info",
-                            "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                            "/api/admin/auth/login", "/api/admin/auth/session", "/actuator/health", "/actuator/info")
+                            .permitAll()
+                    .requestMatchers(apiDocsMatchers()).access((authentication, context) ->
+                            new AuthorizationDecision(apiDocsEnabled))
                     .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                    /*
+                     * API 默认拒绝。
+                     *
+                     * 上面没有显式放行、也不在 /api/admin/** 里的 /api/ 路径一律拒掉。以前这里是
+                     * anyRequest().permitAll()，于是新加一个 /api/foo 只要忘了配 Security，
+                     * 它就直接对全世界开放——而「忘了配」是不会有任何报错提醒的。
+                     */
+                    .requestMatchers("/api/**").denyAll()
+                    // 前端是 SPA，其余路径要交给静态资源和 history 回退处理
                     .anyRequest().permitAll())
             .exceptionHandling(ex -> ex
                     .authenticationEntryPoint((request, response, error) -> {

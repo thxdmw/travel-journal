@@ -34,6 +34,8 @@ class MediaServiceTest {
         JournalEntry journal = new JournalEntry();
         journal.setId(3L); journal.setTripId(null);
         when(journalMapper.selectById(3L)).thenReturn(journal);
+        // 分配 sortOrder 前会 SELECT ... FOR UPDATE 锁住日记行
+        when(journalMapper.selectOne(any())).thenReturn(journal);
         when(relationMapper.selectCount(any())).thenReturn(0L);
 
         AtomicReference<MediaAsset> stored = new AtomicReference<>();
@@ -51,10 +53,12 @@ class MediaServiceTest {
                 new AppProperties.Admin("admin", "password", "旅行者"),
                 new AppProperties.Upload(20, 50, 50_000_000),
                 new AppProperties.Minio("http://localhost:9000", "key", "secret", "travel-journal", 60));
+        MediaService[] holder = new MediaService[1];
         MediaService service = new MediaService(assetMapper, relationMapper, mock(MediaVisibilityMapper.class),
                 journalMapper, new JournalDocumentService(new ObjectMapper()), mock(TripMapper.class),
                 mock(com.thx.traveljournal.trip.mapper.TripStopMapper.class), minio, properties,
-                new com.thx.traveljournal.common.util.SiteClock(properties));
+                SelfProviders.of(holder), new com.thx.traveljournal.common.util.SiteClock(properties));
+        holder[0] = service;
 
         BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream output = new ByteArrayOutputStream();

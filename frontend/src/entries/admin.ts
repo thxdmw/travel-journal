@@ -77,7 +77,7 @@ const pages={
   JournalManager:createJournalManagerPage({message,fail,confirm}),
   TemplateManager:createTemplateManagerPage({message,warning,fail,confirm}),
   Theme:createThemeStudioPage({session,updateUser,message,fail,confirm}),
-  Profile:createProfilePage({session,updateUser,message,fail}),
+  Profile:createProfilePage({session,updateUser,message,fail,confirm}),
   TagManager:createTagManagerPage({message,fail,confirm,warning}),
 }
 const routes:RouteRecordRaw[]=[

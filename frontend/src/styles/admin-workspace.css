@@ -195,7 +195,19 @@
 [data-density="compact"] .panel-pad { padding:17px; }
 .profile-grid { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr); gap:20px; max-width:960px; }
 .profile-card,.password-card { align-self:start; }
-.profile-card h3,.password-card h3 { margin:0 0 20px; color:var(--tj-primary); font:700 21px var(--tj-serif); }
+.profile-card h3,.password-card h3,.device-card h3 { margin:0 0 20px; color:var(--tj-primary); font:700 21px var(--tj-serif); }
+
+/* 登录设备。会话表就是设备清单，这里只负责让「哪台是本机、哪台该踢掉」一眼看清。 */
+.device-card p { color:var(--tj-muted); font-size:13px; line-height:1.75; }
+.device-card > small { display:block; margin-top:10px; color:var(--tj-muted); font-size:12px; }
+.device-list { margin:14px 0; display:flex; flex-direction:column; gap:8px; }
+.device-item { display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:10px 12px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-sm,8px); }
+.device-item.is-current { border-color:var(--tj-primary); background:color-mix(in srgb,var(--tj-primary) 5%,transparent); }
+.device-main { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.device-main strong { display:flex; align-items:center; gap:6px; font-size:14px; }
+.device-main small { color:var(--tj-muted); font-size:12px; word-break:break-all; }
+.device-badge { padding:1px 6px; border-radius:999px; background:var(--tj-primary); color:#fff; font:600 11px/1.6 var(--tj-sans,inherit); }
 .profile-card { display:flex; flex-direction:column; align-items:center; text-align:center; gap:14px; }
 .profile-card p { margin:5px 0 0; color:var(--tj-muted); }
 .profile-card small { color:var(--tj-muted); line-height:1.6; }
@@ -228,6 +240,7 @@
   .theme-setting-grid,.theme-color-grid { grid-template-columns:1fr; }
   .theme-designer-dialog .el-dialog__footer { padding:10px 12px; }
   .trip-list,.theme-grid,.profile-grid { grid-template-columns:1fr; }
+  .device-item { flex-wrap:wrap; align-items:flex-start; }
   .dashboard-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-bottom:12px; }
   .metric { padding:9px 4px; text-align:center; }
   .metric span { font-size:11px; white-space:nowrap; }

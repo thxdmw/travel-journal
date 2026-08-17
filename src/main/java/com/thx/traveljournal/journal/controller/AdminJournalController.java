@@ -68,7 +68,12 @@ public class AdminJournalController {
                                  Long templateId,
                                  Integer templateVersion,
                                  /** 标签名列表，传 null 表示不改动标签，传空列表表示清空 */
-                                 List<String> tags) {}
+                                 List<String> tags,
+                                 /** 客户端手上这份的版本号；不匹配时返回 409 而不是覆盖 */
+                                 Integer expectedRevision) {}
+
+    /** 只带版本号的请求体，用于发布和撤回这类纯状态转换。 */
+    public record RevisionRequest(Integer expectedRevision) {}
 
     /**
      * 开一篇空草稿的请求体，三个字段都可以缺席。
@@ -182,7 +187,8 @@ public class AdminJournalController {
     }
     @PutMapping("/{id}")
     public ApiResponse<JournalEntry> update(@PathVariable Long id, @Valid @RequestBody JournalRequest request) {
-        return ApiResponse.ok(service.updateWithTags(id, toEntity(request), request.tags()));
+        return ApiResponse.ok(service.updateWithTags(id, toEntity(request), request.tags(),
+                request.expectedRevision()));
     }
 
     /** 日记下的图片张数，前端删除前调用，用于在确认弹窗里说明会连带删除多少张图。 */
@@ -241,9 +247,15 @@ public class AdminJournalController {
     }
 
     @PostMapping("/{id}/publish")
-    public ApiResponse<JournalEntry> publish(@PathVariable Long id) { return ApiResponse.ok(service.publish(id)); }
+    public ApiResponse<JournalEntry> publish(@PathVariable Long id,
+                                             @RequestBody(required = false) RevisionRequest request) {
+        return ApiResponse.ok(service.publish(id, request == null ? null : request.expectedRevision()));
+    }
     @PostMapping("/{id}/unpublish")
-    public ApiResponse<JournalEntry> unpublish(@PathVariable Long id) { return ApiResponse.ok(service.unpublish(id)); }
+    public ApiResponse<JournalEntry> unpublish(@PathVariable Long id,
+                                               @RequestBody(required = false) RevisionRequest request) {
+        return ApiResponse.ok(service.unpublish(id, request == null ? null : request.expectedRevision()));
+    }
 
     /** 把请求体转成实体，顺便校验并归一化主题选择（选了不存在或已停用的主题会被拒绝）。 */
     private JournalEntry toEntity(JournalRequest request) {

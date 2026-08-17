@@ -1,6 +1,7 @@
 package com.thx.traveljournal.media.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.exif.ExifIFD0Directory;
@@ -25,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import org.apache.tika.Tika;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -78,6 +80,14 @@ public class MediaService {
     private final com.thx.traveljournal.trip.mapper.TripStopMapper tripStopMapper;
     private final MinioClient minioClient;
     private final AppProperties properties;
+    /*
+     * 自身的代理引用。
+     *
+     * 上传的重活（解码、压缩、MinIO）必须在事务外做，落库那一小段才需要事务。同一个类里
+     * 直接调用带 @Transactional 的方法会绕过代理，注解形同虚设，所以要拿到代理再调。
+     * ObjectProvider 是延迟解析的，不会造成构造期循环依赖。
+     */
+    private final ObjectProvider<MediaService> self;
     private final SiteClock clock;
     private final Tika tika = new Tika();
 
@@ -173,24 +183,70 @@ public class MediaService {
      *
      * @param caption 图片说明，可为空
      */
-    @Transactional
     public MediaView upload(Long journalId, MultipartFile file, String caption) {
         JournalEntry journal = requireJournal(journalId);
-        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, journalId));
-        if (count >= properties.upload().maxImagesPerJournal()) throw BusinessException.badRequest("单篇日记图片数量已达上限");
-
         String keyPrefix = journal.getTripId() == null
                 ? "journals/" + journalId + "/"
                 : "trips/" + journal.getTripId() + "/journals/" + journalId + "/";
-        MediaAsset asset = storeImage(file, keyPrefix);
+
+        /*
+         * 阶段 A：解码、转向、压出四个规格、传进对象存储——全程不占数据库连接。
+         *
+         * 这段以前是包在事务里的。编辑器默认 3 条并发上传，几个人同时写日记就是十来个
+         * 连接被压图和 MinIO 网络往返占着，而 Hikari 池一共只有 10 个，其余查询只能排队。
+         */
+        PreparedImage prepared = prepareImage(file, keyPrefix);
+
+        /*
+         * 阶段 B：极短事务，锁住日记行之后再计数、分配序号、写两张表。
+         *
+         * 事务失败时对象存储里已经有四个文件了，必须补偿删掉——宁可多删一次
+         * （cleanup 本身对不存在的 key 是幂等的），也不能让库里指向不存在的文件。
+         */
+        try {
+            return self.getObject().persistJournalUpload(journalId, prepared, caption);
+        } catch (RuntimeException ex) {
+            cleanup(prepared.bucket(), prepared.keys());
+            throw ex;
+        }
+    }
+
+    /**
+     * 把已经传好的图落库：锁日记行 → 校验数量上限 → 分配 sortOrder → 写 asset 和关联。
+     *
+     * <p>行锁不能省。「先 count 再 insert」是典型的 check-then-act：编辑器默认 3 条并发上传，
+     * 三个请求同时读到 49 张，就会三个都通过 50 张的上限，而且拿到同一个 sortOrder。
+     * 锁的是这一篇日记自己的那一行，不同日记之间照常并行。</p>
+     */
+    @Transactional
+    public MediaView persistJournalUpload(Long journalId, PreparedImage prepared, String caption) {
+        int sortOrder = lockAndNextSortOrder(journalId);
+        MediaAsset asset = prepared.asset();
+        assetMapper.insert(asset);
+        registerRollbackCleanup(prepared.bucket(), prepared.keys());
         JournalMedia relation = new JournalMedia();
         relation.setJournalEntryId(journalId);
         relation.setMediaAssetId(asset.getId());
         relation.setCaption(caption);
-        relation.setSortOrder((int) count);
+        relation.setSortOrder(sortOrder);
         journalMediaMapper.insert(relation);
         return toView(relation);
+    }
+
+    /**
+     * 锁住日记行，校验图片数量上限，返回下一个 sortOrder。
+     *
+     * <p>必须在事务里调用：锁随事务提交才释放，中间的计数和插入才是原子的。</p>
+     */
+    private int lockAndNextSortOrder(Long journalId) {
+        JournalEntry locked = journalMapper.selectOne(new QueryWrapper<JournalEntry>()
+                .eq("id", journalId).last("for update"));
+        if (locked == null) throw BusinessException.notFound("日记不存在");
+        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
+                .eq(JournalMedia::getJournalEntryId, journalId));
+        if (count >= properties.upload().maxImagesPerJournal())
+            throw BusinessException.badRequest("单篇日记图片数量已达上限");
+        return (int) count;
     }
 
     /**
@@ -433,14 +489,13 @@ public class MediaService {
                 .eq(JournalMedia::getJournalEntryId, journalId)
                 .eq(JournalMedia::getMediaAssetId, mediaAssetId).last("limit 1"));
         if (existing != null) return toView(existing);
-        long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
-                .eq(JournalMedia::getJournalEntryId, journalId));
-        if (count >= properties.upload().maxImagesPerJournal()) throw BusinessException.badRequest("单篇日记图片数量已达上限");
+        // 和上传同一条竞态：随手记批量整理时也会并发建关系，计数和分配序号必须在行锁之后
+        int sortOrder = lockAndNextSortOrder(journalId);
         JournalMedia relation = new JournalMedia();
         relation.setJournalEntryId(journalId);
         relation.setMediaAssetId(mediaAssetId);
         relation.setCaption(caption);
-        relation.setSortOrder((int) count);
+        relation.setSortOrder(sortOrder);
         journalMediaMapper.insert(relation);
         return toView(relation);
     }
@@ -471,6 +526,17 @@ public class MediaService {
      * @param previewJournalId 预览令牌已经授权的那一篇日记；非空时该篇日记下的草稿图片放行，
      *                         但仅限这一篇，也仍然拿不到原图
      */
+    /**
+     * 这张图是不是任何人都能看到的。
+     *
+     * <p>管理员访问和公开访问走的是同一个 URL，响应能不能被缓存却完全不同：草稿图片
+     * 一旦进了 Service Worker 的 Cache Storage，退出登录之后 cache-first 还会把它拿出来。
+     * 所以缓存策略不能看「这次请求成功了没有」，要看「这张图本身公不公开」。</p>
+     */
+    public boolean publiclyVisible(Long mediaId) {
+        return visibilityMapper.countPublishedReferences(mediaId) > 0;
+    }
+
     public URI access(Long mediaId, String variant, boolean admin, Long previewJournalId) {
         MediaAsset asset = requireAsset(mediaId);
         if (!admin && !previewGrants(mediaId, previewJournalId)
@@ -515,7 +581,34 @@ public class MediaService {
      *
      * @param keyPrefix 对象键前缀，方法内部会再拼接一个 uuid 目录，保证不冲突
      */
+    /**
+     * 已经写进对象存储、但还没落库的一张图。
+     *
+     * <p>把「文件已经在 MinIO 里」和「数据库还没承认它」这两个状态显式分开，调用方才
+     * 知道失败时该补偿删掉哪些 key。</p>
+     */
+    public record PreparedImage(MediaAsset asset, String bucket, String... keys) {}
+
+    /** 上传并落库，供封面、主题图这类单张低频路径复用。 */
     private MediaAsset storeImage(MultipartFile file, String keyPrefix) {
+        PreparedImage prepared = prepareImage(file, keyPrefix);
+        try {
+            assetMapper.insert(prepared.asset());
+            registerRollbackCleanup(prepared.bucket(), prepared.keys());
+            return prepared.asset();
+        } catch (RuntimeException ex) {
+            // 四个规格必须一起清：漏掉 medium 的话，每一次失败的上传都会在桶里留一张没人认识的图
+            cleanup(prepared.bucket(), prepared.keys());
+            throw ex;
+        }
+    }
+
+    /**
+     * 只做图片处理和对象存储，不碰数据库。
+     *
+     * <p>解码、EXIF、转向、压四个规格、四次网络往返——这些都不该占着数据库连接。</p>
+     */
+    private PreparedImage prepareImage(MultipartFile file, String keyPrefix) {
         byte[] uploaded;
         try { uploaded = file.getBytes(); }
         catch (IOException ex) { throw new BusinessException("FILE_READ_ERROR", "读取上传文件失败", HttpStatus.BAD_REQUEST); }
@@ -569,32 +662,24 @@ public class MediaService {
             throw new BusinessException("STORAGE_ERROR", "图片上传到对象存储失败", HttpStatus.BAD_GATEWAY);
         }
 
-        try {
-            MediaAsset asset = new MediaAsset();
-            asset.setBucketName(bucket);
-            asset.setOriginalObjectKey(originalKey);
-            asset.setDisplayObjectKey(displayKey);
-            asset.setThumbnailObjectKey(thumbnailKey);
-            asset.setMediumObjectKey(mediumKey);
-            asset.setOriginalFilename(safeFilename(file.getOriginalFilename()));
-            asset.setContentType(mime);
-            asset.setFileSize((long) original.length);
-            asset.setWidth(normalized.getWidth());
-            asset.setHeight(normalized.getHeight());
-            asset.setChecksumSha256(sha256(original));
-            // 拍摄时间和 GPS 从原始字节读，必须在 encode 之前——重新编码会丢掉 EXIF
-            CaptureInfo capture = readCaptureInfo(uploaded);
-            asset.setCapturedAt(capture.capturedAt());
-            asset.setGpsLatitude(capture.latitude());
-            asset.setGpsLongitude(capture.longitude());
-            assetMapper.insert(asset);
-            registerRollbackCleanup(bucket, originalKey, displayKey, mediumKey, thumbnailKey);
-            return asset;
-        } catch (RuntimeException ex) {
-            // 四个规格必须一起清：漏掉 medium 的话，每一次失败的上传都会在桶里留一张没人认识的图
-            cleanup(bucket, originalKey, displayKey, mediumKey, thumbnailKey);
-            throw ex;
-        }
+        MediaAsset asset = new MediaAsset();
+        asset.setBucketName(bucket);
+        asset.setOriginalObjectKey(originalKey);
+        asset.setDisplayObjectKey(displayKey);
+        asset.setThumbnailObjectKey(thumbnailKey);
+        asset.setMediumObjectKey(mediumKey);
+        asset.setOriginalFilename(safeFilename(file.getOriginalFilename()));
+        asset.setContentType(mime);
+        asset.setFileSize((long) original.length);
+        asset.setWidth(normalized.getWidth());
+        asset.setHeight(normalized.getHeight());
+        asset.setChecksumSha256(sha256(original));
+        // 拍摄时间和 GPS 从原始字节读，必须在 encode 之前——重新编码会丢掉 EXIF
+        CaptureInfo capture = readCaptureInfo(uploaded);
+        asset.setCapturedAt(capture.capturedAt());
+        asset.setGpsLatitude(capture.latitude());
+        asset.setGpsLongitude(capture.longitude());
+        return new PreparedImage(asset, bucket, originalKey, displayKey, mediumKey, thumbnailKey);
     }
 
     /**
