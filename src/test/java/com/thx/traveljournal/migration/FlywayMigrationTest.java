@@ -132,6 +132,27 @@ class FlywayMigrationTest {
                         """))
                         .isEqualTo(1);
 
+                /*
+                 * (journal_entry_id, media_asset_id) 上只能有一条唯一约束。
+                 *
+                 * V1 建表时写过一条，V25 又加了一条覆盖列完全相同的。数据库不会因此报错，
+                 * 只是每条 INSERT / UPDATE 都白维护一次索引，V27 删掉了重复的那条。
+                 */
+                assertThat(count(connection, """
+                        select count(*)
+                        from pg_constraint c
+                        join pg_class t on t.oid = c.conrelid
+                        where t.relname = 'journal_media'
+                          and c.contype = 'u'
+                          and (
+                              select array_agg(a.attname order by a.attname)
+                                from pg_attribute a
+                               where a.attrelid = t.oid
+                                 and a.attnum = any(c.conkey)
+                          ) = array['journal_entry_id', 'media_asset_id']
+                        """))
+                        .isEqualTo(1);
+
                 assertNotNullAllowlistMatchesSchema(connection);
             }
 
