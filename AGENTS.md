@@ -174,6 +174,7 @@ npx playwright test <相关-spec> --project=desktop-chrome --project=pixel-7
 - 贴纸/灯箱：`journal-sticker-lightbox.spec.ts`。
 - 地图：`map-provider.spec.ts`。
 - 编辑器/随手记：`journal-mobile.spec.ts`、`moment-compose.spec.ts`；真实登录用例需要 E2E 管理员环境变量。
+- 图片权限缓存：`media-cache-lifecycle.spec.ts`，标记 `@media`。需要连着真实 MinIO 的实例，用 Chromium 跑（`--project=desktop-chrome --grep @media`）；CI 里由 `verify-media-integration` 这一步执行，不在 `@smoke` 那批里。
 - Flyway Testcontainers 测试需要 Docker；无 Docker 时会跳过，交付说明中必须明确写出，不能称为已完成真实迁移验证。
 
 ## 完成标准

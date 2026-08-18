@@ -56,7 +56,14 @@ function cached(page: import('@playwright/test').Page, url: string) {
   }, url)
 }
 
-test.describe('图片缓存生命周期', () => {
+/*
+ * @media 是 CI 的筛选标记。
+ *
+ * 这两条要真的连着 MinIO 才跑得起来，所以不进 @smoke 那一批，由单独的
+ * verify-media-integration 步骤按这个标记挑出来跑。标记删掉的话测试文件还在仓库里，
+ * 但 CI 里没有任何一步会执行它——而图片权限缓存恰恰是最近改动最多的一块。
+ */
+test.describe('图片缓存生命周期 @media', () => {
   test('公开图片进缓存，草稿图片不进，撤回后旧缓存失效', async ({ page, browser }) => {
     await login(page)
     const trip = await createTestTrip(page, 'E2E 图片缓存')

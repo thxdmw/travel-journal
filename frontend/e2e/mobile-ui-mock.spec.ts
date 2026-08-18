@@ -1,4 +1,6 @@
-import { test, expect, Page } from '@playwright/test';
+// Page 只当类型用，必须写 `type`：tsconfig 开了 verbatimModuleSyntax，
+// 普通具名导入会被原样保留到 ESM 产物里，运行时报「没有导出 Page」并让整个用例集合不出来
+import { test, expect, type Page } from '@playwright/test';
 
 type BudgetRow = { id:number; code:string; name:string; planned:number; actual:number; remaining:number };
 

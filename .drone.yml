@@ -15,6 +15,18 @@ services:
       POSTGRES_USER: travel_journal
       POSTGRES_PASSWORD: travel_journal
 
+  # 图片链路的集成验证要一个真的对象存储：/api/media/x/display 是一次 302 跳到
+  # MinIO 预签名地址，重定向、跨源、opaque 响应这些用 mock 测不出来。
+  # 桶直接用数据目录下的同名文件夹建出来，省掉一个 mc 客户端。
+  - name: minio
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    environment:
+      MINIO_ROOT_USER: ci-minio-access
+      MINIO_ROOT_PASSWORD: ci-minio-secret
+    commands:
+      - mkdir -p /data/travel-journal-ci
+      - minio server /data --address :9000
+
 steps:
   - name: verify-frontend
     image: mcr.microsoft.com/playwright:v1.49.0-noble
@@ -86,12 +98,66 @@ steps:
         fi
         npm run e2e --prefix frontend -- --project=iphone-13 --grep @smoke
 
+  # 图片权限缓存的真实链路：浏览器 → Service Worker → Spring Boot 302 → MinIO 预签名地址。
+  # 这一段最近改动最多，也最容易悄悄回归，而 mock 单测和 @smoke 都覆盖不到它。
+  # 单独一步是因为它需要 MinIO，而且要用 Chromium 才能测 Cache Storage 和 SW。
+  - name: verify-media-integration
+    image: mcr.microsoft.com/playwright:v1.49.0-noble
+    # 排在冒烟之后而不是与它并行：两步共用同一个 PostgreSQL，同时跑会互相看见对方的数据
+    depends_on:
+      - verify-mobile-smoke
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: travel_journal
+      DB_USERNAME: travel_journal
+      DB_PASSWORD: travel_journal
+      DB_SSL_MODE: disable
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ci-minio-access
+      MINIO_SECRET_KEY: ci-minio-secret
+      MINIO_BUCKET: travel-journal-ci
+      # 这一步的重点就是对象存储，桶不通就该立刻失败，而不是等测试报一堆看不懂的错
+      MINIO_VERIFY_ON_STARTUP: "true"
+      APP_ADMIN_USERNAME: admin
+      APP_ADMIN_PASSWORD: ci-only-password-2026
+      APP_ADMIN_DISPLAY_NAME: CI 旅行者
+      APP_MAP_SEARCH_ENABLED: "false"
+      APP_EMPTY_DRAFT_CLEANUP: "false"
+      E2E_BASE_URL: http://127.0.0.1:8080
+      E2E_ADMIN_USER: admin
+      E2E_ADMIN_PASS: ci-only-password-2026
+    commands:
+      - apt-get update
+      - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openjdk-21-jre-headless
+      - npm ci --prefix frontend --no-audit --no-fund
+      - |
+        set -eu
+        java -jar target/travel-journal.jar >/tmp/travel-journal-media.log 2>&1 &
+        app_pid=$!
+        trap 'kill "$${app_pid}" >/dev/null 2>&1 || true' EXIT
+        ready=0
+        for attempt in $(seq 1 60); do
+          if curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [ "$${ready}" != "1" ]; then
+          cat /tmp/travel-journal-media.log
+          exit 1
+        fi
+        npm run e2e --prefix frontend -- --project=desktop-chrome --grep @media
+
   - name: deploy-from-gitee
     image: appleboy/drone-ssh
     depends_on:
       - verify-backend
       - verify-frontend
       - verify-mobile-smoke
+      - verify-media-integration
     settings:
       host: 43.130.247.22
       port: 2222
