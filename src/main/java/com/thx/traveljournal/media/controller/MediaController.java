@@ -35,6 +35,8 @@ public class MediaController {
     public record CoverRequest(Integer expectedRevision, Boolean force) {}
     /** 设封面的结果：新的封面图和写入之后的日记版本号。 */
     public record CoverResult(Long coverMediaId, int revision) {}
+    /** 删图的结果：删除之后这篇日记的版本号（删的不是封面时就是原值）。 */
+    public record DeleteResult(int revision) {}
     public record CaptionRequest(@Size(max=500) String caption) {}
 
     @GetMapping("/api/admin/journals/{journalId}/media")
@@ -95,8 +97,17 @@ public class MediaController {
     public ApiResponse<JournalMedia> caption(@PathVariable Long id, @Valid @RequestBody CaptionRequest request) {
         return ApiResponse.ok(service.updateCaption(id, request.caption()));
     }
+    /**
+     * 删除日记中的一张图片。
+     *
+     * <p>删的如果正是封面，服务端会清空封面并推进 revision，所以这里和设封面一样
+     * 把新版本号回给前端。不回的话，作者删完封面图继续打字，下一次自动保存就会拿着
+     * 过期的版本号撞上自己刚才这一下。</p>
+     */
     @DeleteMapping("/api/admin/journal-media/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) { service.deleteRelation(id); return ApiResponse.ok(); }
+    public ApiResponse<DeleteResult> delete(@PathVariable Long id) {
+        return ApiResponse.ok(new DeleteResult(service.deleteRelation(id)));
+    }
 
     /**
      * 302 跳转到对象存储的预签名地址，图片流量不经过应用本身。

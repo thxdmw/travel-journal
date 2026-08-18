@@ -63,9 +63,16 @@ import java.util.concurrent.TimeUnit;
  * {@code journal_media} 记录「某篇日记引用了某张图片」这层关系。旅行封面和日记封面
  * 都只是保存了 {@code media_asset.id} 的引用字段，不额外建关系表。</p>
  *
- * <p>删除策略：图片被正文引用时拒绝删除（避免正文里留下坏图）；被设为日记封面或
- * 旅行封面时不再拒绝，改为自动清空对应的封面引用后再删。对象存储删除失败只记录
- * 告警日志，不阻断数据库删除，避免出现「后台怎么都删不掉」的死结。</p>
+ * <p>删除策略分成两件事，不要混为一谈：</p>
+ * <ul>
+ *   <li><b>解除引用</b>由发起删除的那一方负责，且只解除它自己那一条。删掉某篇日记的
+ *       图片关系时，只有这篇日记的封面会被顺带清空。</li>
+ *   <li><b>回收</b>（{@code gcAssetIfUnreferenced}）只统计引用、不修改引用：日记、
+ *       旅行封面、主题封面、随手记里只要还有一处在用，文件和记录就都留着。</li>
+ * </ul>
+ *
+ * <p>图片被正文引用时拒绝删除，避免正文里留下坏图。对象存储删除失败只记录告警日志，
+ * 不阻断数据库删除，避免出现「后台怎么都删不掉」的死结。</p>
  */
 @Slf4j
 @Service
@@ -274,11 +281,14 @@ public class MediaService {
      * <p>{@code journal_media} 的一致性全靠这一把锁：上传、挂已有图片、删除、手工重排、
      * 按拍摄时间重排——五条路径都会读一遍现有集合再写回去，两条同时跑就会互相覆盖。
      * 锁的粒度是单篇日记，不同日记之间照常并行。</p>
+     *
+     * @return 加锁之后读到的日记；调用方在锁内看到的 cover_media_id 和 revision 就是最新值
      */
-    private void lockJournal(Long journalId) {
+    private JournalEntry lockJournal(Long journalId) {
         JournalEntry locked = journalMapper.selectOne(new QueryWrapper<JournalEntry>()
                 .eq("id", journalId).last("for update"));
         if (locked == null) throw BusinessException.notFound("日记不存在");
+        return locked;
     }
 
     /**
@@ -452,21 +462,26 @@ public class MediaService {
     /**
      * 删除日记中的单张图片。
      *
-     * <p>正文仍引用该图片时拒绝删除；如果它是日记封面或旅行封面，会先自动清空封面引用再删除。</p>
+     * <p>正文仍引用该图片时拒绝删除；如果它正是这篇日记的封面，封面会一并清空。</p>
+     *
+     * <p>只清<b>这一篇</b>的封面。同一张图片可以同时挂在别的日记、旅行封面或随手记下
+     * （整理随手记成日记就会产生这种共享），删掉这里的一条关系不代表别处也不要了。</p>
+     *
+     * @return 删除之后这篇日记的版本号；封面没被动过时就是原值
      */
     @Transactional
-    public void deleteRelation(Long relationId) {
+    public int deleteRelation(Long relationId) {
         JournalMedia relation = requireRelation(relationId);
         // 锁同一篇日记，和上传、重排串行化
-        lockJournal(relation.getJournalEntryId());
+        JournalEntry journal = lockJournal(relation.getJournalEntryId());
         MediaAsset asset = requireAsset(relation.getMediaAssetId());
-        JournalEntry journal = requireJournal(relation.getJournalEntryId());
         if (documentService.mediaIds(journal.getContentJson()).contains(asset.getId())) {
             throw BusinessException.conflict("正文仍引用该图片，请先从正文移除");
         }
         journalMediaMapper.deleteById(relationId);
-        detachCoverReferences(List.of(asset.getId()));
-        deleteOrphanAssets(List.of(asset.getId()));
+        int revision = clearJournalCoverIfPointsTo(journal, asset.getId());
+        gcAssetIfUnreferenced(List.of(asset.getId()));
+        return revision;
     }
 
     /**
@@ -492,8 +507,14 @@ public class MediaService {
         if (relations.isEmpty()) return 0;
         List<Long> assetIds = relations.stream().map(JournalMedia::getMediaAssetId).distinct().toList();
         journalMediaMapper.delete(new LambdaQueryWrapper<JournalMedia>().eq(JournalMedia::getJournalEntryId, journalId));
-        detachCoverReferences(assetIds);
-        deleteOrphanAssets(assetIds);
+        /*
+         * 这里不必也不该清封面引用。
+         *
+         * 这篇日记自己的 cover_media_id 马上会随整行一起消失；真被删掉的图片，
+         * 外键的 on delete set null 也会替我们收尾。而别的日记、旅行的封面本就轮不到
+         * 这里来动——它们如果还引用着某张图，下面的 GC 会认出来并跳过。
+         */
+        gcAssetIfUnreferenced(assetIds);
         return relations.size();
     }
 
@@ -534,7 +555,7 @@ public class MediaService {
         registerRollbackCleanup(prepared.bucket(), prepared.keys());
         tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
                 .set(Trip::getCoverMediaId, asset.getId()).eq(Trip::getId, tripId));
-        if (previousCover != null && !previousCover.equals(asset.getId())) deleteOrphanAssets(List.of(previousCover));
+        if (previousCover != null && !previousCover.equals(asset.getId())) gcAssetIfUnreferenced(List.of(previousCover));
         return toView(null, asset, null, null);
     }
 
@@ -548,7 +569,7 @@ public class MediaService {
         // 用条件更新显式置空：实体的 updateById 默认会跳过 null 字段，清不掉封面
         tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
                 .set(Trip::getCoverMediaId, null).eq(Trip::getId, tripId));
-        deleteOrphanAssets(List.of(previousCover));
+        gcAssetIfUnreferenced(List.of(previousCover));
     }
 
     /**
@@ -871,26 +892,45 @@ public class MediaService {
     }
 
     /**
-     * 把指向这些图片的封面引用统统清空。
+     * 如果这张图正是该日记的封面，就把封面清掉，并像其他改动一样推进 revision。
      *
-     * <p>数据库外键本身是 {@code on delete set null}，理论上删除图片时会自动置空；
-     * 这里显式再清一次，一是不依赖外键行为，二是让同一事务内后续读到的数据是对的。</p>
+     * <p>调用方必须已经持有这篇日记的行锁——{@code journal} 里的 cover_media_id 和 revision
+     * 都是在锁内读到的，所以这里可以直接按「读到的值 + 1」算出写入后的版本号，不必回查。</p>
+     *
+     * <p>为什么要推进 revision：封面是这篇日记的一次改动，和设封面（{@link #setCover}）
+     * 完全对称。不推进的话，另一个标签页拿着删图之前的版本号保存，会带着已经失效的
+     * 封面 id 一起写回来，而乐观锁看不出任何异常。</p>
+     *
+     * <p>为什么不做 CAS：删图不是内容写入，正文引用检查已经挡住了真正危险的那一类，
+     * 再要求作者先刷新才能删一张没用上的图，只是把并发成本转嫁给了正常操作。</p>
+     *
+     * @return 写入之后的版本号；不是封面时原样返回当前版本号
      */
-    private void detachCoverReferences(Collection<Long> assetIds) {
-        if (assetIds.isEmpty()) return;
+    private int clearJournalCoverIfPointsTo(JournalEntry journal, Long assetId) {
+        int current = journal.getRevision() == null ? 0 : journal.getRevision();
+        if (assetId == null || !assetId.equals(journal.getCoverMediaId())) return current;
         journalMapper.update(null, new LambdaUpdateWrapper<JournalEntry>()
-                .set(JournalEntry::getCoverMediaId, null).in(JournalEntry::getCoverMediaId, assetIds));
-        tripMapper.update(null, new LambdaUpdateWrapper<Trip>()
-                .set(Trip::getCoverMediaId, null).in(Trip::getCoverMediaId, assetIds));
+                .set(JournalEntry::getCoverMediaId, null)
+                .setSql("revision = revision + 1")
+                .eq(JournalEntry::getId, journal.getId()));
+        return current + 1;
     }
 
     /**
      * 删除这些图片中已经没有任何引用的那些（对象存储文件 + 数据库记录）。
      *
+     * <p>这是纯粹的垃圾回收：只统计引用，绝不修改任何业务引用。谁想解除一条引用，
+     * 谁自己解除，然后再来问「这张图现在还有人要吗」。</p>
+     *
+     * <p>曾经这里的调用方会先把所有指向这些图片的封面引用一律置空，再来判断该不该删。
+     * 顺序反了，语义也反了：随手记删掉一张已经整理进日记的照片时，那篇日记的封面会
+     * 先被清空，随后 GC 发现日记还引用着这张图、于是图片保留——最后照片还在、正文还在，
+     * 只有封面莫名其妙没了，而且没走日记自己的 revision 链路。</p>
+     *
      * <p>仍被别的日记引用或仍是某个旅行封面的图片会被跳过。对象存储删除失败只记录告警，
      * 不抛异常打断整个删除流程，遗留的孤儿文件由运维侧按日志清理。</p>
      */
-    private void deleteOrphanAssets(Collection<Long> assetIds) {
+    private void gcAssetIfUnreferenced(Collection<Long> assetIds) {
         for (Long assetId : assetIds) {
             if (assetId == null) continue;
             long journalRefs = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
@@ -931,12 +971,14 @@ public class MediaService {
      *
      * <p>给随手记这类有自己关系表的模块用：它们解除关系之后，media 模块才知道该不该
      * 回收。判断覆盖日记、旅行封面、主题封面和其他随手记——只要还有一处在用就跳过。</p>
+     *
+     * <p>这里只回收，不解除任何引用。调用方要解除的那条关系应该由调用方自己删干净，
+     * 别处的日记封面、旅行封面不在这个方法的管辖范围内。</p>
      */
     @Transactional
     public void releaseIfUnreferenced(Collection<Long> assetIds) {
         if (assetIds == null || assetIds.isEmpty()) return;
-        detachCoverReferences(assetIds);
-        deleteOrphanAssets(assetIds);
+        gcAssetIfUnreferenced(assetIds);
     }
 
     /** 删除单个对象存储文件，失败只记录告警日志。 */

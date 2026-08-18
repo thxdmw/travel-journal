@@ -38,7 +38,7 @@ vi.mock('@/api/journal', () => ({
     createPreviewLink: vi.fn(),
   },
 }))
-vi.mock('@/api/media', () => ({ mediaApi: { list: mocks.mediaList, upload: mocks.mediaUpload, reorder: vi.fn(), setCover: vi.fn(), updateCaption: vi.fn(), remove: vi.fn(), sortByCaptureTime: vi.fn() } }))
+vi.mock('@/api/media', () => ({ mediaApi: { list: mocks.mediaList, upload: mocks.mediaUpload, reorder: vi.fn(), setCover: vi.fn(), updateCaption: vi.fn(), remove: vi.fn(() => Promise.resolve({ revision: 0 })), sortByCaptureTime: vi.fn() } }))
 vi.mock('@/api/trip', () => ({
   tripApi: { options: mocks.tripOptions, get: mocks.tripGet, stops: vi.fn().mockResolvedValue([]) },
 }))

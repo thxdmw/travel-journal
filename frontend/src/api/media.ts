@@ -18,6 +18,12 @@ export interface CoverResult {
   revision: number
 }
 
+/** 删图的结果，对应 `MediaController.DeleteResult`。 */
+export interface DeleteResult {
+  /** 删除之后的日记版本号；删的是封面时会比删之前大 1。 */
+  revision: number
+}
+
 export interface JournalMediaRelation {
   id: number
   journalId: number
@@ -70,5 +76,11 @@ export const mediaApi = {
   updateCaption: (relationId: number, caption: string) =>
     put<JournalMediaRelation>('/admin/journal-media/' + relationId, { caption }),
 
-  remove: (relationId: number) => del<void>('/admin/journal-media/' + relationId),
+  /*
+   * 删图。
+   *
+   * 删的如果正是封面，服务端会清空封面并推进 revision，所以这里和 setCover 一样要把
+   * 新版本号接回来——即使删的不是封面，返回的也是当前版本号，直接赋值总是对的。
+   */
+  remove: (relationId: number) => del<DeleteResult>('/admin/journal-media/' + relationId),
 }
