@@ -981,8 +981,14 @@ public class MediaService {
         gcAssetIfUnreferenced(assetIds);
     }
 
-    /** 删除单个对象存储文件，失败只记录告警日志。 */
+    /**
+     * 删除单个对象存储文件，失败只记录告警日志。
+     *
+     * <p>键为空直接跳过：{@code medium} 之类的规格是后来才加的，老图片没有这几个键，
+     * 拿 null 去调 MinIO 只会换来一个 NPE 和一串没有任何行动价值的告警堆栈。</p>
+     */
     private void removeObjectQuietly(String bucket, String key) {
+        if (!StringUtils.hasText(key)) return;
         try {
             minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
         } catch (Exception ex) {

@@ -145,7 +145,8 @@ class FlywayMigrationTest {
                         where t.relname = 'journal_media'
                           and c.contype = 'u'
                           and (
-                              select array_agg(a.attname order by a.attname)
+                              -- attname 是 name 类型，不加 ::text 没法和 text[] 比较
+                              select array_agg(a.attname::text order by a.attname)
                                 from pg_attribute a
                                where a.attrelid = t.oid
                                  and a.attnum = any(c.conkey)

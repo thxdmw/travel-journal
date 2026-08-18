@@ -163,6 +163,30 @@ npm run verify:build
 git diff --check
 ```
 
+### 在本地复现 CI
+
+Drone 跑的就是上面这些，加上两件本机默认做不到的事，也正是本地绿、CI 红的常见来源：
+
+1. **`FlywayMigrationTest` 需要真的 PostgreSQL。** 没有 Docker 也没有 `FLYWAY_TEST_JDBC_URL` 时它会静默跳过，迁移脚本和里面那些 `information_schema` / `pg_constraint` 断言就一次都没执行过。有 Docker 时 Testcontainers 自动起容器；没有就指向任意一个能用的库：
+
+```powershell
+$env:FLYWAY_TEST_JDBC_URL = 'jdbc:postgresql://127.0.0.1:5432/travel_journal_ci'
+$env:FLYWAY_TEST_DB_USERNAME = 'travel_journal'
+$env:FLYWAY_TEST_DB_PASSWORD = 'travel_journal'
+mvn -q test -Dtest=FlywayMigrationTest
+```
+
+   注意这个库会被真实迁移，别指向正在用的开发库。跑完 `mvn test` 的输出里确认它是 `Tests run: 1`，出现 `Skipped: 1` 就说明这一段根本没验证。
+
+2. **E2E 需要一个跑起来的实例。** `@smoke` 只要 PostgreSQL；`@media` 还要 MinIO，且要用 Chromium：
+
+```powershell
+npx playwright test --project=iphone-13 --grep @smoke
+npx playwright test --project=desktop-chrome --grep @media
+```
+
+只跑 `--list` 也有用：整个用例集合不出来（比如把只当类型用的导入写成了普通具名导入）时，`--grep` 会安静地筛出 0 条，CI 那一步等于没跑。
+
 E2E 依赖已运行的 `http://localhost:8080`。本机缺 Playwright 自带浏览器时复用 Edge：
 
 ```powershell
