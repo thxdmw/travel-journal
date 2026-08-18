@@ -14,7 +14,7 @@ import { render as renderDocument } from '@/journal/render'
 import { enhance, teardown } from '@/media/enhance'
 import { createLocalPreview, releaseLocalPreview } from '@/media/local-preview'
 import type { JsonObject } from '@/types/common'
-import type { JournalEditorDraftRequest, JournalEntry, JournalStatus } from '@/types/journal'
+import type { JournalDraftPatchRequest, JournalEntry, JournalFields, JournalStatus, RevisionGuard } from '@/types/journal'
 import type { JournalBlock, JournalDocument } from '@/types/journal-block'
 import type { MediaView } from '@/types/media'
 import type { ThemeView } from '@/types/theme'
@@ -231,11 +231,21 @@ function cleanContent(): JournalDocument {
   })
   return { schemaVersion: 1, blocks }
 }
-function payload(contentJson: JournalDocument): JournalEditorDraftRequest { return { tripId: form.tripId, tripStopId: form.tripStopId, title: form.title, slug: form.slug, excerpt: form.excerpt || autoExcerpt.value, contentJson: contentJson as unknown as JsonObject, occurredOn: form.occurredOn, coverMediaId: form.coverMediaId, themeKey: form.themeKey, templateId: form.templateId, templateVersion: form.templateVersion, tags: form.tags } }
-function serverBody(): JournalEditorDraftRequest { return { ...payload(cleanContent()), detachFromTrip: form.tripId == null, expectedRevision: revision.value } }
+function payload(contentJson: JournalDocument): JournalFields { return { tripId: form.tripId, tripStopId: form.tripStopId, title: form.title, slug: form.slug, excerpt: form.excerpt || autoExcerpt.value, contentJson: contentJson as unknown as JsonObject, occurredOn: form.occurredOn, coverMediaId: form.coverMediaId, themeKey: form.themeKey, templateId: form.templateId, templateVersion: form.templateVersion, tags: form.tags } }
+/*
+ * 并发表态：带上手里这份的版本号。
+ *
+ * 类型上 expectedRevision 是必填的 number，所以这里必须给出一个值。版本号还没到手时
+ * 退回 0——那是一个几乎不可能匹配上的版本，服务端会回 409 让作者刷新，而不是把别人的
+ * 改动静默盖掉。发布、撤回、设封面用的也是同一个兜底。
+ */
+function guard(): RevisionGuard { return { expectedRevision: revision.value ?? 0 } }
+function serverBody(): JournalFields & RevisionGuard & { detachFromTrip: boolean } {
+  return { ...payload(cleanContent()), detachFromTrip: form.tripId == null, ...guard() }
+}
 function localSnapshot() { return payload(normalize(JSON.parse(JSON.stringify(form.contentJson)))) }
 function hasPendingContent() { return form.contentJson.blocks.some(block => block.data.pendingKey || (Array.isArray(block.data.pendingKeys) && block.data.pendingKeys.length)) }
-async function reconcileLocalAfterServer(snapshot: JournalEditorDraftRequest) { const synchronized = JSON.stringify(snapshot) === JSON.stringify(serverBody()); if (synchronized && !hasPendingContent()) await localDraft.remove(storageId()); else await localDraft.put(storageId(), localSnapshot()); return synchronized }
+async function reconcileLocalAfterServer(snapshot: JournalDraftPatchRequest) { const synchronized = JSON.stringify(snapshot) === JSON.stringify(serverBody()); if (synchronized && !hasPendingContent()) await localDraft.remove(storageId()); else await localDraft.put(storageId(), localSnapshot()); return synchronized }
 /**
  * 服务端说「你手上这份不是最新的」。
  *
@@ -310,7 +320,7 @@ async function save(silent = false) {
 }
 async function validatePublish() { try { await formRef.value?.validate(); return true } catch { metaCollapsed.value = false; return false } }
 async function publish() { flushEditor(); await nextTick(); if (!await validatePublish() || !await save(true) || !id.value) return; await enqueue(async () => { try { const published = await journalApi.publish(id.value!, revision.value ?? 0); revision.value = published.revision ?? null; form.status = 'PUBLISHED'; dirty.value = false; if (hasPendingContent()) await localDraft.put(id.value, localSnapshot()); else await localDraft.remove(id.value); autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('日记已发布') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
-async function updatePublished() { flushEditor(); await nextTick(); if (!await validatePublish() || !id.value) return; await enqueue(async () => { saving.value = true; const snapshot = serverBody(); try { const saved = await journalApi.update(id.value!, snapshot as Parameters<typeof journalApi.update>[1]); revision.value = saved.revision ?? null; if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('公开文章已更新') } catch (error) { if (await handleConflict(error)) return; autoSaveState.value = 'failed'; props.fail(error) } finally { saving.value = false } }) }
+async function updatePublished() { flushEditor(); await nextTick(); if (!await validatePublish() || !id.value) return; await enqueue(async () => { saving.value = true; const snapshot = serverBody(); try { const saved = await journalApi.update(id.value!, snapshot); revision.value = saved.revision ?? null; if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('公开文章已更新') } catch (error) { if (await handleConflict(error)) return; autoSaveState.value = 'failed'; props.fail(error) } finally { saving.value = false } }) }
 async function unpublish() { if (!id.value) return; await enqueue(async () => { try { const draft = await journalApi.unpublish(id.value!, revision.value ?? 0); revision.value = draft.revision ?? null; form.status = 'DRAFT'; dirty.value = false; props.message('日记已撤回') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
 
 const uploadConcurrency = 3

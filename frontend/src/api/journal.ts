@@ -1,10 +1,11 @@
 import { del, get, patch, post, put, withParams } from './client'
 import type { PageResponse } from '@/types/common'
 import type {
+  JournalCreateRequest,
   JournalDraftInit,
-  JournalEditorDraftRequest,
+  JournalDraftPatchRequest,
   JournalEntry,
-  JournalRequest,
+  JournalUpdateRequest,
   JournalStatus,
   PreviewLink,
   TagView,
@@ -24,9 +25,9 @@ export const journalApi = {
 
   get: (id: number) => get<JournalEntry>('/admin/journals/' + id),
 
-  create: (body: JournalRequest) => post<JournalEntry>('/admin/journals', body),
+  create: (body: JournalCreateRequest) => post<JournalEntry>('/admin/journals', body),
 
-  update: (id: number, body: JournalRequest) => put<JournalEntry>('/admin/journals/' + id, body),
+  update: (id: number, body: JournalUpdateRequest) => put<JournalEntry>('/admin/journals/' + id, body),
 
   /**
    * 开一篇空草稿。
@@ -37,7 +38,7 @@ export const journalApi = {
   createDraft: (body?: JournalDraftInit) => post<JournalEntry>('/admin/journals/draft', body ?? {}),
 
   /** 自动保存：字段可以不全，后端按草稿标准校验（允许空标题、空正文）。 */
-  saveDraft: (id: number, body: JournalEditorDraftRequest) =>
+  saveDraft: (id: number, body: JournalDraftPatchRequest) =>
     patch<JournalEntry>('/admin/journals/' + id + '/draft', body),
 
   /*

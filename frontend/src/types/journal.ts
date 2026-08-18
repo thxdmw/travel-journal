@@ -61,8 +61,8 @@ export interface JournalDetail {
   route: RoutePoint[]
 }
 
-/** 发布日记的请求体。字段全都必填，校验标准比草稿严。 */
-export interface JournalRequest {
+/** 日记本身的字段，不含并发协议那部分。 */
+export interface JournalFields {
   tripId?: number | null
   tripStopId?: number | null
   title: string
@@ -76,27 +76,39 @@ export interface JournalRequest {
   templateVersion?: number | null
   /** 传 null 表示不改动标签，传空数组表示清空。 */
   tags?: string[] | null
-  /**
-   * 手里这份的版本号。更新已有日记时必填——服务端靠它分辨「基于最新内容的保存」
-   * 和「绕远路才到的旧请求」，缺席会被 400 挡下来（新建时不需要）。
-   */
-  expectedRevision?: number | null
-  /** 明确放弃并发保护、无条件覆盖服务端那一份。正常编辑流程不该用到。 */
-  force?: boolean
 }
 
-/** 自动保存的请求体：字段全部可选，缺席的沿用库里的旧值。 */
-export type JournalDraftRequest = Partial<JournalRequest>
+/**
+ * 写入已有日记时的并发表态。两种写法，必须选一种，没有第三种。
+ *
+ * <pre>
+ * { expectedRevision: 7 }   基于第 7 版改的，服务端那边不是 7 就拒绝
+ * { force: true }           我知道会盖掉别人的改动，照写
+ * </pre>
+ *
+ * 后端两样都没有时直接 400。以前这里是 `expectedRevision?: number | null`，
+ * 漏传能编译通过，要等运行时才收到那个 400——而这类接口大概率是由 AI 助手接着改的，
+ * 编译期报错比线上 400 便宜得多。写成联合类型之后，「安全写入」和「强制覆盖」
+ * 在类型上就是两件不同的事，也没法半推半就地都不写。
+ */
+export type RevisionGuard =
+  | { expectedRevision: number, force?: false }
+  | { force: true, expectedRevision?: never }
+
+/** 新建日记：服务端还没有这一篇，无从谈起版本号。 */
+export type JournalCreateRequest = JournalFields
+
+/** 更新已有日记。字段全都必填，校验标准比草稿严，并且必须表态并发协议。 */
+export type JournalUpdateRequest = JournalFields & RevisionGuard
 
 /**
- * 明确解除旅行归属时草稿接口需要额外携带此标记。
+ * 自动保存：字段全部可选，缺席的沿用库里的旧值；并发表态照样一个都不能少。
  *
- * `expectedRevision` 是并发保护：带上手里这份的版本号，服务端才分得清
- * 「基于最新内容的保存」和「绕远路才到的旧请求」，后者会被 409 挡下来。
+ * `detachFromTrip` 是明确解除旅行归属的标记——tripId 缺席意味着「不改」，
+ * 光靠它表达不出「我要把这篇从旅行里摘出来」。
  */
-export type JournalEditorDraftRequest = JournalDraftRequest & {
+export type JournalDraftPatchRequest = Partial<JournalFields> & RevisionGuard & {
   detachFromTrip?: boolean
-  expectedRevision?: number | null
 }
 
 /** 开一篇空草稿。字段都能缺席；新建页要等真的写了内容才会调它。 */
