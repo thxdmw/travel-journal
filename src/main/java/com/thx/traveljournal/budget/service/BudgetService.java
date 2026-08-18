@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 预算与支出服务。
@@ -64,11 +65,21 @@ public class BudgetService {
                 plannedTotal.subtract(actualTotal), items);
     }
 
+    /**
+     * 新增预算分类，一律排在末尾。
+     *
+     * <p>序号由后端分配，取现有最大值 + 1，不接受前端传来的值。用条数会出问题：
+     * 删掉中间一条之后 [0,1,2] 变成 [0,2]，条数是 2，最大序号也是 2，新增的那条
+     * 会和现有的撞在一起。</p>
+     */
     public BudgetCategory createCategory(Long tripId, BudgetCategory category) {
         requireTrip(tripId);
         category.setTripId(tripId);
         if (category.getPlannedAmount() == null) category.setPlannedAmount(BigDecimal.ZERO);
-        if (category.getSortOrder() == null) category.setSortOrder(categories(tripId).size());
+        category.setSortOrder(categories(tripId).stream()
+                .map(BudgetCategory::getSortOrder)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo).map(max -> max + 1).orElse(0));
         validateCategory(category);
         categoryMapper.insert(category);
         return category;
@@ -79,7 +90,8 @@ public class BudgetService {
         category.setCode(input.getCode());
         category.setName(input.getName());
         category.setPlannedAmount(input.getPlannedAmount());
-        category.setSortOrder(input.getSortOrder());
+        // 顺序不归编辑表单管；表单没带就保留库里那个
+        if (input.getSortOrder() != null) category.setSortOrder(input.getSortOrder());
         validateCategory(category);
         categoryMapper.updateById(category);
         return category;

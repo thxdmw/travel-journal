@@ -225,4 +225,70 @@ class TripServiceTest {
         verify(journalService, never()).delete(any());
         verify(tripMapper, never()).deleteById(any(Long.class));
     }
+
+    /**
+     * 新增城市排在末尾，而且不听前端的。
+     *
+     * <p>两个坑叠在一起：用条数当序号，删过中间那条之后必然和现有的撞车；而新建表单
+     * 又带着一个初值 {@code sortOrder=0} 一起发上来，照单全收会把新城市插到最前面。</p>
+     */
+    @Test
+    void newStopGoesToTheEndRegardlessOfWhatTheFormSent() {
+        TripMapper tripMapper = mock(TripMapper.class);
+        TripStopMapper stopMapper = mock(TripStopMapper.class);
+        Trip trip = new Trip();
+        trip.setId(5L);
+        when(tripMapper.selectById(5L)).thenReturn(trip);
+        // [0,1,2] 里删掉中间那张，剩下 [0,2]：条数是 2，最大序号也是 2
+        when(stopMapper.selectList(any())).thenReturn(List.of(stopAt(0), stopAt(2)));
+        TripService service = new TripService(tripMapper, stopMapper,
+                mock(ItineraryMapper.class), mock(BudgetCategoryMapper.class), mock(ExpenseMapper.class),
+                mock(JournalMapper.class), mock(MediaService.class), mock(JournalService.class),
+                mock(MomentService.class), mock(MediaVisibilityMapper.class));
+
+        TripStop stop = new TripStop();
+        stop.setCityName("北京");
+        stop.setCountryName("中国");
+        stop.setLatitude(new BigDecimal("39.904200"));
+        stop.setLongitude(new BigDecimal("116.407400"));
+        stop.setSortOrder(0);
+
+        TripStop created = service.createStop(5L, stop);
+
+        assertThat(created.getSortOrder()).isEqualTo(3);
+    }
+
+    @Test
+    void editingAStopKeepsTheOrderItAlreadyHad() {
+        // 顺序不归编辑表单管，reorder 才是唯一入口；表单没带就保留库里那个
+        TripStopMapper stopMapper = mock(TripStopMapper.class);
+        TripStop stored = stopAt(4);
+        stored.setId(9L);
+        stored.setTripId(5L);
+        stored.setCityName("成都");
+        stored.setCountryName("中国");
+        stored.setLatitude(new BigDecimal("30.572800"));
+        stored.setLongitude(new BigDecimal("104.066500"));
+        when(stopMapper.selectById(9L)).thenReturn(stored);
+        TripService service = new TripService(mock(TripMapper.class), stopMapper,
+                mock(ItineraryMapper.class), mock(BudgetCategoryMapper.class), mock(ExpenseMapper.class),
+                mock(JournalMapper.class), mock(MediaService.class), mock(JournalService.class),
+                mock(MomentService.class), mock(MediaVisibilityMapper.class));
+
+        TripStop input = new TripStop();
+        input.setCityName("成都");
+        input.setCountryName("中国");
+        input.setLatitude(new BigDecimal("30.572800"));
+        input.setLongitude(new BigDecimal("104.066500"));
+        input.setSortOrder(null);
+
+        assertThat(service.updateStop(9L, input).getSortOrder()).isEqualTo(4);
+    }
+
+    private TripStop stopAt(int sortOrder) {
+        TripStop stop = new TripStop();
+        stop.setSortOrder(sortOrder);
+        stop.setCoordinateSystem("WGS84");
+        return stop;
+    }
 }

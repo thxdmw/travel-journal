@@ -138,10 +138,10 @@ let tabSwipeStart: { x: number, moved: boolean } | null = null
 let suppressTabClick = false
 
 function blankStop(): StopForm {
-  return { cityName: '', regionName: '', countryName: '中国', countryCode: 'CN', latitude: null, longitude: null, placeId: null, formattedAddress: '', adcode: '', coordinateSystem: 'WGS84', locationSource: 'MANUAL', arrivalDate: null, departureDate: null, sortOrder: 0, note: '' }
+  return { cityName: '', regionName: '', countryName: '中国', countryCode: 'CN', latitude: null, longitude: null, placeId: null, formattedAddress: '', adcode: '', coordinateSystem: 'WGS84', locationSource: 'MANUAL', arrivalDate: null, departureDate: null, note: '' }
 }
 function blankItem(): ItemForm {
-  return { tripStopId: null, itemDate: '', startTime: null, endTime: null, type: 'ATTRACTION', title: '', address: '', note: '', plannedCost: 0, completed: false, sortOrder: 0, allowOutsideTripDates: false }
+  return { tripStopId: null, itemDate: '', startTime: null, endTime: null, type: 'ATTRACTION', title: '', address: '', note: '', plannedCost: 0, completed: false, allowOutsideTripDates: false }
 }
 function blankExpense(): ExpenseForm {
   return { budgetCategoryId: null, tripStopId: null, expenseDate: '', amount: null, description: '', merchant: '', note: '' }

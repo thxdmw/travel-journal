@@ -30,6 +30,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -256,16 +257,34 @@ public class TripService {
         return stop;
     }
 
+    /**
+     * 新增城市停靠点，一律排在末尾。
+     *
+     * <p>序号由后端分配，不接受前端传来的值：新建表单里那个 {@code sortOrder} 只是个
+     * 表单初值，照单全收会把新城市插到已经排好的顺序最前面。要改顺序请走
+     * {@link #reorderStops}。</p>
+     */
     public TripStop createStop(Long tripId, TripStop stop) {
         get(tripId);
         stop.setTripId(tripId);
         validateStop(stop);
-        if (stop.getSortOrder() == null) {
-            Long count = stopMapper.selectCount(new LambdaQueryWrapper<TripStop>().eq(TripStop::getTripId, tripId));
-            stop.setSortOrder(count.intValue());
-        }
+        stop.setSortOrder(nextStopSortOrder(tripId));
         stopMapper.insert(stop);
         return canonicalReadView(stop);
+    }
+
+    /**
+     * 下一个城市序号：现有最大值 + 1。
+     *
+     * <p>不能用条数。删掉中间一条之后 [0,1,2] 变成 [0,2]，条数是 2，最大序号也是 2，
+     * 新增的那个会和现有的撞在一起，顺序只能靠 id 兜底。</p>
+     */
+    private int nextStopSortOrder(Long tripId) {
+        return stopMapper.selectList(new LambdaQueryWrapper<TripStop>()
+                        .eq(TripStop::getTripId, tripId)).stream()
+                .map(TripStop::getSortOrder)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo).map(max -> max + 1).orElse(0);
     }
 
     public TripStop updateStop(Long id, TripStop input) {
@@ -283,7 +302,8 @@ public class TripService {
         stop.setLocationSource(input.getLocationSource());
         stop.setArrivalDate(input.getArrivalDate());
         stop.setDepartureDate(input.getDepartureDate());
-        stop.setSortOrder(input.getSortOrder());
+        // 顺序不归编辑表单管，reorder 才是唯一入口；表单没带就保留库里那个
+        if (input.getSortOrder() != null) stop.setSortOrder(input.getSortOrder());
         stop.setNote(input.getNote());
         validateStop(stop);
         stopMapper.updateById(stop);

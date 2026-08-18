@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -39,7 +40,11 @@ public class ItineraryService {
     }
 
     /**
-     * 新增行程。
+     * 新增行程，一律排在末尾。
+     *
+     * <p>序号由后端分配，不接受前端传来的值：新建表单里那个 {@code sortOrder} 只是个
+     * 表单初值，照单全收会把新行程插到已经排好的顺序最前面。要改顺序请走
+     * {@link #reorder}。</p>
      *
      * @param allowOutsideDates 是否允许日期超出旅行的起止范围；
      *                          前端弹窗里有对应的勾选项，默认不允许
@@ -47,12 +52,24 @@ public class ItineraryService {
     public ItineraryItem create(Long tripId, ItineraryItem item, boolean allowOutsideDates) {
         item.setTripId(tripId);
         validate(item, allowOutsideDates);
-        if (item.getSortOrder() == null) {
-            item.setSortOrder(mapper.selectCount(new LambdaQueryWrapper<ItineraryItem>().eq(ItineraryItem::getTripId, tripId)).intValue());
-        }
+        item.setSortOrder(nextSortOrder(tripId));
         if (item.getCompleted() == null) item.setCompleted(false);
         mapper.insert(item);
         return item;
+    }
+
+    /**
+     * 下一个序号：现有最大值 + 1。
+     *
+     * <p>不能用条数。删掉中间一条之后 [0,1,2] 变成 [0,2]，条数是 2，最大序号也是 2，
+     * 新增的那条会和现有的撞在一起。</p>
+     */
+    private int nextSortOrder(Long tripId) {
+        return mapper.selectList(new LambdaQueryWrapper<ItineraryItem>()
+                        .eq(ItineraryItem::getTripId, tripId)).stream()
+                .map(ItineraryItem::getSortOrder)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo).map(max -> max + 1).orElse(0);
     }
 
     public ItineraryItem update(Long id, ItineraryItem input, boolean allowOutsideDates) {
@@ -60,6 +77,8 @@ public class ItineraryService {
         Long tripId = item.getTripId();
         input.setId(id);
         input.setTripId(tripId);
+        // 顺序不归编辑表单管，reorder 才是唯一入口；表单没带就保留库里那个
+        if (input.getSortOrder() == null) input.setSortOrder(item.getSortOrder());
         validate(input, allowOutsideDates);
         mapper.updateById(input);
         return get(id);

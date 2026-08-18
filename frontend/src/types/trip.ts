@@ -94,6 +94,11 @@ export interface StopRequest {
   locationSource?: string
   arrivalDate?: LocalDateString | null
   departureDate?: LocalDateString | null
-  sortOrder?: number
+  /*
+   * 这里没有 sortOrder，而且不要加回来。
+   *
+   * 新建的序号由后端取 MAX+1 分配，一律排在末尾；改顺序走 reorder 接口。以前表单里
+   * 带着一个初值 0 一起发出去，新建的城市就会插到已经排好的顺序最前面。
+   */
   note?: string
 }

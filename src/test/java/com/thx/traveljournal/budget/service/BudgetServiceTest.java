@@ -55,6 +55,35 @@ class BudgetServiceTest {
         assertThat(summary.categories().getFirst().remaining()).isEqualByComparingTo("-200.50");
     }
 
+    @Test
+    void newCategoryGoesToTheEndRegardlessOfWhatTheFormSent() {
+        /*
+         * 序号取 MAX + 1，不是条数。
+         *
+         * [0,1,2] 里删掉中间那条，剩下 [0,2]：条数是 2，最大序号也是 2，
+         * 按条数分配的话新分类会和「2」撞在一起。
+         */
+        Trip trip = new Trip();
+        trip.setId(1L);
+        when(tripMapper.selectById(1L)).thenReturn(trip);
+        when(categoryMapper.selectList(any())).thenReturn(List.of(
+                category(10L, "TRANSPORT", "交通", "1000.00"),
+                categoryAt(12L, 2)));
+
+        BudgetCategory input = new BudgetCategory();
+        input.setCode("food");
+        input.setName("餐饮");
+        input.setSortOrder(0);
+
+        assertThat(service.createCategory(1L, input).getSortOrder()).isEqualTo(3);
+    }
+
+    private BudgetCategory categoryAt(Long id, int sortOrder) {
+        BudgetCategory item = category(id, "OTHER", "其他", "0.00");
+        item.setSortOrder(sortOrder);
+        return item;
+    }
+
     private BudgetCategory category(Long id, String code, String name, String amount) {
         BudgetCategory item = new BudgetCategory();
         item.setId(id); item.setTripId(1L); item.setCode(code); item.setName(name);

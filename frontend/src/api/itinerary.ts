@@ -33,7 +33,12 @@ export interface ItineraryRequest {
   note?: string
   plannedCost?: Decimal | null
   completed?: boolean | null
-  sortOrder?: number | null
+  /*
+   * 这里没有 sortOrder，而且不要加回来。
+   *
+   * 新建的序号由后端取 MAX+1 分配，一律排在末尾；改顺序走 reorder 接口。以前表单里
+   * 带着一个初值 0 一起发出去，新建的行程就会插到已经排好的顺序最前面。
+   */
   /** 允许把行程排在旅行起止日期之外。默认不允许，避免手滑排错年份。 */
   allowOutsideTripDates?: boolean
 }
