@@ -138,7 +138,7 @@ let tabSwipeStart: { x: number, moved: boolean } | null = null
 let suppressTabClick = false
 
 function blankStop(): StopForm {
-  return { cityName: '', regionName: '', countryName: '中国', countryCode: 'CN', latitude: null, longitude: null, placeId: undefined, formattedAddress: '', adcode: '', coordinateSystem: 'WGS84', locationSource: 'MANUAL', arrivalDate: null, departureDate: null, sortOrder: 0, note: '' }
+  return { cityName: '', regionName: '', countryName: '中国', countryCode: 'CN', latitude: null, longitude: null, placeId: null, formattedAddress: '', adcode: '', coordinateSystem: 'WGS84', locationSource: 'MANUAL', arrivalDate: null, departureDate: null, sortOrder: 0, note: '' }
 }
 function blankItem(): ItemForm {
   return { tripStopId: null, itemDate: '', startTime: null, endTime: null, type: 'ATTRACTION', title: '', address: '', note: '', plannedCost: 0, completed: false, sortOrder: 0, allowOutsideTripDates: false }
@@ -188,7 +188,7 @@ async function openStop(row?: TripStop) {
   editingStop.value = row?.id ?? null
   fillForm(stopForm, blankStop, row ? {
     ...row,
-    regionName: row.regionName || '', countryCode: row.countryCode || '', placeId: row.placeId || undefined,
+    regionName: row.regionName || '', countryCode: row.countryCode || '', placeId: row.placeId ?? null,
     formattedAddress: row.formattedAddress || '', adcode: row.adcode || '', locationSource: row.locationSource || '', note: row.note || '',
   } : undefined)
   locationKeyword.value = row?.formattedAddress || row?.cityName || ''
@@ -244,7 +244,7 @@ function applyLocation(item: LocationView, move = true) {
   stopForm.countryName = item.country || '中国'
   stopForm.countryCode = item.countryCode || 'CN'
   stopForm.latitude = Number(item.latitude); stopForm.longitude = Number(item.longitude)
-  stopForm.placeId = item.placeId || undefined; stopForm.formattedAddress = item.formattedAddress || ''
+  stopForm.placeId = item.placeId ?? null; stopForm.formattedAddress = item.formattedAddress || ''
   stopForm.adcode = item.adcode || ''; stopForm.coordinateSystem = item.coordinateSystem; stopForm.locationSource = item.locationSource || 'MAP_PICK'
   setPickerMarker(stopForm.latitude, stopForm.longitude)
   if (move && pickerMap) pickerMap.fitBounds([[stopForm.latitude, stopForm.longitude]], { maxZoom: Math.max(pickerMap.getZoom(), 12) })

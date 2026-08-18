@@ -1,5 +1,6 @@
 package com.thx.traveljournal.journaltemplate.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,7 +20,14 @@ import lombok.EqualsAndHashCode;
 public class JournalTemplate extends BaseEntity {
     /** 模板名称 */
     private String name;
-    /** 模板说明 */
+    /**
+     * 模板说明。
+     *
+     * <p>可以清空，所以要 {@link FieldStrategy#ALWAYS}。服务层已经把空白描述归一成 null，
+     * 但默认策略会跳过 null 字段：返回给前端的对象上描述是空的，SQL 里却没有这一列，
+     * 下次重新查询旧描述原样回来——一次看上去成功了的假清空。</p>
+     */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String description;
     /** 模板分类，例如 CITY_DAY 城市一日游、FOOD 美食探店、CUSTOM 自定义 */
     private String category;

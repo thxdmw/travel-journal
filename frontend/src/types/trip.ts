@@ -74,6 +74,12 @@ export interface TripRequest {
   themeKey?: string | null
 }
 
+/*
+ * 城市停靠点的完整表单（PUT 语义）：null 表示清空这个字段。
+ *
+ * 可空字段写成 `| null` 而不是只有 `?`，是为了让「作者清掉了这一项」能够被明确表达出来。
+ * 后端对应的列都标了 FieldStrategy.ALWAYS，收到 null 会真的写进 NULL。
+ */
 export interface StopRequest {
   cityName: string
   regionName?: string
@@ -81,7 +87,7 @@ export interface StopRequest {
   countryCode?: string
   latitude: Decimal
   longitude: Decimal
-  placeId?: string
+  placeId?: string | null
   formattedAddress?: string
   adcode?: string
   coordinateSystem?: CoordinateSystem

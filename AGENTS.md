@@ -77,6 +77,19 @@ Java 包根路径为 `src/main/java/com/thx/traveljournal/`；前端稳定资源
 - OSM 直接使用 WGS84；AMap 只在适配边界转换 WGS84 ↔ GCJ-02。
 - 历史坐标按 `coordinate_system` 元数据读取。没有可靠来源时禁止猜测并批量转换。
 
+### 写入语义
+
+- 清空字段必须真的能清空。MyBatis-Plus 的 `updateById` 默认跳过 null 字段，写 CRUD 时不确认这一点，「删掉备注保存后又回来了」这类 bug 会一次次重新长出来。
+- 完整表单提交（PUT）：**null 表示清空**。实体上真正可空的列一律标 `@TableField(updateStrategy = FieldStrategy.ALWAYS)`；必填列和外键不要标，否则会把它们写成 NULL。
+- 局部更新（PATCH）：**字段缺席 = 不修改，字段存在且为 null = 清空**。两者必须能区分，参考 Journal 草稿的做法按 JSON 字段是否出现来判断，不要用 DTO 上的 null 兼指两种意思。
+- 前端不要把空字符串转成 `undefined` 再发出去——那会让「清空」在网络层就退化成「不改」。
+- 新增可空字段时，同时补一条「设值 → 清空 → 重新查询仍为空」的回归测试。
+
+### 排序号
+
+- 新建记录的 `sort_order` 由后端分配，取 `MAX(sort_order) + 1`，不要用现有条数：删过中间一条之后条数必然和最大序号撞车。
+- 创建接口不接受前端传来的 `sort_order`；只有 reorder 接口才真正接受完整排序。
+
 ## 数据库规则
 
 - 只新增新的 Flyway 版本文件，不修改已经执行过的迁移。

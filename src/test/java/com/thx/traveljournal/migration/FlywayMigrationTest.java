@@ -1,5 +1,6 @@
 package com.thx.traveljournal.migration;
 
+import com.thx.traveljournal.support.FullFormEntities;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,8 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -128,12 +131,48 @@ class FlywayMigrationTest {
                           and column_name='coordinate_system'
                         """))
                         .isEqualTo(1);
+
+                assertNotNullAllowlistMatchesSchema(connection);
             }
 
         } finally {
             if (postgres != null) {
                 postgres.stop();
             }
+        }
+    }
+
+
+    /**
+     * 用真实 schema 校对 {@link FullFormEntities} 里的 NOT NULL 白名单。
+     *
+     * <p>那份白名单决定了哪些列可以不标 {@code FieldStrategy.ALWAYS}。要是把一个其实
+     * 可空的列错写成 NOT NULL，「清空必须真的能清空」这条规则就对它悄悄失效了，而且
+     * 不带数据库的那条单测永远发现不了——只有这里能。</p>
+     */
+    private static void assertNotNullAllowlistMatchesSchema(Connection connection) throws Exception {
+        for (FullFormEntities.Entry entity : FullFormEntities.ALL) {
+            Set<String> actualNotNull = new HashSet<>();
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    select column_name
+                    from information_schema.columns
+                    where table_schema='public'
+                      and table_name=?
+                      and is_nullable='NO'
+                    """)) {
+
+                statement.setString(1, entity.table());
+                try (ResultSet result = statement.executeQuery()) {
+                    while (result.next()) actualNotNull.add(result.getString(1));
+                }
+            }
+            actualNotNull.removeAll(FullFormEntities.AUDIT_COLUMNS);
+            // 主键由数据库生成，不参与表单写入
+            actualNotNull.remove("id");
+
+            assertThat(actualNotNull)
+                    .as("%s 的 NOT NULL 白名单和数据库对不上了", entity.table())
+                    .isEqualTo(entity.notNullColumns());
         }
     }
 
