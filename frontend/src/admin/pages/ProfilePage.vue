@@ -20,6 +20,8 @@ const password = reactive({ currentPassword: '', newPassword: '', confirmPasswor
 const avatarUrl = computed(() => props.session.user?.avatarUrl)
 const devices = ref<LoginDevice[]>([])
 const loadingDevices = ref(false)
+const renamingDevice = ref('')
+const deviceNameDraft = ref('')
 const editingName = ref(false)
 const nameDraft = ref('')
 const savingName = ref(false)
@@ -124,10 +126,55 @@ async function revokeOthers() {
   }
 }
 
-/** 列表里时间只需要看个大概，精确到分钟就够。 */
+/**
+ * 相对时间。
+ *
+ * 「3 分钟前」比「2026/8/18 11:17」更容易判断哪条是旧的——这份列表要回答的问题是
+ * 「哪台该踢掉」，不是「具体几点登录的」。超过一周就没有相对感了，回落到日期。
+ */
 function moment(value: string): string {
   const at = new Date(value)
-  return Number.isNaN(at.getTime()) ? '—' : at.toLocaleString('zh-CN', { hour12: false }).replace(/:\d{2}$/, '')
+  if (Number.isNaN(at.getTime())) return '—'
+  const minutes = Math.floor((Date.now() - at.getTime()) / 60_000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return '昨天'
+  if (days < 7) return `${days} 天前`
+  return at.toLocaleDateString('zh-CN')
+}
+
+/**
+ * 地址显示。
+ *
+ * 本机访问拿到的是 IPv6 回环，展开写法是 0:0:0:0:0:0:0:1，又长又看不出含义。
+ */
+function address(ip: string | null): string {
+  if (!ip) return '未知地址'
+  const normalized = ip.trim()
+  if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1' || normalized.startsWith('127.')) return '本机'
+  // IPv6 的全展开写法压回标准缩写：0:0:0:0:0:0:0:1 这种没必要占满一行
+  return normalized.includes(':') ? normalized.replace(/(^|:)0(:0)+(:|$)/, '::').replace(/:{3,}/, '::') : normalized
+}
+
+/** 开始给一台设备起名字。 */
+function startRenameDevice(device: LoginDevice) {
+  renamingDevice.value = device.sessionId
+  deviceNameDraft.value = device.named ? device.deviceName : ''
+}
+
+async function saveDeviceName(device: LoginDevice) {
+  const next = deviceNameDraft.value.trim()
+  renamingDevice.value = ''
+  try {
+    await authApi.renameDevice(device.sessionId, next)
+    props.message(next ? '设备名已更新' : '已改回自动识别')
+    await loadDevices()
+  } catch (error) {
+    props.fail(error)
+  }
 }
 
 onMounted(loadDevices)
@@ -199,11 +246,21 @@ function download(includePhotos: boolean) {
       </section>
       <section class="panel panel-pad device-card"><h3>登录设备</h3>
         <p>这里列出当前所有保持登录的设备。手机丢了、或者在别人电脑上登录过忘了退出，都可以在这里让它立刻掉线。</p>
+        <p class="form-hint">浏览器读不到你给设备起的名字（比如「我的 iPhone」），下面显示的是按浏览器信息认出来的型号。点「改名」可以自己命名，这台设备下次登录还叫这个名字。</p>
         <div v-loading="loadingDevices" class="device-list">
           <article v-for="device in devices" :key="device.sessionId" class="device-item" :class="{ 'is-current': device.current }">
             <div class="device-main">
-              <strong>{{ device.deviceName }}<span v-if="device.current" class="device-badge">本机</span></strong>
-              <small>{{ device.ip || '未知地址' }} · 登录于 {{ moment(device.loggedInAt) }}</small>
+              <div v-if="renamingDevice === device.sessionId" class="device-rename">
+                <el-input v-model="deviceNameDraft" size="small" maxlength="60" placeholder="例如 我的 iPhone" @keyup.enter="saveDeviceName(device)" />
+                <el-button link size="small" @click="saveDeviceName(device)">保存</el-button>
+                <el-button link size="small" @click="renamingDevice = ''">取消</el-button>
+              </div>
+              <strong v-else>
+                {{ device.deviceName }}
+                <span v-if="device.current" class="device-badge">本机</span>
+                <el-button link size="small" @click="startRenameDevice(device)">改名</el-button>
+              </strong>
+              <small>{{ address(device.ip) }} · {{ moment(device.loggedInAt) }}登录</small>
               <small>最近活跃 {{ moment(device.lastActiveAt) }}</small>
             </div>
             <el-button v-if="!device.current" link type="danger" size="small" @click="revokeDevice(device)">退出登录</el-button>

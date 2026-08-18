@@ -75,7 +75,20 @@ self.addEventListener('install', event => {
       // 单个资源抓不到不该让整次安装失败，那样会一直装不上
       await Promise.allSettled(assets.map(url => cache.add(url)));
     })
-    .then(() => self.skipWaiting()));
+    .then(() => {
+      /*
+       * 首次安装直接接管；已经有旧版本在跑时留在 waiting。
+       *
+       * 这里以前是无条件 skipWaiting()，于是新版本装完立刻上位，registration.waiting
+       * 永远是空的——页面那句「有新版本，点击刷新」因此永远没有机会出现。作者改完部署，
+       * 手机上打开还是旧的，也没有任何提示。
+       *
+       * 首次安装没有旧页面可打断，越快接管越好；更新则要等作者点了再切，
+       * 他可能正在编辑器里打字。
+       */
+      if (!self.registration.active) return self.skipWaiting();
+      return undefined;
+    }));
 });
 
 self.addEventListener('activate', event => {
@@ -145,10 +158,17 @@ const VALIDATED_AT = 'x-sw-validated-at';
  *
  * 不能直接改 Response 的头（它是只读的），所以连身体一起重建一个。
  */
-async function stamp(response) {
+function stamp(response) {
   const headers = new Headers(response.headers);
   headers.set(VALIDATED_AT, String(Date.now()));
-  return new Response(await response.blob(), {
+  /*
+   * 用 body 这个流，不要 await response.blob()。
+   *
+   * blob() 会把整张图先读进内存再原样写回去，只为了改一个响应头。一次翻十几张照片
+   * 就是十几张图在内存里走一遭，而这一步本来只需要换个 Headers。传入的都是 clone()，
+   * 流只被这里消费一次，调用方手上那份不受影响。
+   */
+  return new Response(response.body, {
     status: response.status, statusText: response.statusText, headers,
   });
 }
@@ -235,12 +255,12 @@ async function media(request, clientId) {
     // 内容没变，服务端也认了这次访问：继续用缓存里的那一份，
     // 并把校验时间戳往前推——刚问过一次，接下来这一分钟不必再问
     if (response.status === 304 && cached) {
-      await cache.put(request, await stamp(cached.clone()));
+      await cache.put(request, stamp(cached.clone()));
       return cached;
     }
     if (response.ok) {
       if (storable(response) && await cacheableFrom(clientId)) {
-        await cache.put(request, await stamp(response.clone()));
+        await cache.put(request, stamp(response.clone()));
         trim(MEDIA_CACHE, MEDIA_LIMIT);
       } else {
         /*

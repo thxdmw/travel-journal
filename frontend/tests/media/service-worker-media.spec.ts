@@ -33,7 +33,7 @@ const PAGES: Record<string, { url: string }> = {
   'admin-page': { url: 'https://travel.example/admin/index.html' },
 }
 
-async function loadWorker(fetchImpl: typeof fetch) {
+async function loadWorker(fetchImpl: typeof fetch, activeWorker: unknown = null) {
   const code = await readFile(resolve(process.cwd(), 'public/service-worker.js'), 'utf8')
   const listeners: Listeners = {}
   const buckets = new Map<string, FakeCache>()
@@ -41,6 +41,8 @@ async function loadWorker(fetchImpl: typeof fetch) {
     location: { href: 'https://travel.example/service-worker.js?build=test', origin: 'https://travel.example' },
     addEventListener: (type: string, handler: (event: unknown) => void) => { listeners[type] = handler },
     skipWaiting: vi.fn(),
+    // active 有值＝已经有旧版本在跑，这次是更新而不是首次安装
+    registration: { active: activeWorker },
     clients: { claim: vi.fn(), get: (id: string) => Promise.resolve(PAGES[id]) },
   }
   const cacheStorage = {
@@ -53,7 +55,7 @@ async function loadWorker(fetchImpl: typeof fetch) {
   }
   // 被测脚本本身，不是外部输入
   new Function('self', 'caches', 'fetch', code)(workerSelf, cacheStorage, fetchImpl)
-  return { listeners, cacheStorage }
+  return { listeners, cacheStorage, workerSelf }
 }
 
 /** 走一遍 fetch 事件，拿到 SW 打算回给页面的那个响应。 */
@@ -215,5 +217,48 @@ describe('Service Worker 图片缓存', () => {
     // 不调用 respondWith 就意味着交回浏览器默认处理，SW 完全不参与
     expect(await handle(listeners, 'https://travel.example/api/media/9/original')).toBeUndefined()
     expect(await handle(listeners, IMAGE + '?previewToken=abc')).toBeUndefined()
+  })
+})
+
+/*
+ * ============================================================ 版本接管时机
+ *
+ * install 里以前是无条件 skipWaiting()，新版本装完立刻上位，registration.waiting 永远为空，
+ * 页面那句「有新版本，点击刷新」因此永远没机会出现——改完部署，手机上打开还是旧的。
+ */
+describe('Service Worker 安装', () => {
+  /** 触发一次 install，并等它的 waitUntil 跑完。 */
+  async function install(listeners: Listeners) {
+    let pending: Promise<unknown> = Promise.resolve()
+    listeners.install?.({ waitUntil: (value: Promise<unknown>) => { pending = value } })
+    await pending
+  }
+
+  it('首次安装直接接管，没有旧页面可打断', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    const { listeners, workerSelf } = await loadWorker(fetchImpl as unknown as typeof fetch, null)
+
+    await install(listeners)
+
+    expect(workerSelf.skipWaiting).toHaveBeenCalled()
+  })
+
+  it('已有旧版本在跑时留在 waiting，等作者点刷新', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    const { listeners, workerSelf } = await loadWorker(fetchImpl as unknown as typeof fetch, { state: 'activated' })
+
+    await install(listeners)
+
+    // 不抢着接管，页面才有机会拿到 registration.waiting 并提示
+    expect(workerSelf.skipWaiting).not.toHaveBeenCalled()
+  })
+
+  it('页面明确要求时才立刻接管', async () => {
+    const fetchImpl = vi.fn()
+    const { listeners, workerSelf } = await loadWorker(fetchImpl as unknown as typeof fetch, { state: 'activated' })
+
+    listeners.message?.({ data: 'skip-waiting' })
+
+    expect(workerSelf.skipWaiting).toHaveBeenCalled()
   })
 })

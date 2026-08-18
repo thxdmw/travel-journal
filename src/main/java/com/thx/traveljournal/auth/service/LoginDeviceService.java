@@ -4,19 +4,27 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import com.thx.traveljournal.auth.entity.LoginDeviceName;
+import com.thx.traveljournal.auth.mapper.LoginDeviceNameMapper;
+import com.thx.traveljournal.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 已登录设备。
@@ -48,6 +56,7 @@ public class LoginDeviceService {
 
     private final FindByIndexNameSessionRepository<? extends Session> sessions;
     private final ClientIpResolver clientIpResolver;
+    private final LoginDeviceNameMapper deviceNames;
 
     /**
      * 一台已登录的设备。
@@ -55,8 +64,9 @@ public class LoginDeviceService {
      * @param sessionId 会话标识，用来远程登出；不下发给页面以外的任何地方
      * @param current   是不是当前正在用的这一台
      */
-    public record LoginDevice(String sessionId, String deviceName, String ip,
-                              OffsetDateTime loggedInAt, OffsetDateTime lastActiveAt, boolean current) {}
+    public record LoginDevice(String sessionId, String deviceId, String deviceName, boolean named,
+                              String ip, OffsetDateTime loggedInAt, OffsetDateTime lastActiveAt,
+                              boolean current) {}
 
     /**
      * 登录成功时记下这台设备，并让同一台设备上的旧会话立刻作废。
@@ -137,10 +147,73 @@ public class LoginDeviceService {
 
     /** 某个账号当前所有的登录设备，最近活跃的排在前面。 */
     public List<LoginDevice> devicesOf(String username, String currentSessionId) {
-        return sessions.findByPrincipalName(username).values().stream()
-                .map(session -> toDevice(session, currentSessionId))
+        Collection<? extends Session> live = sessions.findByPrincipalName(username).values();
+        // 一次把这批设备的自定义名查回来，不要每台设备查一次库
+        Map<String, String> named = namesOf(live.stream()
+                .map(LoginDeviceService::deviceIdOf).filter(Objects::nonNull).toList());
+        return live.stream()
+                .map(session -> toDevice(session, currentSessionId, named))
                 .sorted(Comparator.comparing(LoginDevice::lastActiveAt).reversed())
                 .toList();
+    }
+
+    private Map<String, String> namesOf(List<String> deviceIds) {
+        if (deviceIds.isEmpty()) return Map.of();
+        return deviceNames.selectByIds(deviceIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        LoginDeviceName::getDeviceId, LoginDeviceName::getDisplayName));
+    }
+
+    private static String deviceIdOf(Session session) {
+        Map<String, String> device = session.getAttribute(DEVICE_ATTRIBUTE);
+        return device == null ? null : device.get("deviceId");
+    }
+
+    /**
+     * 给一台设备起名字。
+     *
+     * <p>名字挂在 device_id 上，所以这台设备下次重新登录（新会话）仍然叫这个名字——
+     * 「我给这台手机起过名」这件事本来就该活得比一次登录长。</p>
+     *
+     * <p>只能改自己名下的设备：会话 id 是从列表里拿到的，但必须回过头确认它确实属于
+     * 当前账号，否则拿到任意一个会话 id 就能给别人的设备改名。</p>
+     *
+     * @return 改完之后这台设备的显示名
+     */
+    @Transactional
+    public String rename(String username, String sessionId, String displayName) {
+        Session target = sessions.findById(sessionId);
+        String owner = target == null ? null
+                : target.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME);
+        if (target == null || !username.equals(owner))
+            throw BusinessException.notFound("这台设备已经不在登录状态");
+        String deviceId = deviceIdOf(target);
+        if (deviceId == null)
+            throw BusinessException.badRequest("这台设备没有设备标识，无法命名");
+
+        String name = displayName == null ? "" : displayName.trim();
+        if (name.isEmpty()) {
+            // 清空＝改回自动识别，删掉记录而不是存一个空串
+            deviceNames.deleteById(deviceId);
+            Map<String, String> device = target.getAttribute(DEVICE_ATTRIBUTE);
+            return device == null ? "未知设备" : device.getOrDefault("deviceName", "未知设备");
+        }
+        if (name.length() > 60) throw BusinessException.badRequest("设备名不能超过 60 个字符");
+
+        LoginDeviceName record = deviceNames.selectById(deviceId);
+        if (record == null) {
+            record = new LoginDeviceName();
+            record.setDeviceId(deviceId);
+            record.setUsername(username);
+            record.setDisplayName(name);
+            deviceNames.insert(record);
+        } else {
+            record.setUsername(username);
+            record.setDisplayName(name);
+            record.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            deviceNames.updateById(record);
+        }
+        return name;
     }
 
     /**
@@ -176,12 +249,18 @@ public class LoginDeviceService {
         return removed;
     }
 
-    private LoginDevice toDevice(Session session, String currentSessionId) {
+    private LoginDevice toDevice(Session session, String currentSessionId, Map<String, String> named) {
         Map<String, String> device = session.getAttribute(DEVICE_ATTRIBUTE);
         String loggedInAt = device == null ? null : device.get("loggedInAt");
+        String deviceId = device == null ? null : device.get("deviceId");
+        String custom = deviceId == null ? null : named.get(deviceId);
+        String detected = device == null ? "未知设备" : device.getOrDefault("deviceName", "未知设备");
         return new LoginDevice(
                 session.getId(),
-                device == null ? "未知设备" : device.getOrDefault("deviceName", "未知设备"),
+                deviceId,
+                // 作者起的名字优先：自动识别再准也认不出「这台是我通勤用的旧手机」
+                custom != null ? custom : detected,
+                custom != null,
                 device == null ? null : device.get("ip"),
                 loggedInAt == null ? at(session.getCreationTime()) : OffsetDateTime.parse(loggedInAt),
                 at(session.getLastAccessedTime()),
@@ -200,13 +279,7 @@ public class LoginDeviceService {
      */
     static String describe(String userAgent) {
         if (userAgent == null || userAgent.isBlank()) return "未知设备";
-        String platform = userAgent.contains("iPhone") ? "iPhone"
-                : userAgent.contains("iPad") ? "iPad"
-                : userAgent.contains("Android") ? "Android"
-                : userAgent.contains("Macintosh") || userAgent.contains("Mac OS") ? "Mac"
-                : userAgent.contains("Windows") ? "Windows"
-                : userAgent.contains("Linux") ? "Linux"
-                : "其他设备";
+        String platform = platformOf(userAgent);
         // 顺序有讲究：Edge 的 UA 里同时有 Chrome 和 Safari，Chrome 的 UA 里也有 Safari
         String browser = userAgent.contains("Edg/") ? "Edge"
                 : userAgent.contains("OPR/") ? "Opera"
@@ -216,5 +289,58 @@ public class LoginDeviceService {
                 : null;
         return browser == null ? platform : platform + " · " + browser;
     }
+
+    /**
+     * 平台部分，能认出机型就带上机型。
+     *
+     * <p>浏览器能给的信息到此为止，再往下就是隐私边界：作者自己给手机起的那个名字
+     * （「我的 iPhone」）没有任何 Web API 拿得到。所以这里只做尽力而为的识别，
+     * 真要一眼认出是哪一台，还得靠作者自己在设备列表里重命名。</p>
+     *
+     * <ul>
+     *   <li>Android 的 UA 里带机型，能直接读出 Pixel 7、SM-G9910 这种</li>
+     *   <li>iOS 不给机型，Apple 刻意抹掉了，只能退到系统大版本</li>
+     *   <li>Windows 和 macOS 的版本号已经被浏览器冻结（永远是 NT 10.0 / 10_15_7），
+     *       读出来是假的，不如不读</li>
+     * </ul>
+     */
+    private static String platformOf(String userAgent) {
+        if (userAgent.contains("Android")) {
+            String model = androidModel(userAgent);
+            return model == null ? "Android" : model;
+        }
+        if (userAgent.contains("iPhone")) return appendAppleVersion("iPhone", userAgent);
+        if (userAgent.contains("iPad")) return appendAppleVersion("iPad", userAgent);
+        if (userAgent.contains("Macintosh") || userAgent.contains("Mac OS")) return "Mac";
+        if (userAgent.contains("Windows")) return "Windows";
+        if (userAgent.contains("Linux")) return "Linux";
+        return "其他设备";
+    }
+
+    /**
+     * 从 Android 的 UA 里取机型。
+     *
+     * <p>格式是 {@code (Linux; Android 14; Pixel 7) AppleWebKit/...}，机型在第三段。
+     * 有些定制 ROM 会追加 Build 号，一并去掉。</p>
+     */
+    private static String androidModel(String userAgent) {
+        Matcher matcher = ANDROID_MODEL.matcher(userAgent);
+        if (!matcher.find()) return null;
+        String model = matcher.group(1).trim();
+        int build = model.indexOf(" Build/");
+        if (build > 0) model = model.substring(0, build).trim();
+        // wv 是 WebView 标记，不是机型的一部分
+        if (model.endsWith(" wv")) model = model.substring(0, model.length() - 3).trim();
+        return model.isEmpty() ? null : model;
+    }
+
+    /** iOS 只给得出大版本，`17_5_1` 这种取到第一段就够了。 */
+    private static String appendAppleVersion(String platform, String userAgent) {
+        Matcher matcher = IOS_VERSION.matcher(userAgent);
+        return matcher.find() ? platform + " · iOS " + matcher.group(1) : platform;
+    }
+
+    private static final Pattern ANDROID_MODEL = Pattern.compile("Android [\\d.]+; ([^;)]+)");
+    private static final Pattern IOS_VERSION = Pattern.compile("OS (\\d+)[_\\d]* like Mac OS X");
 
 }

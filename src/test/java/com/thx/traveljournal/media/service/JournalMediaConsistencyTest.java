@@ -17,6 +17,7 @@ import com.thx.traveljournal.trip.mapper.TripStopMapper;
 import io.minio.MinioClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.util.ArrayList;
@@ -61,6 +62,8 @@ class JournalMediaConsistencyTest {
         journal.setContentJson(new JournalDocumentService(new ObjectMapper()).emptyDocument());
         when(journalMapper.selectById(3L)).thenReturn(journal);
         when(journalMapper.selectOne(any())).thenReturn(journal);
+        // 带 CAS 条件的写入按影响行数判断成败，默认让它成功
+        when(journalMapper.update(any(), any())).thenReturn(1);
         AppProperties properties = new AppProperties("http://localhost",
                 new AppProperties.Admin("admin", "password", "旅行者"),
                 new AppProperties.Upload(20, 50, 50_000_000),
@@ -193,7 +196,7 @@ class JournalMediaConsistencyTest {
         service.reorder(3L, List.of(8L));
         service.sortByCaptureTime(3L);
         service.deleteRelation(8L);
-        service.setCover(3L, 20L);
+        service.setCover(3L, 20L, 4);
         service.purgeJournalMedia(3L);
 
         // 五条路径各锁一次；upload / attachExisting 由上面的用例覆盖
@@ -215,7 +218,7 @@ class JournalMediaConsistencyTest {
          */
         when(relationMapper.selectCount(any())).thenReturn(1L);
 
-        service.setCover(3L, 20L);
+        service.setCover(3L, 20L, 4);
 
         verify(journalMapper, never()).updateById(any(JournalEntry.class));
         verify(journalMapper).update(isNull(), any());
@@ -225,9 +228,36 @@ class JournalMediaConsistencyTest {
     void settingCoverRejectsAnImageFromAnotherJournal() {
         when(relationMapper.selectCount(any())).thenReturn(0L);
 
-        assertThatThrownBy(() -> service.setCover(3L, 99L))
+        assertThatThrownBy(() -> service.setCover(3L, 99L, 4))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不属于当前日记");
         verify(journalMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void settingCoverGuardsOnRevisionAndReturnsTheNewOne() {
+        when(relationMapper.selectCount(any())).thenReturn(1L);
+        journal.setRevision(5);
+
+        int revision = service.setCover(3L, 20L, 4);
+
+        // 返回写入之后的版本号，编辑器要拿它更新手上那份
+        assertThat(revision).isEqualTo(5);
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<JournalEntry>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+        verify(journalMapper).update(isNull(), captor.capture());
+        var wrapper = (com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<JournalEntry>) captor.getValue();
+        assertThat(wrapper.getSqlSet()).contains("revision = revision + 1");
+    }
+
+    @Test
+    void settingCoverWithAStaleRevisionConflicts() {
+        when(relationMapper.selectCount(any())).thenReturn(1L);
+        // 别处已经改过这篇日记：带版本条件的 UPDATE 匹配不到任何行
+        when(journalMapper.update(any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.setCover(3L, 20L, 4))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("已经被改过");
     }
 }

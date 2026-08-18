@@ -10,7 +10,7 @@ import com.thx.traveljournal.itinerary.mapper.ItineraryMapper;
 import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.service.JournalService;
 import com.thx.traveljournal.media.entity.JournalMedia;
-import com.thx.traveljournal.media.mapper.JournalMediaMapper;
+import com.thx.traveljournal.media.mapper.MediaVisibilityMapper;
 import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.moment.service.MomentService;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
@@ -43,7 +43,7 @@ class TripServiceTest {
                 mock(com.thx.traveljournal.media.service.MediaService.class),
                 mock(com.thx.traveljournal.journal.service.JournalService.class),
                 mock(com.thx.traveljournal.moment.service.MomentService.class),
-                mock(com.thx.traveljournal.media.mapper.JournalMediaMapper.class));
+                mock(MediaVisibilityMapper.class));
         Trip trip = new Trip();
         trip.setTitle("测试旅行");
         trip.setSlug("test-trip");
@@ -68,7 +68,7 @@ class TripServiceTest {
                 mock(com.thx.traveljournal.media.service.MediaService.class),
                 mock(com.thx.traveljournal.journal.service.JournalService.class),
                 mock(com.thx.traveljournal.moment.service.MomentService.class),
-                mock(com.thx.traveljournal.media.mapper.JournalMediaMapper.class));
+                mock(MediaVisibilityMapper.class));
         TripStop stop = new TripStop();
         stop.setCityName("未选择地点");
         stop.setCountryName("中国");
@@ -90,7 +90,7 @@ class TripServiceTest {
                 mock(com.thx.traveljournal.media.service.MediaService.class),
                 mock(com.thx.traveljournal.journal.service.JournalService.class),
                 mock(com.thx.traveljournal.moment.service.MomentService.class),
-                mock(com.thx.traveljournal.media.mapper.JournalMediaMapper.class));
+                mock(MediaVisibilityMapper.class));
     }
 
     private TripStop validStop() {
@@ -186,10 +186,10 @@ class TripServiceTest {
         MediaService mediaService = mock(MediaService.class);
         JournalService journalService = mock(JournalService.class);
         MomentService momentService = mock(MomentService.class);
-        JournalMediaMapper journalMediaMapper = mock(JournalMediaMapper.class);
+        MediaVisibilityMapper visibilityMapper = mock(MediaVisibilityMapper.class);
 
         TripService service = new TripService(tripMapper, stopMapper, itineraryMapper, budgetMapper,
-                expenseMapper, journalMapper, mediaService, journalService, momentService, journalMediaMapper);
+                expenseMapper, journalMapper, mediaService, journalService, momentService, visibilityMapper);
 
         TripService.DeletionSummary summary = service.delete(5L);
 
@@ -217,7 +217,7 @@ class TripServiceTest {
         TripService service = new TripService(tripMapper, mock(TripStopMapper.class),
                 mock(ItineraryMapper.class), mock(BudgetCategoryMapper.class), mock(ExpenseMapper.class),
                 mock(JournalMapper.class), mock(MediaService.class), journalService,
-                mock(MomentService.class), mock(JournalMediaMapper.class));
+                mock(MomentService.class), mock(MediaVisibilityMapper.class));
 
         assertThatThrownBy(() -> service.delete(404L))
                 .isInstanceOf(BusinessException.class)

@@ -219,7 +219,9 @@
   padding:10px 12px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-sm,8px); }
 .device-item.is-current { border-color:var(--tj-primary); background:color-mix(in srgb,var(--tj-primary) 5%,transparent); }
 .device-main { display:flex; flex-direction:column; gap:2px; min-width:0; }
-.device-main strong { display:flex; align-items:center; gap:6px; font-size:14px; }
+.device-main strong { display:flex; align-items:center; gap:6px; font-size:14px; flex-wrap:wrap; }
+.device-rename { display:flex; align-items:center; gap:6px; }
+.device-rename .el-input { max-width:200px; }
 .device-main small { color:var(--tj-muted); font-size:12px; word-break:break-all; }
 .device-badge { padding:1px 6px; border-radius:999px; background:var(--tj-primary); color:#fff; font:600 11px/1.6 var(--tj-sans,inherit); }
 .profile-card { display:flex; flex-direction:column; align-items:center; text-align:center; gap:14px; }

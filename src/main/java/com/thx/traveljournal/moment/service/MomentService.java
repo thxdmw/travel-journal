@@ -268,9 +268,14 @@ public class MomentService {
      */
     @Transactional
     public int purgeTripMoments(Long tripId) {
-        List<Long> momentIds = mapper.selectList(new LambdaQueryWrapper<Moment>()
-                        .select(Moment::getId).eq(Moment::getTripId, tripId))
-                .stream().map(Moment::getId).toList();
+        /*
+         * 先锁住这些行再统计照片。
+         *
+         * 照片上传只锁 moment 自己那一行，看不见 trip 上的锁——不锁的话，「查出照片清单」
+         * 和「删掉随手记」之间会有一次上传挤进来，那张新照片的 asset 不在清单里，随手记却
+         * 已经没了，于是它连同对象存储里的四个文件成了谁也引用不到的孤儿。
+         */
+        List<Long> momentIds = mapper.lockTripMoments(tripId);
         if (momentIds.isEmpty()) return 0;
         List<Long> assetIds = mediaMapper.selectList(new LambdaQueryWrapper<MomentMedia>()
                         .in(MomentMedia::getMomentId, momentIds))
@@ -345,6 +350,11 @@ public class MomentService {
                         .or().eq(Moment::getJournalEntryId, journalId)));
     }
 
+    /** 空串和纯空格都当成「没有」。 */
+    private static String blankToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
     private void normalize(Moment moment) {
         if (moment.getContent() != null) {
             String content = moment.getContent().trim();
@@ -358,6 +368,14 @@ public class MomentService {
             throw BusinessException.badRequest("地点名称不能超过 120 个字符");
         if (StringUtils.hasText(moment.getMood()) && moment.getMood().length() > 40)
             throw BusinessException.badRequest("心情不能超过 40 个字符");
+        /*
+         * 清空只有一种库内表示：NULL。
+         *
+         * 前端删光输入框发上来的是空串，不归一的话库里会同时存在 NULL 和 ''，
+         * 而 `placeName != null` 这类判断在两者之间的行为完全不同。
+         */
+        moment.setPlaceName(blankToNull(moment.getPlaceName()));
+        moment.setMood(blankToNull(moment.getMood()));
         // 设备定位和 EXIF GPS 按规范都是 WGS84；显式写入元数据，避免数据库默认值或
         // 客户端遗漏让这类新数据以后被当成 GCJ02 再转换。
         if (moment.getLatitude() != null && moment.getLongitude() != null) {

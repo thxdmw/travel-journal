@@ -16,7 +16,6 @@ import com.thx.traveljournal.journal.entity.JournalEntry;
 import com.thx.traveljournal.journal.mapper.JournalMapper;
 import com.thx.traveljournal.journal.service.JournalService;
 import com.thx.traveljournal.media.entity.JournalMedia;
-import com.thx.traveljournal.media.mapper.JournalMediaMapper;
 import com.thx.traveljournal.media.service.MediaService;
 import com.thx.traveljournal.moment.service.MomentService;
 import com.thx.traveljournal.trip.entity.Trip;
@@ -66,7 +65,8 @@ public class TripService {
     private final MediaService mediaService;
     private final JournalService journalService;
     private final MomentService momentService;
-    private final JournalMediaMapper journalMediaMapper;
+    /** 删除前清点照片数用：跨 journal_media 和 moment_media 去重统计。 */
+    private final com.thx.traveljournal.media.mapper.MediaVisibilityMapper visibilityMapper;
 
     public PageResponse<Trip> list(long page, long pageSize, String keyword) {
         LambdaQueryWrapper<Trip> query = new LambdaQueryWrapper<Trip>().orderByDesc(Trip::getStartDate);
@@ -148,13 +148,16 @@ public class TripService {
     public DeletionSummary deletionSummary(Long tripId) {
         Trip trip = get(tripId);
         List<Long> journalIds = journalIdsOf(tripId);
-        long journalPhotos = journalIds.isEmpty() ? 0 : journalMediaMapper.selectCount(
-                new LambdaQueryWrapper<JournalMedia>().in(JournalMedia::getJournalEntryId, journalIds));
         return new DeletionSummary(trip.getTitle(), journalIds.size(),
                 momentService.countByTrip(tripId),
-                // 随手记照片整理进日记后会被两边同时引用，这里按「会被删掉的关系条数」报，
-                // 说明的是规模而不是精确的文件数，作者要的就是一个量级感
-                journalPhotos + momentService.photoCountByTrip(tripId),
+                /*
+                 * 按不同的照片数报，不是按引用条数。
+                 *
+                 * 随手记整理成日记之后，同一张照片在 journal_media 和 moment_media 里各有
+                 * 一条引用，两边相加会告诉作者「将删除 2 张照片」，而物理上只有一张。
+                 * 删除不可撤销，确认框上的数字不该是个约数。
+                 */
+                visibilityMapper.countDistinctTripPhotos(tripId),
                 stopMapper.selectCount(new LambdaQueryWrapper<TripStop>().eq(TripStop::getTripId, tripId)),
                 itineraryMapper.selectCount(new LambdaQueryWrapper<ItineraryItem>()
                         .eq(ItineraryItem::getTripId, tripId)),

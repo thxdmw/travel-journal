@@ -55,16 +55,19 @@ export const journalApi = {
   mediaCount: (id: number) => get<{ count: number }>('/admin/journals/' + id + '/media-count'),
 
   /*
-   * 发布和撤回也要带版本号。
+   * 发布和撤回也要带版本号，而且是必填。
    *
-   * 状态转换以前完全在乐观锁之外：不看版本也不递增版本，于是一次并发的自动保存
-   * 能拿着「发布前」的版本号照样匹配成功，把刚发布的文章连同发布时间一起写回草稿。
-   * 正文保存和状态转换必须用同一套并发协议。
+   * 状态转换以前完全在乐观锁之外：不看版本也不递增版本，于是一次并发的自动保存能拿着
+   * 「发布前」的版本号照样匹配成功，把刚发布的文章连同发布时间一起写回草稿。正文保存和
+   * 状态转换必须用同一套并发协议。
+   *
+   * 类型上写成必填而不是可选：后端缺了它直接 400，可选的话漏传要等到运行时才暴露。
+   * 这类接口以后大概率是由 AI 助手接着改的，编译期报错比线上 400 便宜得多。
    */
-  publish: (id: number, expectedRevision?: number | null) =>
+  publish: (id: number, expectedRevision: number) =>
     post<JournalEntry>('/admin/journals/' + id + '/publish', { expectedRevision }),
 
-  unpublish: (id: number, expectedRevision?: number | null) =>
+  unpublish: (id: number, expectedRevision: number) =>
     post<JournalEntry>('/admin/journals/' + id + '/unpublish', { expectedRevision }),
 
   createPreviewLink: (id: number) => post<PreviewLink>('/admin/journals/' + id + '/preview-link'),

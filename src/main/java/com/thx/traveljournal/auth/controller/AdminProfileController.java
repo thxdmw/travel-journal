@@ -33,6 +33,8 @@ public class AdminProfileController {
      */
     public record ThemeRequest(String themeKey, String mode) {}
     public record DisplayNameRequest(@NotBlank @Size(max = 60) String displayName) {}
+    /** 设备命名。允许传空串，表示改回按 User-Agent 自动识别。 */
+    public record DeviceNameRequest(@Size(max = 60) String displayName) {}
     public record ProfileUpdate(String displayName, String avatarUrl, String themeKey, String themeMode) {}
 
     @PostMapping("/avatar")
@@ -80,6 +82,22 @@ public class AdminProfileController {
         if (!devices.revoke(authentication.getName(), sessionId))
             throw BusinessException.notFound("这台设备已经不在登录状态");
         return ApiResponse.ok();
+    }
+
+    /**
+     * 给一台设备起名字。
+     *
+     * <p>浏览器给不出作者自己起的设备名（「我的 iPhone」），User-Agent 最多到机型，
+     * iOS 连机型都不给。所以真要一眼认出哪台是哪台，只能让作者自己命名。</p>
+     *
+     * <p>名字留空表示改回自动识别。</p>
+     */
+    @PatchMapping("/devices/{sessionId}")
+    public ApiResponse<Map<String, Object>> renameDevice(@PathVariable String sessionId,
+                                                         @Valid @RequestBody DeviceNameRequest request,
+                                                         Authentication authentication) {
+        String name = devices.rename(authentication.getName(), sessionId, request.displayName());
+        return ApiResponse.ok(Map.of("deviceName", name));
     }
 
     /** 除当前设备外全部登出，返回踢掉的台数。 */

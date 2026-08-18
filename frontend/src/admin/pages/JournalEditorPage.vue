@@ -309,9 +309,9 @@ async function save(silent = false) {
   })
 }
 async function validatePublish() { try { await formRef.value?.validate(); return true } catch { metaCollapsed.value = false; return false } }
-async function publish() { flushEditor(); await nextTick(); if (!await validatePublish() || !await save(true) || !id.value) return; await enqueue(async () => { try { const published = await journalApi.publish(id.value!, revision.value); revision.value = published.revision ?? null; form.status = 'PUBLISHED'; dirty.value = false; if (hasPendingContent()) await localDraft.put(id.value, localSnapshot()); else await localDraft.remove(id.value); autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('日记已发布') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
+async function publish() { flushEditor(); await nextTick(); if (!await validatePublish() || !await save(true) || !id.value) return; await enqueue(async () => { try { const published = await journalApi.publish(id.value!, revision.value ?? 0); revision.value = published.revision ?? null; form.status = 'PUBLISHED'; dirty.value = false; if (hasPendingContent()) await localDraft.put(id.value, localSnapshot()); else await localDraft.remove(id.value); autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('日记已发布') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
 async function updatePublished() { flushEditor(); await nextTick(); if (!await validatePublish() || !id.value) return; await enqueue(async () => { saving.value = true; const snapshot = serverBody(); try { const saved = await journalApi.update(id.value!, snapshot as Parameters<typeof journalApi.update>[1]); revision.value = saved.revision ?? null; if (await reconcileLocalAfterServer(snapshot)) dirty.value = false; autoSaveState.value = hasPendingContent() ? 'local' : 'saved'; props.message('公开文章已更新') } catch (error) { if (await handleConflict(error)) return; autoSaveState.value = 'failed'; props.fail(error) } finally { saving.value = false } }) }
-async function unpublish() { if (!id.value) return; await enqueue(async () => { try { const draft = await journalApi.unpublish(id.value!, revision.value); revision.value = draft.revision ?? null; form.status = 'DRAFT'; dirty.value = false; props.message('日记已撤回') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
+async function unpublish() { if (!id.value) return; await enqueue(async () => { try { const draft = await journalApi.unpublish(id.value!, revision.value ?? 0); revision.value = draft.revision ?? null; form.status = 'DRAFT'; dirty.value = false; props.message('日记已撤回') } catch (error) { if (await handleConflict(error)) return; props.fail(error) } }) }
 
 const uploadConcurrency = 3
 /**
@@ -404,7 +404,23 @@ function picked(event: Event) { const input = event.target as HTMLInputElement; 
 function capture() { if (window.matchMedia('(pointer:coarse)').matches) photoSheet.value = true; else fileInput.value?.click() }
 function dropped(event: DragEvent) { void upload(event.dataTransfer?.files) }
 function pasted(event: ClipboardEvent) { const files = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/')); if (files.length) { event.preventDefault(); void upload(files) } }
-async function setCover(item: MediaView) { if (form.status === 'PUBLISHED') { form.coverMediaId = item.id; props.message('已选择封面，点击“更新发布”后生效'); return } if (!id.value) return; try { await mediaApi.setCover(id.value, item.id); form.coverMediaId = item.id; props.message('封面已更新') } catch (error) { props.fail(error) } }
+async function setCover(item: MediaView) {
+  if (form.status === 'PUBLISHED') { form.coverMediaId = item.id; props.message('已选择封面，点击“更新发布”后生效'); return }
+  if (!id.value) return
+  try {
+    /*
+     * 设封面会推进服务端的 revision，所以必须把新版本号接回来。
+     *
+     * 不接的话，紧接着 form.coverMediaId 的变化会触发自动保存，而它带的还是设封面之前
+     * 的版本号——作者刚点完封面，三秒后就收到一个「这篇日记在别处已经被改过」，
+     * 而那个「别处」正是他自己。
+     */
+    const result = await mediaApi.setCover(id.value, item.id, revision.value ?? 0)
+    revision.value = result.revision
+    form.coverMediaId = item.id
+    props.message('封面已更新')
+  } catch (error) { if (await handleConflict(error)) return; props.fail(error) }
+}
 async function saveCaption(item: MediaView) { if (item.relationId == null) return; try { await mediaApi.updateCaption(item.relationId, item.caption || ''); props.message('图注已保存') } catch (error) { props.fail(error) } }
 async function removeMedia(item: MediaView) { if (item.relationId == null) return; try { await props.confirm('确定删除这张图片吗？正文仍在使用时系统会拒绝删除。'); await mediaApi.remove(item.relationId); media.value = media.value.filter(existing => existing.relationId !== item.relationId); if (form.coverMediaId === item.id) form.coverMediaId = null } catch (error) { if (error !== 'cancel' && error !== 'close') props.fail(error) } }
 function toggleSelect(item: MediaView) { selectedMedia.value = selectedMedia.value.includes(item.id) ? selectedMedia.value.filter(id => id !== item.id) : [...selectedMedia.value, item.id] }

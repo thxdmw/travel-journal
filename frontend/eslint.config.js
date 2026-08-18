@@ -4,7 +4,12 @@ import pluginVue from 'eslint-plugin-vue'
 import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'e2e/**'] },
+  /*
+   * playwright-report 和 test-results 是跑 E2E 生成的产物，里面是 Playwright 自己打包过的
+   * 第三方 JS。漏掉它们的话，只要跑过一次 --trace on，下一次 lint 就会报出几千条来自压缩
+   * 代码的错误，把真正的问题淹掉。
+   */
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'e2e/**', 'playwright-report/**', 'test-results/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],

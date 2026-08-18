@@ -54,6 +54,18 @@ export async function adminRequest<T>(
 
 /** 登录后台。后台是 hash 路由的单页应用，登录成功会跳到 #/ 。 */
 export async function login(page: Page) {
+  /*
+   * 先确认账号密码真的传进来了。
+   *
+   * 少了这一步，空密码会被后端的 @NotBlank 拦成 400，测试报出来的是「登录接口返回 400」
+   * ——看着像接口坏了，实际上只是当前这个终端没设环境变量（换个窗口跑就会遇到）。
+   * 环境没配好和代码有问题必须一眼能分开。
+   */
+  if (!ADMIN_PASS) {
+    throw new Error('缺少 E2E_ADMIN_PASS 环境变量：E2E 要用真实管理员账号登录后台。'
+        + '在当前终端里先设好 E2E_ADMIN_USER 和 E2E_ADMIN_PASS 再跑，'
+        + '注意环境变量只在设置它的那个窗口里有效。')
+  }
   // 直接打开登录路由，避免 #/ 在异步会话检查完成前被误判成“已经登录”。
   await page.goto('/admin/#/login')
   const button = page.getByRole('button', { name: '登录', exact: true })

@@ -40,7 +40,11 @@ export interface PublicProfile {
 export interface LoginDevice {
   /** 会话标识，用来远程登出这一台。 */
   sessionId: string
+  /** 设备标识，比会话活得久；自定义名字挂在它上面。 */
+  deviceId: string | null
   deviceName: string
+  /** 名字是作者自己起的（true）还是按 User-Agent 认出来的（false）。 */
+  named: boolean
   ip: string | null
   loggedInAt: IsoDateTimeString
   lastActiveAt: IsoDateTimeString

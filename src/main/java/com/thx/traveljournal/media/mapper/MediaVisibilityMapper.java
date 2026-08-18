@@ -68,4 +68,26 @@ public interface MediaVisibilityMapper {
      */
     @Select("select count(*) from moment_media mm where mm.media_asset_id = #{mediaId}")
     long countMomentReferences(@Param("mediaId") Long mediaId);
+
+    /**
+     * 一次旅行会带走多少张不同的照片。
+     *
+     * <p>不能把 journal_media 和 moment_media 的条数直接相加：随手记整理成日记之后，
+     * 同一个 media_asset 在两张表里各有一条引用，加起来会告诉作者「将删除 2 张照片」，
+     * 而物理上只有一张。删除是不可撤销的操作，这个数字必须是准的。</p>
+     */
+    @Select("""
+        select count(*) from (
+            select jm.media_asset_id
+              from journal_media jm
+              join journal_entry j on j.id = jm.journal_entry_id
+             where j.trip_id = #{tripId}
+            union
+            select mm.media_asset_id
+              from moment_media mm
+              join moment m on m.id = mm.moment_id
+             where m.trip_id = #{tripId}
+        ) as distinct_assets
+        """)
+    long countDistinctTripPhotos(@Param("tripId") Long tripId);
 }

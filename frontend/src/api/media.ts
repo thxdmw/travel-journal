@@ -11,6 +11,13 @@ export interface CitySuggestion {
 }
 
 /** journal_media 关系记录。改说明后回传，前端只用到 caption。 */
+/** 设封面的结果，对应 `MediaController.CoverResult`。 */
+export interface CoverResult {
+  coverMediaId: number
+  /** 写入之后的日记版本号，编辑器必须拿它更新手上那份。 */
+  revision: number
+}
+
 export interface JournalMediaRelation {
   id: number
   journalId: number
@@ -44,9 +51,17 @@ export const mediaApi = {
   suggestCity: (journalId: number) =>
     get<CitySuggestion>('/admin/journals/' + journalId + '/media/suggest-city'),
 
-  setCover: (journalId: number, mediaId: number) =>
-    // 后端是 PATCH，返回 Void；成功与否看有没有抛错
-    patch<void>('/admin/journals/' + journalId + '/cover/' + mediaId),
+  /*
+   * 设封面。
+   *
+   * 封面是日记聚合的一次改动，会推进 revision，所以两头都要带上版本号：请求里带手上
+   * 这份的，响应里拿写入之后的。少了回写那一步，作者设完封面继续打字，下一次自动保存
+   * 就会拿着过期的版本号和自己刚才这一下撞成 409。
+   *
+   * expectedRevision 是必填：漏传在后端会得到 400，让它在编译期就过不去。
+   */
+  setCover: (journalId: number, mediaId: number, expectedRevision: number) =>
+    patch<CoverResult>('/admin/journals/' + journalId + '/cover/' + mediaId, { expectedRevision }),
 
   /** orderedIds 传的是 journal_media 关系 id，且必须是该日记的全部图片，少一张后端就 400。 */
   reorder: (journalId: number, orderedIds: number[]) =>

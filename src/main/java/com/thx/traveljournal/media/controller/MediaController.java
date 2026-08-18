@@ -1,6 +1,7 @@
 package com.thx.traveljournal.media.controller;
 
 import com.thx.traveljournal.common.api.ApiResponse;
+import com.thx.traveljournal.common.exception.BusinessException;
 import com.thx.traveljournal.journal.service.JournalPreviewService;
 import com.thx.traveljournal.media.entity.JournalMedia;
 import com.thx.traveljournal.media.service.MediaService;
@@ -31,6 +32,9 @@ public class MediaController {
     private final JournalPreviewService previewService;
 
     public record ReorderRequest(@NotEmpty List<Long> orderedIds) {}
+    public record CoverRequest(Integer expectedRevision, Boolean force) {}
+    /** 设封面的结果：新的封面图和写入之后的日记版本号。 */
+    public record CoverResult(Long coverMediaId, int revision) {}
     public record CaptionRequest(@Size(max=500) String caption) {}
 
     @GetMapping("/api/admin/journals/{journalId}/media")
@@ -59,9 +63,33 @@ public class MediaController {
         return ApiResponse.ok(service.suggestCity(journalId));
     }
 
+    /**
+     * 设置日记封面。
+     *
+     * <p>返回新的版本号，编辑器必须拿它更新手上那份——封面写入会推进 revision，
+     * 不回写的话作者设完封面，下一次自动保存就会和自己刚才这一下撞成 409。</p>
+     */
     @PatchMapping("/api/admin/journals/{journalId}/cover/{mediaId}")
-    public ApiResponse<Void> cover(@PathVariable Long journalId, @PathVariable Long mediaId) {
-        service.setCover(journalId, mediaId); return ApiResponse.ok();
+    public ApiResponse<CoverResult> cover(@PathVariable Long journalId, @PathVariable Long mediaId,
+                                          @RequestBody(required = false) CoverRequest request) {
+        CoverRequest body = request == null ? new CoverRequest(null, null) : request;
+        int revision = service.setCover(journalId, mediaId,
+                revisionGuard(body.expectedRevision(), body.force()));
+        return ApiResponse.ok(new CoverResult(mediaId, revision));
+    }
+
+    /**
+     * 和日记写入接口同一套表态规则：要么带版本号，要么显式声明强制覆盖。
+     *
+     * <p>缺席和「故意不传」长得一样时，漏传就会静默退回 last-write-wins，
+     * 而那正是乐观锁要挡的数据丢失。</p>
+     */
+    private Integer revisionGuard(Integer expectedRevision, Boolean force) {
+        if (Boolean.TRUE.equals(force)) return null;
+        if (expectedRevision == null)
+            throw BusinessException.badRequest("缺少 expectedRevision：请带上当前这份日记的版本号，"
+                    + "确实要无条件覆盖时显式传 force=true");
+        return expectedRevision;
     }
     @PutMapping("/api/admin/journal-media/{id}")
     public ApiResponse<JournalMedia> caption(@PathVariable Long id, @Valid @RequestBody CaptionRequest request) {

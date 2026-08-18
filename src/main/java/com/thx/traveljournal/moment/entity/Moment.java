@@ -1,5 +1,7 @@
 package com.thx.traveljournal.moment.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.thx.traveljournal.common.entity.BaseEntity;
 import lombok.Data;
@@ -38,7 +40,13 @@ public class Moment extends BaseEntity {
     private Integer utcOffsetMinutes;
     /** 正文，通常一两句话 */
     private String content;
-    /** 地点名称，可以来自定位反查，也可以手填 */
+    /**
+     * 地点名称，可以来自定位反查，也可以手填。
+     *
+     * <p>ALWAYS 是为了让「清空」这件事真的能写进库：默认更新策略会跳过 null 字段，
+     * 于是作者把地点删干净、界面提示已修改，刷新之后旧地点又回来了。</p>
+     */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String placeName;
     /** 纬度，来自设备定位或照片 EXIF */
     private BigDecimal latitude;
@@ -46,7 +54,8 @@ public class Moment extends BaseEntity {
     private BigDecimal longitude;
     /** 坐标系，恒为 WGS84——设备 GPS 和照片 EXIF GPS 按规范都直接输出 WGS84，不需要转换 */
     private String coordinateSystem;
-    /** 当时的心情，一个词 */
+    /** 当时的心情，一个词。和 placeName 同理，要能被清空。 */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String mood;
     /** 已经被整理进哪篇日记；为空表示还散着 */
     private Long journalEntryId;

@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type DOMWrapper } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProfilePage from '@/admin/pages/ProfilePage.vue'
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   devices: vi.fn(),
   revokeDevice: vi.fn(),
   revokeOtherDevices: vi.fn(),
+  renameDevice: vi.fn(),
 }))
 vi.mock('@/api/auth', () => ({ authApi: mocks }))
 
@@ -43,6 +44,11 @@ function mountPage() {
   return { wrapper, session, updateUser, message, fail, confirm }
 }
 
+/** 卡片里按文本找按钮：一张卡上现在有「改名」和「退出登录」两个，按位置取会取错。 */
+function button(card: DOMWrapper<Element> | undefined, label: string) {
+  return card?.findAll('button').find(item => item.text().trim() === label)
+}
+
 describe('ProfilePage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -52,6 +58,7 @@ describe('ProfilePage', () => {
     mocks.devices.mockResolvedValue([])
     mocks.revokeDevice.mockResolvedValue(undefined)
     mocks.revokeOtherDevices.mockResolvedValue({ removed: 0 })
+    mocks.renameDevice.mockResolvedValue({ deviceName: '我的 iPhone' })
   })
 
   it('保存昵称后同步现有后台会话', async () => {
@@ -107,8 +114,8 @@ describe('ProfilePage', () => {
 
   it('列出登录设备并标出本机', async () => {
     mocks.devices.mockResolvedValue([
-      { sessionId: 'a', deviceName: 'iPhone · Safari', ip: '1.2.3.4', loggedInAt: '2026-08-17T02:00:00Z', lastActiveAt: '2026-08-17T06:00:00Z', current: true },
-      { sessionId: 'b', deviceName: 'Windows · Edge', ip: '5.6.7.8', loggedInAt: '2026-08-10T02:00:00Z', lastActiveAt: '2026-08-11T06:00:00Z', current: false },
+      { sessionId: 'a', deviceId: 'd-a', named: false, deviceName: 'iPhone · Safari', ip: '1.2.3.4', loggedInAt: '2026-08-17T02:00:00Z', lastActiveAt: '2026-08-17T06:00:00Z', current: true },
+      { sessionId: 'b', deviceId: 'd-b', named: false, deviceName: 'Windows · Edge', ip: '5.6.7.8', loggedInAt: '2026-08-10T02:00:00Z', lastActiveAt: '2026-08-11T06:00:00Z', current: false },
     ])
     const { wrapper } = mountPage()
     await flushPromises()
@@ -117,20 +124,21 @@ describe('ProfilePage', () => {
     expect(items).toHaveLength(2)
     expect(items[0]?.text()).toContain('iPhone · Safari')
     expect(items[0]?.text()).toContain('本机')
-    // 本机不给退出按钮，免得自己把自己踢下线
-    expect(items[0]?.find('button').exists()).toBe(false)
-    expect(items[1]?.find('button').exists()).toBe(true)
+    // 本机不给退出按钮，免得自己把自己踢下线；但「改名」两台都该有
+    expect(button(items[0], '退出登录')).toBeUndefined()
+    expect(button(items[0], '改名')).toBeDefined()
+    expect(button(items[1], '退出登录')).toBeDefined()
   })
 
   it('踢掉一台设备后刷新列表', async () => {
     mocks.devices.mockResolvedValue([
-      { sessionId: 'a', deviceName: 'iPhone · Safari', ip: null, loggedInAt: '2026-08-17T02:00:00Z', lastActiveAt: '2026-08-17T06:00:00Z', current: true },
-      { sessionId: 'b', deviceName: 'Windows · Edge', ip: null, loggedInAt: '2026-08-10T02:00:00Z', lastActiveAt: '2026-08-11T06:00:00Z', current: false },
+      { sessionId: 'a', deviceId: 'd-a', named: false, deviceName: 'iPhone · Safari', ip: null, loggedInAt: '2026-08-17T02:00:00Z', lastActiveAt: '2026-08-17T06:00:00Z', current: true },
+      { sessionId: 'b', deviceId: 'd-b', named: false, deviceName: 'Windows · Edge', ip: null, loggedInAt: '2026-08-10T02:00:00Z', lastActiveAt: '2026-08-11T06:00:00Z', current: false },
     ])
     const { wrapper, confirm } = mountPage()
     await flushPromises()
 
-    await wrapper.findAll('.device-item')[1]?.find('button').trigger('click')
+    await button(wrapper.findAll('.device-item')[1], '退出登录')!.trigger('click')
     await flushPromises()
 
     expect(confirm).toHaveBeenCalled()
@@ -151,5 +159,25 @@ describe('ProfilePage', () => {
     expect(mocks.changePassword).toHaveBeenCalled()
     expect(message).toHaveBeenCalledWith(expect.stringContaining('其他设备已退出登录'))
     expect(mocks.devices).toHaveBeenCalledTimes(2)
+  })
+
+  it('可以给设备起名字，本机地址显示成「本机」', async () => {
+    mocks.devices.mockResolvedValue([
+      { sessionId: 'a', deviceId: 'd-a', named: false, deviceName: 'iPhone · iOS 17 · Safari',
+        ip: '0:0:0:0:0:0:0:1', loggedInAt: new Date().toISOString(), lastActiveAt: new Date().toISOString(), current: true },
+    ])
+    const { wrapper, message } = mountPage()
+    await flushPromises()
+
+    // IPv6 回环展开写法又长又看不出含义
+    expect(wrapper.get('.device-item').text()).toContain('本机')
+
+    await button(wrapper.findAll('.device-item')[0], '改名')!.trigger('click')
+    await wrapper.get('.device-rename input').setValue('我的 iPhone')
+    await button(wrapper.findAll('.device-item')[0], '保存')!.trigger('click')
+    await flushPromises()
+
+    expect(mocks.renameDevice).toHaveBeenCalledWith('a', '我的 iPhone')
+    expect(message).toHaveBeenCalledWith('设备名已更新')
   })
 })

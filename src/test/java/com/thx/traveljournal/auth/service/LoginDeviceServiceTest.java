@@ -1,5 +1,6 @@
 package com.thx.traveljournal.auth.service;
 
+import com.thx.traveljournal.auth.mapper.LoginDeviceNameMapper;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -33,7 +34,7 @@ class LoginDeviceServiceTest {
         String ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
                 + "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
 
-        assertThat(LoginDeviceService.describe(ua)).isEqualTo("iPhone · Safari");
+        assertThat(LoginDeviceService.describe(ua)).isEqualTo("iPhone · iOS 17 · Safari");
     }
 
     @Test
@@ -53,12 +54,38 @@ class LoginDeviceServiceTest {
     }
 
     @Test
-    void androidChromeIsRecognised() {
+    void androidShowsTheActualModel() {
         String ua = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) "
                 + "Chrome/120.0.0.0 Mobile Safari/537.36";
 
-        // Android 要排在 Linux 前面，否则手机会被显示成 Linux
-        assertThat(LoginDeviceService.describe(ua)).isEqualTo("Android · Chrome");
+        // Android 的 UA 里带机型，能读出来就别显示成笼统的「Android」
+        assertThat(LoginDeviceService.describe(ua)).isEqualTo("Pixel 7 · Chrome");
+    }
+
+    @Test
+    void androidModelDropsBuildAndWebViewMarkers() {
+        String ua = "Mozilla/5.0 (Linux; Android 13; SM-G9910 Build/TP1A.220624.014; wv) "
+                + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+        assertThat(LoginDeviceService.describe(ua)).isEqualTo("SM-G9910 · Chrome");
+    }
+
+    @Test
+    void iosFallsBackToTheMajorVersionBecauseAppleHidesTheModel() {
+        String ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 "
+                + "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+
+        // Apple 刻意不给机型，只能退到系统大版本
+        assertThat(LoginDeviceService.describe(ua)).isEqualTo("iPhone · iOS 17 · Safari");
+    }
+
+    @Test
+    void desktopVersionsAreNotGuessedBecauseBrowsersFreezeThem() {
+        // Windows 11 和 10 的 UA 都是 NT 10.0，读出来的版本号是假的
+        String windows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                + "Chrome/120.0.0.0 Safari/537.36";
+
+        assertThat(LoginDeviceService.describe(windows)).isEqualTo("Windows · Chrome");
     }
 
     @Test
@@ -109,7 +136,7 @@ class LoginDeviceServiceTest {
         ClientIpResolver ip = mock(ClientIpResolver.class);
         when(ip.resolve(any())).thenReturn("203.0.113.9");
 
-        int removed = new LoginDeviceService(sessions, ip)
+        int removed = new LoginDeviceService(sessions, ip, mock(LoginDeviceNameMapper.class))
                 .remember("admin", session, request, mock(HttpServletResponse.class));
 
         assertThat(removed).isEqualTo(1);
@@ -131,7 +158,7 @@ class LoginDeviceServiceTest {
         when(ip.resolve(any())).thenReturn(null);
         HttpServletResponse response = mock(HttpServletResponse.class);
 
-        new LoginDeviceService(sessions, ip).remember("admin", session, request, response);
+        new LoginDeviceService(sessions, ip, mock(LoginDeviceNameMapper.class)).remember("admin", session, request, response);
 
         ArgumentCaptor<Cookie> cookie = ArgumentCaptor.forClass(Cookie.class);
         verify(response).addCookie(cookie.capture());
@@ -142,7 +169,7 @@ class LoginDeviceServiceTest {
         verify(session).setAttribute(eqAttribute(), attribute.capture());
         @SuppressWarnings("unchecked")
         Map<String, String> device = (Map<String, String>) attribute.getValue();
-        assertThat(device.get("deviceName")).isEqualTo("iPhone · Safari");
+        assertThat(device.get("deviceName")).isEqualTo("iPhone · iOS 17 · Safari");
         assertThat(device.get("deviceId")).isEqualTo(cookie.getValue().getValue());
     }
 

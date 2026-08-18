@@ -81,7 +81,9 @@ app:
   upload:
     max-file-size-mb: ${APP_UPLOAD_MAX_FILE_SIZE_MB:20}
     max-images-per-journal: ${APP_UPLOAD_MAX_IMAGES_PER_JOURNAL:50}
-    max-pixels: ${APP_UPLOAD_MAX_PIXELS:50000000}
+    # 30MP 足够覆盖主流手机（iPhone 48MP 默认输出 12MP）和常见单反。再往上单张解码就是
+    # 几百 MB 的位图，而屏幕上最终只用得到 1280px 那一档。
+    max-pixels: ${APP_UPLOAD_MAX_PIXELS:30000000}
   minio:
     # 凭证一律来自环境变量，配置文件里不留默认值：这个文件会随代码进仓库，
     # 写进去的密钥等同于公开发布。缺任何一项应用会拒绝启动，见 MinioConfig。

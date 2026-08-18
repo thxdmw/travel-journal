@@ -53,6 +53,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -91,6 +92,16 @@ public class MediaService {
     private final ObjectProvider<MediaService> self;
     private final SiteClock clock;
     private final Tika tika = new Tika();
+    /**
+     * 图片处理的并发闸门。
+     *
+     * <p>数据库连接已经不会被上传占住了，但压力只是换了个地方：解码一张 30MP 的照片就是
+     * 上百 MB 的位图，编辑器默认三条并发上传，几个人同时写日记就能把堆和 CPU 一起顶满。
+     * HTTP 层可以有很多请求排队，真正在做 ImageIO 和 WebP 编码的同一时间只放两张进来。</p>
+     *
+     * <p>不引入队列中间件：这里要的只是一个上限，而不是任务调度。</p>
+     */
+    private static final Semaphore IMAGE_PROCESSING = new Semaphore(2);
 
     /**
      * 返回给前端的图片视图。
@@ -413,17 +424,29 @@ public class MediaService {
      *
      * <p>行锁同样不能省：{@link #deleteRelation} 可能正好在「校验图片归属」和「写封面」
      * 之间把这张图从日记上摘掉，那样会留下一个指向已删除图片的封面。</p>
+     *
+     * <p>版本号要一进一出：带上手里那份的版本号，成功后把新版本号回给调用方。少了任何
+     * 一半都不行——不带，另一个标签页的旧内容能覆盖过来；不返回，编辑器手上那份就地过期，
+     * 下一次自动保存会和作者自己刚才这一下设封面撞成 409。</p>
+     *
+     * @param expectedRevision 客户端手上那份的版本号；为 null 表示明确放弃并发检查
+     * @return 写入之后的版本号
      */
     @Transactional
-    public void setCover(Long journalId, Long mediaId) {
+    public int setCover(Long journalId, Long mediaId, Integer expectedRevision) {
         lockJournal(journalId);
         long count = journalMediaMapper.selectCount(new LambdaQueryWrapper<JournalMedia>()
                 .eq(JournalMedia::getJournalEntryId, journalId).eq(JournalMedia::getMediaAssetId, mediaId));
         if (count == 0) throw BusinessException.badRequest("图片不属于当前日记");
-        journalMapper.update(null, new LambdaUpdateWrapper<JournalEntry>()
+        LambdaUpdateWrapper<JournalEntry> update = new LambdaUpdateWrapper<JournalEntry>()
                 .set(JournalEntry::getCoverMediaId, mediaId)
                 .setSql("revision = revision + 1")
-                .eq(JournalEntry::getId, journalId));
+                .eq(JournalEntry::getId, journalId);
+        if (expectedRevision != null) update.eq(JournalEntry::getRevision, expectedRevision);
+        if (journalMapper.update(null, update) == 0)
+            throw BusinessException.conflict("这篇日记在别处已经被改过（内容或发布状态），请刷新后重试");
+        JournalEntry saved = journalMapper.selectById(journalId);
+        return saved == null || saved.getRevision() == null ? 0 : saved.getRevision();
     }
 
     /**
@@ -742,6 +765,21 @@ public class MediaService {
      * <p>解码、EXIF、转向、压四个规格、四次网络往返——这些都不该占着数据库连接。</p>
      */
     private PreparedImage prepareImage(MultipartFile file, String keyPrefix) {
+        try {
+            IMAGE_PROCESSING.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("IMAGE_PROCESS_ERROR", "图片处理被中断，请重试", HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        try {
+            return processImage(file, keyPrefix);
+        } finally {
+            IMAGE_PROCESSING.release();
+        }
+    }
+
+    /** 真正做解码、转向、压缩和上传的那一段，调用方负责把住并发闸门。 */
+    private PreparedImage processImage(MultipartFile file, String keyPrefix) {
         byte[] uploaded;
         try { uploaded = file.getBytes(); }
         catch (IOException ex) { throw new BusinessException("FILE_READ_ERROR", "读取上传文件失败", HttpStatus.BAD_REQUEST); }
@@ -1052,6 +1090,14 @@ public class MediaService {
     }
     /** 按 EXIF 方向把图片旋转/翻转到正确朝向，5~8 需要交换宽高。 */
     private BufferedImage orient(BufferedImage source, int orientation) {
+        /*
+         * 方向正常就原样返回。
+         *
+         * 1 表示不需要旋转，0 和其它无效值同理。以前这里照样新建一个等大的 BufferedImage
+         * 再 drawImage 一遍——一张 30MP 的照片凭空多占一份上百 MB 的位图，而画出来的东西
+         * 和原图一模一样。绝大多数图片走的正是这条路径。
+         */
+        if (orientation <= 1) return source;
         int width = source.getWidth(), height = source.getHeight();
         boolean swap = orientation >= 5 && orientation <= 8;
         BufferedImage target = new BufferedImage(swap ? height : width, swap ? width : height,

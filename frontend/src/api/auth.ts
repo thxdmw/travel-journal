@@ -1,4 +1,4 @@
-import { del, get, post, put, upload } from './client'
+import { del, get, patch, post, put, upload } from './client'
 import type {
   AdminInfo,
   ChangePasswordRequest,
@@ -44,4 +44,8 @@ export const authApi = {
     del<void>('/admin/profile/devices/' + encodeURIComponent(sessionId)),
 
   revokeOtherDevices: () => del<{ removed: number }>('/admin/profile/devices'),
+
+  /** 给设备起名字。传空串表示改回按 User-Agent 自动识别。 */
+  renameDevice: (sessionId: string, displayName: string) =>
+    patch<{ deviceName: string }>('/admin/profile/devices/' + encodeURIComponent(sessionId), { displayName }),
 }

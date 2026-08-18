@@ -237,7 +237,13 @@ function toggleReplay() { routeControl?.play() }
 
 async function removeMoment(item: MomentView) { try { await props.confirm('删除这条随手记吗？') } catch { return }; try { await momentApi.remove(item.id); moments.value = moments.value.filter(entry => entry.id !== item.id) } catch (error) { props.fail(error) } }
 function startEdit(item: MomentView) { editing.value = { id: item.id, content: item.content || '', placeName: item.placeName || '', mood: item.mood || '' } }
-async function saveEdit() { const value = editing.value; if (!value) return; try { const updated = await momentApi.update(value.id, { content: value.content, placeName: value.placeName || undefined, mood: value.mood || undefined }); const index = moments.value.findIndex(item => item.id === value.id); if (index >= 0) moments.value[index] = updated; editing.value = null; props.message('已修改') } catch (error) { props.fail(error) } }
+async function saveEdit() { const value = editing.value; if (!value) return; try { /*
+     * 空串要原样发上去，不能转成 undefined。
+     *
+     * `'' || undefined` 会让字段从请求体里整个消失，而后端把「没传」理解成「不改」——
+     * 作者把地点删干净、界面提示已修改，刷新之后春熙路又回来了。
+     */
+    const updated = await momentApi.update(value.id, { content: value.content, placeName: value.placeName.trim(), mood: value.mood.trim() }); const index = moments.value.findIndex(item => item.id === value.id); if (index >= 0) moments.value[index] = updated; editing.value = null; props.message('已修改') } catch (error) { props.fail(error) } }
 async function removePhoto(item: MomentView, mediaId: number) { try { await momentApi.removePhoto(item.id, mediaId); item.photos = item.photos.filter(photo => photo.id !== mediaId) } catch (error) { props.fail(error) } }
 
 const aiAvailable = ref(false)
