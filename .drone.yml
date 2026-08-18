@@ -96,6 +96,13 @@ steps:
           cat /tmp/travel-journal-e2e.log
           exit 1
         fi
+        # actuator 说 UP 只代表进程起来了。登录之后的跳转还要串着 /api/public/profile 和
+        # /api/public/csrf，这两个接口被第一个用例第一次碰到时要走完 JIT、Mapper 初始化
+        # 和首次取连接——慢过 15 秒或者中途抛错，页面就停在登录页，表现为「登录后不跳转」。
+        # 先替第一个用例把这几条路走一遍，冷启动的代价就不会算到它头上。
+        for warm in /admin/ /api/public/profile /api/public/csrf; do
+          curl --fail --silent --output /dev/null "http://127.0.0.1:8080$${warm}" || true
+        done
         npm run e2e --prefix frontend -- --project=iphone-13 --grep @smoke
 
   # 图片权限缓存的真实链路：浏览器 → Service Worker → Spring Boot 302 → MinIO 预签名地址。
@@ -149,6 +156,13 @@ steps:
           cat /tmp/travel-journal-media.log
           exit 1
         fi
+        # actuator 说 UP 只代表进程起来了。登录之后的跳转还要串着 /api/public/profile 和
+        # /api/public/csrf，这两个接口被第一个用例第一次碰到时要走完 JIT、Mapper 初始化
+        # 和首次取连接——慢过 15 秒或者中途抛错，页面就停在登录页，表现为「登录后不跳转」。
+        # 先替第一个用例把这几条路走一遍，冷启动的代价就不会算到它头上。
+        for warm in /admin/ /api/public/profile /api/public/csrf; do
+          curl --fail --silent --output /dev/null "http://127.0.0.1:8080$${warm}" || true
+        done
         npm run e2e --prefix frontend -- --project=desktop-chrome --grep @media
 
   - name: deploy-from-gitee
