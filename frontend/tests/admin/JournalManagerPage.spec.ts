@@ -32,6 +32,7 @@ const stubs = {
   ElTableColumn: { template: '<div class="el-table-column"><slot :row="{}" /></div>' },
   ElEmpty: passthrough('div'),
   ElPagination: { props: ['total', 'currentPage'], template: '<div class="el-pagination" />' },
+  ElSkeleton: { template: '<div class="el-skeleton" />' },
 }
 
 function journal(id: number, overrides: Record<string, unknown> = {}) {
@@ -46,7 +47,8 @@ function journal(id: number, overrides: Record<string, unknown> = {}) {
 const deps = () => ({ message: vi.fn(), fail: vi.fn(), confirm: vi.fn().mockResolvedValue(true) })
 
 function mountPage(props = deps()) {
-  return { props, wrapper: mount(JournalManagerPage, { props, global: { stubs } }) }
+  // v-loading 是 Element Plus 的指令，没注册的话每次挂载都刷一串 Vue warn
+  return { props, wrapper: mount(JournalManagerPage, { props, global: { stubs, directives: { loading: () => undefined } } }) }
 }
 
 describe('JournalManagerPage', () => {
@@ -57,6 +59,32 @@ describe('JournalManagerPage', () => {
     mocks.options.mockResolvedValue([{ id: 7, title: '京都四日' }])
     mocks.mediaCount.mockResolvedValue({ count: 3 })
     mocks.remove.mockResolvedValue({ removedMedia: 3 })
+  })
+
+  it('首次加载先占位，翻页时保留旧内容只加遮罩', async () => {
+    /*
+     * 两种加载状态的分工：第一次进来版面是空的，骨架屏先把行占住，数据到了只换内容；
+     * 已经有一屏内容时再盖骨架屏是倒退，那种情况保留旧列表更好读。
+     */
+    let resolve: ((value: unknown) => void) | undefined
+    mocks.list.mockReturnValue(new Promise(done => { resolve = done }))
+    const { wrapper } = mountPage()
+    await flushPromises()
+    expect(wrapper.find('.journal-skeleton').exists()).toBe(true)
+    expect(wrapper.find('.el-table').exists()).toBe(false)
+
+    resolve?.({ items: [journal(1)], page: 1, pageSize: 20, total: 1, totalPages: 1 })
+    await flushPromises()
+    expect(wrapper.find('.journal-skeleton').exists()).toBe(false)
+    expect(wrapper.find('.el-table').exists()).toBe(true)
+
+    // 第二次加载不再走骨架屏
+    mocks.list.mockReturnValue(new Promise(() => undefined))
+    const vm = wrapper.vm as unknown as { load(): Promise<void> }
+    void vm.load()
+    await flushPromises()
+    expect(wrapper.find('.journal-skeleton').exists()).toBe(false)
+    expect(wrapper.find('.el-table').exists()).toBe(true)
   })
 
   it('按分页参数加载，不再一次拉一百条', async () => {

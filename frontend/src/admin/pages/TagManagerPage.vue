@@ -113,17 +113,31 @@ onMounted(load)
       <el-select v-model="mergeTarget" clearable placeholder="这个标签" filterable><el-option v-for="item in items" :key="item.id" :label="`${item.name}（${item.journalCount}）`" :value="item.id" /></el-select>
       <el-button type="primary" @click="doMerge">合并</el-button>
     </div>
-    <div class="panel" style="margin-top: 18px">
-      <el-table v-loading="loading" :data="items" max-height="calc(100vh - 340px)">
-        <el-table-column label="标签" min-width="220"><template #default="{ row }">
-          <template v-if="renaming === row.id"><el-input v-model="newName" size="small" style="max-width: 220px" @keyup.enter="commitRename" /><el-button link type="primary" size="small" @click="commitRename">保存</el-button><el-button link size="small" @click="renaming = null">取消</el-button></template>
-          <span v-else>{{ row.name }}</span>
-        </template></el-table-column>
-        <el-table-column prop="slug" label="标识" min-width="180" />
-        <el-table-column prop="journalCount" label="日记数" width="100" />
-        <el-table-column label="操作" width="160"><template #default="{ row }"><div class="table-actions"><el-button v-if="renaming !== row.id" size="small" @click="startRename(row)">改名</el-button><el-button size="small" type="danger" plain @click="remove(row)">删除</el-button></div></template></el-table-column>
-      </el-table>
+    <!--
+      标签列表用卡片，不用表格。
+
+      表格四列在手机上塞不下，改名和删除都得先横向拖过去；标签本身内容很短，
+      竖着排开反而更好扫读。首次加载给骨架屏，之后的刷新用遮罩保留旧内容。
+    -->
+    <div v-if="loading && !items.length" class="tag-list">
+      <article v-for="index in 4" :key="index" class="tag-card"><el-skeleton :rows="1" animated /></article>
     </div>
-    <el-empty v-if="!items.length && !loading" description="还没有标签，写日记时输入标签名即可创建" />
+    <div v-else v-loading="loading" class="tag-list">
+      <article v-for="row in items" :key="row.id" class="tag-card">
+        <header>
+          <template v-if="renaming === row.id">
+            <el-input v-model="newName" size="small" class="tag-rename-input" @keyup.enter="commitRename" />
+            <span class="tag-rename-actions"><el-button link type="primary" size="small" @click="commitRename">保存</el-button><el-button link size="small" @click="renaming = null">取消</el-button></span>
+          </template>
+          <template v-else>
+            <strong>{{ row.name }}</strong>
+            <span class="tag-count">{{ row.journalCount }} 篇</span>
+          </template>
+        </header>
+        <p class="tag-slug">{{ row.slug }}</p>
+        <footer><el-button v-if="renaming !== row.id" size="small" @click="startRename(row)">改名</el-button><el-button size="small" type="danger" plain @click="remove(row)">删除</el-button></footer>
+      </article>
+      <el-empty v-if="!items.length" description="还没有标签，写日记时输入标签名即可创建" />
+    </div>
   </div>
 </template>

@@ -517,12 +517,30 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
          */
         const sheetOpen=editorOpen.value||catalogOpen.value;
         const inset=sheetOpen?0:bottom;
-        const metrics=[Math.round(vv?vv.height:window.innerHeight),Math.round(inset)].join(':');
+        /*
+         * 高度只跟着软键盘走，不跟着浏览器地址栏走。
+         *
+         * --visual-viewport-height 唯一的用处是手机上给全屏弹窗定高度。而 visualViewport.height
+         * 有两个变化来源：软键盘（要跟）和地址栏收放（不该跟）。点开图片配置的一瞬间，
+         * 弹窗锁住 body 滚动，浏览器顺势收起地址栏，高度就在弹窗刚渲染完的下一帧变一次
+         * —— 全屏弹窗跟着改高，看起来就是「点一下图片，屏幕闪一下」。
+         *
+         * window.innerHeight 是布局视口，地址栏收放时它不动，正好当基准。只有在
+         * 输入框聚焦、而且视觉视口比布局视口矮掉一大截时，才认定是键盘并跟随——
+         * 地址栏那点高度（几十像素）够不着这个门槛，键盘（两三百像素）一定够得着。
+         */
+        const layoutHeight=window.innerHeight;
+        const visualHeight=vv?vv.height:layoutHeight;
+        const active=window.document.activeElement;
+        const editing=active instanceof HTMLElement
+          &&(/INPUT|TEXTAREA/.test(active.tagName)||active.isContentEditable);
+        const keyboardOpen=editing&&visualHeight<layoutHeight-120;
+        const height=keyboardOpen?visualHeight:layoutHeight;
+        const metrics=[Math.round(height),Math.round(inset)].join(':');
         if(metrics===lastViewportMetrics)return;
         lastViewportMetrics=metrics;
-        window.document.documentElement.style.setProperty('--visual-viewport-height',(vv?vv.height:window.innerHeight)+'px');
+        window.document.documentElement.style.setProperty('--visual-viewport-height',height+'px');
         window.document.documentElement.style.setProperty('--browser-bottom-inset',inset+'px');
-        const active=window.document.activeElement;
         if(active instanceof HTMLTextAreaElement&&active.matches('[data-inline-input]'))keepInlineCaretVisible(active,40);
         /*
          * 只有弹窗自己的输入框才把光标滚进可视区。

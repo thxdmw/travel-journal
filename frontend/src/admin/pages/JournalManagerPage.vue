@@ -24,6 +24,8 @@ const router = useRouter()
 const data = ref<JournalEntry[]>([])
 const trips = ref<TripOption[]>([])
 const loading = ref(false)
+/** 第一次加载还没回来。之后翻页、换筛选都不再算首次，避免整页骨架屏反复闪。 */
+const firstLoad = ref(true)
 const total = ref(0)
 const statusOptions: { value: JournalStatus | '', label: string }[] = [
   { value: '', label: '全部状态' },
@@ -75,6 +77,7 @@ async function load() {
     props.fail(error)
   } finally {
     loading.value = false
+    firstLoad.value = false
   }
 }
 
@@ -170,7 +173,15 @@ onMounted(async () => {
         <el-button @click="search">查询</el-button>
       </div>
       <div class="panel-pad">
-        <el-table v-loading="loading" :data="data" class="hide-on-mobile">
+        <!--
+          首次加载给骨架屏，翻页和筛选给 v-loading。
+          两者分工不同：第一次进来版面是空的，骨架屏先把行占住，数据到了只换内容；
+          已经有一屏内容时再盖骨架屏反而是倒退，那种情况用遮罩保留旧内容更好读。
+        -->
+        <div v-if="firstLoad" class="journal-skeleton">
+          <el-skeleton v-for="index in 4" :key="index" :rows="2" animated />
+        </div>
+        <el-table v-else v-loading="loading" :data="data" class="hide-on-mobile">
           <el-table-column label="日记"><template #default="{ row }">{{ titleLabel(row) }}</template></el-table-column>
           <el-table-column label="旅行" width="180"><template #default="{ row }">{{ tripLabel(row) }}</template></el-table-column>
           <el-table-column prop="occurredOn" label="日期" width="130" />
@@ -181,8 +192,8 @@ onMounted(async () => {
             <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template></el-table-column>
         </el-table>
-        <!-- 手机上表格横向滚不动，改成一张张卡片 -->
-        <div class="journal-card-list show-on-mobile">
+        <!-- 手机上表格横向滚不动，改成一张张卡片；遮罩不能只盖桌面那张表 -->
+        <div v-if="!firstLoad" v-loading="loading" class="journal-card-list show-on-mobile">
           <article v-for="row in data" :key="row.id" class="journal-manage-card">
             <h3>{{ titleLabel(row) }}</h3>
             <p><span class="status">{{ statusLabel(row.status) }}</span><span>{{ tripLabel(row) }}</span></p>
@@ -192,7 +203,7 @@ onMounted(async () => {
             </footer>
           </article>
         </div>
-        <el-empty v-if="!data.length && !loading" description="没有符合条件的日记" />
+        <el-empty v-if="!data.length && !loading && !firstLoad" description="没有符合条件的日记" />
         <el-pagination
           v-if="total > query.pageSize"
           class="journal-pager"

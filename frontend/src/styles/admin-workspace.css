@@ -9,6 +9,25 @@
 .metric { min-width:0; padding:13px 15px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface); }
 .metric span { color:var(--tj-muted); font-size:13px; }
 .metric strong { display:block; margin-top:4px; color:var(--tj-primary); font:700 25px var(--tj-serif); }
+/* 骨架条占住数字那一行的高度，数据到了只换内容，卡片不跳动 */
+.metric-skeleton { height:32px; margin-top:6px; }
+/*
+ * 首页「最近编辑」：卡片，不是表格。
+ *
+ * 表格那五列在手机上塞不下，得先横向拖到最右边才够得着「编辑」。卡片把标题、旅行、
+ * 日期竖着排开，操作永远在原地；宽屏上并排成多列，不会因为只有六条就显得空旷。
+ */
+.recent-journal-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+.recent-journal-card { min-width:0; padding:14px 16px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); }
+.recent-journal-card>header { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; }
+.recent-journal-card>header strong { overflow:hidden; color:var(--tj-primary); font:600 16px var(--tj-serif); text-overflow:ellipsis; white-space:nowrap; }
+.recent-journal-status { padding:2px 9px; border-radius:999px; background:var(--tj-bg); color:var(--tj-muted); font-size:12px; white-space:nowrap; }
+.recent-journal-card dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:10px 0 0; }
+.recent-journal-card dl>div { min-width:0; display:grid; gap:2px; }
+.recent-journal-card dt { color:var(--tj-muted); font-size:11px; }
+.recent-journal-card dd { min-width:0; overflow:hidden; margin:0; color:var(--tj-text); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.recent-journal-card>footer { display:flex; justify-content:flex-end; margin-top:10px; padding-top:9px; border-top:1px solid var(--tj-border); }
+.recent-journal-list .el-empty { grid-column:1/-1; }
 .trip-list { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
 .trip-card-cover { display:block; width:100%; height:132px; margin-bottom:12px; border-radius:calc(var(--tj-radius) - 4px); object-fit:cover; }
 /* 没有封面的卡片也要占住同样的高度，否则一行里有图和无图的卡片会错位 */
@@ -152,6 +171,22 @@
 .tag-merge-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .tag-merge-bar > span { color:var(--tj-muted); font-size:13px; }
 .tag-merge-bar .el-select { width:220px; }
+/*
+ * 标签列表：卡片。
+ *
+ * 表格那四列在手机上塞不下，改名和删除都得先横向拖过去才够得着；而标签本身内容很短，
+ * 一张卡片放得下名字、标识、篇数和两个按钮。卡片自带圆角，也不用再和表格的直角边框较劲。
+ */
+.tag-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:18px; }
+.tag-card { min-width:0; padding:13px 15px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); box-shadow:var(--tj-shadow-soft); }
+.tag-card>header { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; }
+.tag-card>header strong { overflow:hidden; color:var(--tj-primary); font:600 16px var(--tj-serif); text-overflow:ellipsis; white-space:nowrap; }
+.tag-count { padding:2px 9px; border-radius:999px; background:var(--tj-bg); color:var(--tj-muted); font-size:12px; white-space:nowrap; }
+.tag-rename-input { min-width:0; }
+.tag-rename-actions { display:flex; gap:2px; white-space:nowrap; }
+.tag-slug { overflow:hidden; margin:8px 0 0; color:var(--tj-muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.tag-card>footer { display:flex; justify-content:flex-end; gap:8px; margin-top:11px; padding-top:9px; border-top:1px solid var(--tj-border); }
+.tag-list .el-empty { grid-column:1/-1; }
 /* ——— 备份导出 ——— */
 .backup-card p { color:var(--tj-muted); font-size:13px; line-height:1.75; }
 .backup-card .backup-note { margin-top:8px; padding-left:10px; border-left:2px solid var(--tj-border); font-size:12px; }
@@ -355,6 +390,8 @@
  */
 .journal-filter { width:150px; }
 .journal-pager { display:flex; justify-content:center; padding:16px 0 4px; }
+/* 首次加载时的占位，行高和真实列表接近，数据到了版面不跳 */
+.journal-skeleton { display:grid; gap:18px; padding:6px 2px; }
 /* 表格在窄屏上横向滚不动，手机改用卡片 */
 .journal-card-list { display:none; }
 .journal-manage-card { padding:14px 16px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); }

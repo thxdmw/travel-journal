@@ -10,13 +10,10 @@ vi.mock('@/api/dashboard', () => ({ dashboardApi: { overview: mocks.overview } }
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push, replace: vi.fn() }) }))
 
 const ElButton = { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' }
-const ElTable = { props: ['data'], template: '<div class="el-table"><slot /></div>' }
-const ElTableColumn = {
-  props: ['label'],
-  // 把每一行都渲染出来，才能断言旅行标题这类由模板计算的列
-  inject: { rows: { default: () => [] } },
-  template: '<div class="el-table-column"><slot :row="{}" /></div>',
-}
+const ElEmpty = { template: '<div class="el-empty"><slot /></div>' }
+// 骨架屏只关心「在不在」，内部结构由 Element Plus 负责
+const ElSkeleton = { template: '<div class="el-skeleton"><slot name="template" /></div>' }
+const ElSkeletonItem = { template: '<div class="el-skeleton-item" />' }
 
 function recent(id: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -28,7 +25,7 @@ function recent(id: number, overrides: Record<string, unknown> = {}) {
 function mountPage(fail = vi.fn()) {
   return mount(DashboardPage, {
     props: { fail },
-    global: { components: { ElButton, ElTable, ElTableColumn } },
+    global: { components: { ElButton, ElEmpty, ElSkeleton, ElSkeletonItem } },
   })
 }
 
@@ -48,11 +45,44 @@ describe('DashboardPage', () => {
     expect(mocks.overview).toHaveBeenCalledTimes(1)
   })
 
-  it('最近日记按后端返回的条数展示，并带上旅行标题', async () => {
+  it('最近日记是一张张卡片，操作不用横向滚动才够得着', async () => {
+    /*
+     * 以前这里是 el-table。五列在手机上塞不下，得先横向拖到最右边才看得见「编辑」，
+     * 而这一屏的用途恰恰就是「点开继续写」。
+     */
     const wrapper = mountPage()
     await flushPromises()
-    const vm = wrapper.vm as unknown as { stats: { recent: unknown[] } }
-    expect(vm.stats.recent).toHaveLength(2)
+    const cards = wrapper.findAll('.recent-journal-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[1]?.text()).toContain('京都四日')
+    // 每张卡片自带编辑入口，位置固定
+    expect(cards[0]?.find('footer button').exists()).toBe(true)
+  })
+
+  it('数据没回来时先占位，不让指标从 0 跳成真实值', async () => {
+    /*
+     * 不占位的话四个指标会先按初值渲染成 0，几百毫秒后突然跳变——看着像刚才统计错了。
+     */
+    let resolve: ((value: unknown) => void) | undefined
+    mocks.overview.mockReturnValue(new Promise(done => { resolve = done }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('.el-skeleton').exists()).toBe(true)
+    expect(wrapper.findAll('.metric strong')).toHaveLength(0)
+
+    resolve?.({ trips: 3, drafts: 1, published: 2, themeName: '盛夏出逃', recent: [] })
+    await flushPromises()
+    expect(wrapper.find('.el-skeleton').exists()).toBe(false)
+    expect(wrapper.findAll('.metric strong')).toHaveLength(4)
+  })
+
+  it('一条日记都没有时给空状态，而不是一片空白', async () => {
+    mocks.overview.mockResolvedValue({ trips: 0, drafts: 0, published: 0, themeName: '—', recent: [] })
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.find('.recent-journal-card').exists()).toBe(false)
+    expect(wrapper.find('.el-empty').exists()).toBe(true)
   })
 
   it('独立日记和空标题都有明确的降级文案', async () => {
