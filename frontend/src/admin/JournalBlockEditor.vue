@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { CATALOG } from '@/journal/catalog'
 import { createBlock, normalize } from '@/journal/document'
 import { PREVIEW_SIZES, renderBlock } from '@/journal/render'
+import { keepFitted } from '@/admin/fit-preview'
 import { enhance, teardown } from '@/media/enhance'
 import type { CatalogEntry, JournalBlock, JournalDocument } from '@/types/journal-block'
 import type { MediaView } from '@/types/media'
@@ -51,6 +52,9 @@ interface ScrollSnapshot { nodes: Array<{ node: HTMLElement, top: number, left: 
 function editorDocument(value: JournalDocument): EditorDocument { return value as EditorDocument }
 function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.filter((item):item is EditorItem=>typeof item==='object'&&item!==null)}
 
+  /** 区块列表里缩略展示的高度上限。原来是硬裁切，现在缩到这个高度以内，图片能看全。 */
+  /** 区块列表里图片缩略的高度上限。竖图缩到 260 太小看不出内容，360 是能看清又不占满屏的折中。 */
+  const BLOCK_PREVIEW_MAX_HEIGHT=360;
   const JB={CATALOG,createBlock,normalize,renderBlock};
   const IMAGE_BLOCKS=['image','gallery','postcard'];
   const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport',
@@ -248,9 +252,46 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         const incoming=editorDocument(JB.normalize(value));
         if(JSON.stringify(incoming)!==JSON.stringify(document.value))document.value=incoming;
       },{deep:true});
-      watch([draftPreview,editorOpen],()=>nextTick(()=>{
-        if(editorOpen.value&&previewEl.value)enhance(previewEl.value);
-      }),{flush:'post'});
+      /*
+       * 缩放必须和内容更新落在同一帧。
+       *
+       * flush:'post' 已经保证 DOM 更新完才跑，再套一层 nextTick 等于把重算又推迟一个微任务。
+       * 这期间宿主 div 上仍挂着按旧版式算出的 transform 和负 marginBottom，新内容配着旧缩放
+       * 参数——改版式时看到的那一下跳动就是它。负 marginBottom 尤其明显：从大图切回小图，
+       * 小小的内容上还带着几百像素的负边距，下方元素先被拽上去再弹回。
+       *
+       * 只有 scale 跨越 1 ↔ <1 时才看得见：小图和中等都放得下（scale=1），互相切换没有
+       * 参数变化，所以不闪。
+       *
+       * nextTick 不能直接删掉——弹窗首次打开时 el-dialog 的内容还没挂载，previewEl 是 null，
+       * 那种情况仍得等下一拍。
+       */
+      watch([draftPreview,editorOpen],()=>{
+        const run=()=>{if(editorOpen.value&&previewEl.value){enhance(previewEl.value);fitDialogPreview();}};
+        run();
+        if(!previewEl.value)nextTick(run);
+      },{flush:'post'});
+
+      /*
+       * 预览等比缩放。
+       *
+       * 图片区块的高度随版式差好几倍，而预览区是固定高度的，大图必然溢出——要滚动才能看完
+       * 的预览等于没有预览。限制图片最大高度更省事，但那样「大图」和「中等」看起来一模一样，
+       * 预览也就没意义了。等比缩放保留全部比例，只是整体小一号。
+       */
+      let releaseDialogFit:(()=>void)|null=null;
+      function fitDialogPreview(){
+        releaseDialogFit?.();
+        releaseDialogFit=previewEl.value?keepFitted(previewEl.value):null;
+      }
+
+      /** 区块列表里每张缩略图各自缩放；容器高度跟着缩放后的实际高度走，不留空。 */
+      const blockFits=new Map<string,()=>void>();
+      function bindBlockPreview(el:Element|ComponentPublicInstance|null,blockId:string){
+        blockFits.get(blockId)?.();
+        blockFits.delete(blockId);
+        if(el instanceof HTMLElement)blockFits.set(blockId,keepFitted(el,{max:BLOCK_PREVIEW_MAX_HEIGHT}));
+      }
       // 弹窗开合的那一刻就把 inset 调整到位，别等下一次 visualViewport 事件
       watch([editorOpen,catalogOpen],()=>viewport());
       watch(editorOpen,()=>{
@@ -362,7 +403,24 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         imageTab.value='content';
         nextTick(()=>editorOpen.value=true);
       }
-      function edit(index:number){const block=document.value.blocks[index];if(!block)return;pinPageScroll();draft.value=JSON.parse(JSON.stringify(block)) as EditorBlock;editIndex.value=index;ensureBinding();imageTab.value='content';editorOpen.value=true;}
+      function edit(index:number){
+        const block=document.value.blocks[index];if(!block)return;
+        pinPageScroll();
+        draft.value=JSON.parse(JSON.stringify(block)) as EditorBlock;
+        editIndex.value=index;ensureBinding();imageTab.value='content';
+        /*
+         * 弹窗不再 destroy-on-close，DOM 会复用——每次打开都重建整棵内容树（四个 Tab、
+         * 表单、图片选择器、预览纸张）正是打开时那一下闪的来源。代价是上一次的状态会留下，
+         * 所以这里显式清干净：Tab 已经在上面重置了，滚动位置在弹窗渲染完之后归零。
+         */
+        editorOpen.value=true;
+        void nextTick(()=>{
+          const form=window.document.querySelector('.block-config-dialog .block-config-form');
+          if(form)form.scrollTop=0;
+          const tabs=window.document.querySelector('.image-setting-tabs>.el-tabs__content');
+          if(tabs)tabs.scrollTop=0;
+        });
+      }
       /*
        * 手机上单击就打开配置，桌面仍然是双击。
        *
@@ -669,6 +727,9 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         if(ensureTimer)clearTimeout(ensureTimer);
         if(caretTimer)clearTimeout(caretTimer);
         if(viewportFrame!=null)cancelAnimationFrame(viewportFrame);
+        releaseDialogFit?.();
+        blockFits.forEach(release=>release());
+        blockFits.clear();
         teardown(previewEl.value);
         window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
         window.document.removeEventListener('click',onDocumentClick,true);
@@ -741,7 +802,9 @@ v-else class="block-editor-card" :class="{'block-editor-card--media':isMediaType
               <button type="button" @click="edit(index)">编辑</button><button type="button" class="danger" @click="remove(index)">删除</button>
             </div></header>
             <!-- eslint-disable vue/no-v-html -- HTML 只来自 Journal Block 白名单渲染器。 -->
-            <div class="journal-document block-editor-preview" v-html="render(block)"></div>
+            <div :ref="el => bindBlockPreview(el, block.id)" class="block-editor-preview">
+              <div class="journal-document" v-html="render(block)"></div>
+            </div>
             <!-- eslint-enable vue/no-v-html -->
           </article>
         </template>
@@ -775,7 +838,7 @@ class="block-inline-input block-inline-input--paragraph" rows="1"
 
         <el-dialog
 v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
-          :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body align-center destroy-on-close :close-on-click-modal="false">
+          :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body align-center :close-on-click-modal="false">
           <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock}">
             <aside v-if="isImageBlock" class="block-live-preview"><header><div><strong>正文效果</strong><small>模拟文章正文栏，不是单独放大的图片</small></div><span>文字栏宽度</span></header>
               <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>

@@ -20,6 +20,10 @@
   .editor-preview-btn:active,.editor-more:active { background:var(--tj-surface-soft); }
   .article-preview-dialog { width:100%!important; max-width:100vw; height:100dvh; max-height:100dvh; margin:0!important; display:flex; flex-direction:column; border-radius:0!important; }
   .article-preview-dialog .el-dialog__body { flex:1; min-height:0; max-height:none; padding:6px 10px 12px; }
+  /* 同上：这里也是全屏，位移淡入会把黑色遮罩露出来。 */
+  .dialog-fade-enter-active .el-overlay-dialog:has(>.article-preview-dialog),
+  .dialog-fade-leave-active .el-overlay-dialog:has(>.article-preview-dialog){ animation:none; }
+  .el-overlay:has(.article-preview-dialog){ background:var(--el-dialog-bg-color,var(--tj-surface)); }
   .article-preview-dialog .el-dialog__footer { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); }
   .article-preview-dialog .el-dialog__footer .el-button { flex:1; min-height:44px; }
   .article-preview-body { padding:16px 14px; }
@@ -90,13 +94,30 @@
 }
 @media(max-width:780px){
   .el-overlay-dialog:has(>.block-catalog-dialog),.el-overlay-dialog:has(>.block-config-dialog){padding:0}
+  /*
+   * 全屏弹窗不做位移淡入，否则打开的一瞬间会看见背后的黑色遮罩。
+   *
+   * Element Plus 的 dialog-fade-in 是 translate3d(0,-20px,0) + opacity 0→1，而遮罩是
+   * rgba(0,0,0,.5)。弹窗在桌面端是居中的小面板，四周本来就露着遮罩，这套动画很自然；
+   * 一旦铺满整屏，同样的动画就变成了「先上移 20px 露出底部一条黑边、再半透明地让黑色
+   * 透上来」——就是打开图片配置和明信片时看到的那一下闪黑。关掉动画后弹窗第一帧就是
+   * 全尺寸且不透明的，遮罩没有机会露出来。
+   */
+  .dialog-fade-enter-active .el-overlay-dialog:has(>.block-catalog-dialog),
+  .dialog-fade-enter-active .el-overlay-dialog:has(>.block-config-dialog),
+  .dialog-fade-leave-active .el-overlay-dialog:has(>.block-catalog-dialog),
+  .dialog-fade-leave-active .el-overlay-dialog:has(>.block-config-dialog){animation:none}
+  /* 兜底：万一还有一帧露出来，颜色和弹窗面板一致就看不出闪。跟随 EP 变量以适配暗色主题。 */
+  .el-overlay:has(.block-catalog-dialog),
+  .el-overlay:has(.block-config-dialog){background:var(--el-dialog-bg-color,var(--tj-surface))}
   .block-catalog-dialog,.block-config-dialog{width:100%!important;max-height:var(--visual-viewport-height,100dvh);height:var(--visual-viewport-height,100dvh);display:flex;flex-direction:column;margin:0!important;border-radius:0!important}
   .block-catalog-dialog .el-dialog__header,.block-config-dialog .el-dialog__header{flex:0 0 auto;padding:14px 18px 10px}
   .block-catalog-dialog .el-dialog__body{flex:1;min-height:0;overflow:auto;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
   .block-config-dialog .el-dialog__body{padding:4px 12px 0;overflow:hidden}
   .block-config-dialog .el-dialog__footer{position:relative;z-index:3;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--tj-border);background:var(--tj-surface)}
   .block-config-layout,.block-config-layout.has-preview{height:100%;min-height:0;display:flex;flex-direction:column;gap:8px}
-  .block-live-preview{flex:0 0 min(31vh,250px);padding:10px}
+  /* 大图等比缩完还得看得清，250px 太局促；下面的表单仍有足够空间 */
+  .block-live-preview{flex:0 0 min(32vh,320px);padding:10px}
   .block-live-preview>header small{display:none}
   .block-preview-paper{padding:12px 8px}
   .block-preview-article{width:74%}
@@ -111,7 +132,7 @@
   .block-image-picker{grid-template-columns:repeat(3,minmax(0,1fr));max-height:150px}
   .block-catalog-dialog .block-catalog{max-height:none}
   .block-catalog-dialog .block-catalog>button:last-child{margin-bottom:calc(14px + env(safe-area-inset-bottom))}
-  .block-editor-card--media .block-editor-preview{max-height:230px}
+  /* 高度上限由 fit-preview 按 BLOCK_PREVIEW_MAX_HEIGHT 设定，这里不再重复限制 */
   .media-manager-toolbar small{width:auto;margin-left:0}
   .block-dialog-actions{grid-template-columns:auto 1fr auto auto}
   .block-dialog-actions .el-button{padding-left:10px;padding-right:10px}

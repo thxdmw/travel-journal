@@ -183,6 +183,19 @@
 - `--visual-viewport-height` / `--browser-bottom-inset` 现在只服务于弹窗，正文不再依赖它们。
 - 图片排序以「按拍摄时间 / 按上传顺序 / 自定义」下拉为主，HTML5 拖拽退为桌面端的补充手段。
 
+### 屏闪先看表现，再找病因
+
+三类闪表现不同、病因无关，别一上来就怀疑图片：
+
+| 表现 | 病因 |
+| --- | --- |
+| 背景闪黑/灰，内容和布局不动 | 遮罩露出来了 |
+| 尺寸先大后小跳一下 | 缩放参数和内容不同帧 |
+| 图片空白一下再出现 | `<img>` 被重建、重新解码 |
+
+- **全屏弹窗要关掉 `dialog-fade`。** 它是 `translate3d(0,-20px,0)` + `opacity` 0→1，而遮罩是 `rgba(0,0,0,.5)`：桌面端弹窗居中、四周本就露着遮罩，这动画很自然；铺满整屏后它就变成「先上移 20px 露出底部黑边、再半透明地让黑色透上来」。`.block-config-dialog`、`.block-catalog-dialog`、`.article-preview-dialog` 都在**各自全屏生效的断点里**关掉 `animation`，并把遮罩底色改成面板同色兜底。
+- **缩放重算不能晚于内容更新。** `keepFitted` 的 `transform` + 负 `marginBottom` 挂在不被 Vue 重建的宿主 `div` 上，内容一换旧参数还在。`watch` 已经是 `flush:'post'`（DOM 更新后同步执行），**别再套 `nextTick`**——那会把重算推迟一个微任务；只在 `previewEl` 尚未挂载（弹窗首次打开）时才退回下一拍。只有 `fitScale` 跨越 1 ↔ <1 时才看得见：小图和中等都放得下，互相切换没有参数变化。
+
 ## 发布前预览
 
 「预览全文」（顶栏的 👁 / 桌面操作区 / 手机的日记信息面板）就地把整篇渲染成读者看到的样子，用的是公开端同一套 `JournalBlocks.render` 和 `.journal-document` 样式，渲染后还会挂上 `JournalMedia.enhance` 让轮播、胶片条和灯箱能点。

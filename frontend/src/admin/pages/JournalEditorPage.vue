@@ -10,7 +10,7 @@ import { tripApi, type TripOption } from '@/api/trip'
 import * as localDraft from '@/draft/drafts'
 import { dropPhoto, pendingPhotos, queuePhoto, reassignPhotos } from '@/draft/photos'
 import { emptyDocument, normalize, wordCount } from '@/journal/document'
-import { render as renderDocument } from '@/journal/render'
+import { ARTICLE_PREVIEW_SIZES, render as renderDocument } from '@/journal/render'
 import { enhance, teardown } from '@/media/enhance'
 import { createLocalPreview, releaseLocalPreview } from '@/media/local-preview'
 import type { JsonObject } from '@/types/common'
@@ -86,7 +86,9 @@ const wordTotal = computed(() => wordCount(form.contentJson)); const autoSaveLab
 const contextLine = computed(() => { const day = form.occurredOn ? form.occurredOn.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_match, _year, month, dayOfMonth) => `${Number(month)}月${Number(dayOfMonth)}日`) : ''; const city = stops.value.find(item => item.id === form.tripStopId)?.cityName; return [day, city || (form.tripId ? '' : '未归入旅行')].filter(Boolean).join(' · ') })
 const autoExcerpt = computed(() => { const first = form.contentJson.blocks.find(block => block.type === 'paragraph' && block.data.text); return first ? String(first.data.text).slice(0, 80) : '' })
 const excerptHint = computed(() => autoExcerpt.value ? `留空则用开头：${autoExcerpt.value.slice(0, 24)}…` : '摘要（留空自动取正文开头）')
-const previewHtml = computed(() => previewOpen.value ? renderDocument(form.contentJson, media.value) : '')
+const previewHtml = computed(() => previewOpen.value
+  ? renderDocument(form.contentJson, media.value, { sizes: ARTICLE_PREVIEW_SIZES })
+  : '')
 const allSelected = computed(() => media.value.length > 0 && selectedMedia.value.length === media.value.length)
 const templateBlocks = computed(() => Array.isArray(selectedTemplate.value?.definitionJson.blocks) ? selectedTemplate.value.definitionJson.blocks as unknown as Array<Record<string, unknown>> : [])
 const travelContext = computed<TravelContext>(() => ({ trip: currentTrip.value, stop: stops.value.find(item => item.id === form.tripStopId) || null, stops: stops.value, itinerary: linkedItinerary.value, expenses: linkedExpenses.value, budget: linkedBudget.value, occurredOn: form.occurredOn }))

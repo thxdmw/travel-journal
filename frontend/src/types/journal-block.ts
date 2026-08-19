@@ -48,6 +48,15 @@ export interface RenderableMedia {
   id: number
   displayUrl?: string
   caption?: string | null
+  /**
+   * 原图像素尺寸。
+   *
+   * 渲染器把它输出成 img 的 width/height 属性——浏览器据此在图片下载完之前就能算出
+   * 长宽比并预留好位置。少了它，每张图都是「先占 0 高度、加载完再撑开」，正文、预览
+   * 弹窗和区块列表都会跳一下。服务端 media_asset 里本来就有这两个值。
+   */
+  width?: number | null
+  height?: number | null
 }
 
 /** 模板定义里的一项，sampleDocument 据此生成预览用的示例正文。 */

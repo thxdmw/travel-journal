@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PREVIEW_SIZES, render, renderBlock } from '@/journal/render'
+import { ARTICLE_PREVIEW_SIZES, PREVIEW_SIZES, render, renderBlock } from '@/journal/render'
 import { createBlock, emptyDocument } from '@/journal/document'
 import { applyResponsiveImages } from '@/media/responsive'
 import type { JournalBlock } from '@/types/journal-block'
@@ -15,6 +15,8 @@ import type { JournalBlock } from '@/types/journal-block'
 const media = [{
   id: 9,
   caption: '清晨的鸭川',
+  width: 4000,
+  height: 3000,
   thumbnailUrl: '/api/media/9/thumbnail',
   mediumUrl: '/api/media/9/medium',
   displayUrl: '/api/media/9/display',
@@ -147,5 +149,47 @@ describe('正文图片的响应式属性', () => {
 
     expect(renderBlock(gallery, media, { sizes: PREVIEW_SIZES }).match(/240px/g)).toHaveLength(2)
     expect(renderBlock(postcard, media, { sizes: PREVIEW_SIZES })).toContain('240px')
+  })
+
+  /*
+   * 图片要带上原图尺寸。
+   *
+   * 少了 width/height，每张图都是「先占 0 高度、加载完再撑开」：正文滚动位置会跳，配置
+   * 弹窗的等比缩放会先按没有图片的高度算一遍、图片就位后再跳到实际比例——那就是改版式和
+   * 打开预览时看到的闪烁。
+   */
+
+  it('输出原图的宽高，浏览器加载前就能留好位置', () => {
+    const output = html(imageBlock())
+
+    expect(output).toContain('width="4000"')
+    expect(output).toContain('height="3000"')
+  })
+
+  it('图片组每一张都带宽高', () => {
+    const block = createBlock('gallery')
+    Object.assign(block.data, { mediaIds: [9, 9] })
+
+    expect(renderBlock(block, media).match(/width="4000"/g)).toHaveLength(2)
+  })
+
+  it('拿不到尺寸时不硬编一个假的', () => {
+    // 存量数据、外链、本机 blob 预览都可能没有尺寸
+    const unsized = [{ id: 9, displayUrl: '/api/media/9/display' }]
+
+    const output = renderBlock(imageBlock(), unsized)
+
+    expect(output).not.toContain('width=')
+    expect(output).not.toContain('height=')
+  })
+
+  it('预览全文用比正文窄的尺寸提示', () => {
+    const doc = emptyDocument()
+    doc.blocks.push(imageBlock())
+
+    const output = render(doc, media, { sizes: ARTICLE_PREVIEW_SIZES })
+
+    expect(output).toContain('560px')
+    expect(output).not.toContain('92vw')
   })
 })

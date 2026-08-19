@@ -112,7 +112,14 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-editor-card>header button:disabled{opacity:.3;cursor:default}
 .block-editor-preview{padding:18px 20px}
 .block-editor-preview .journal-block__title{font-size:1.25rem}
-.block-editor-card--media .block-editor-preview{position:relative;max-height:300px;overflow:hidden;padding:12px 18px}
+/*
+ * 图片区块的缩略展示。
+ *
+ * 以前是 max-height + overflow:hidden 的硬裁切，长图直接被切掉半张，看不出内容。
+ * 现在交给 fit-preview 等比缩放：高度上限一样，但图片是完整的，只是小一号。
+ * 容器高度由 JS 设成缩放后的实际高度，所以这里不再写 max-height。
+ */
+.block-editor-card--media .block-editor-preview{position:relative;overflow:hidden;padding:12px 18px}
 .block-editor-card--media .block-editor-preview::after{content:'图片块缩略显示 · 点击编辑查看完整效果';position:absolute;right:12px;bottom:8px;padding:3px 8px;border-radius:999px;color:var(--tj-muted);background:color-mix(in srgb,var(--tj-surface) 92%,transparent);box-shadow:0 1px 6px rgba(0,0,0,.07);font:11px/1.5 var(--tj-sans)}
 .block-editor-card--media .journal-document{--figure-max-h:230px;gap:8px}
 .block-editor-card--media .journal-figure,.block-editor-card--media .journal-gallery,.block-editor-card--media .journal-postcard{margin:.25em auto}
@@ -163,8 +170,12 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-live-preview>header>div{display:grid;gap:2px}
 .block-live-preview>header small{color:var(--tj-muted);font-size:11px}
 .block-live-preview>header>span{padding:3px 7px;border-radius:999px;color:var(--tj-muted);background:rgba(255,255,255,.55);font-size:10px}
+/*
+ * 内容会被等比缩到这个高度以内，所以正常情况下不需要滚动。overflow 留着是兜底：
+ * 极端长图缩到下限之后仍然可能溢出，那时宁可能滚，也不要把内容截断。
+ */
 .block-preview-paper{flex:1;min-height:0;overflow:auto;padding:28px 14px;background:var(--tj-surface);box-shadow:0 7px 24px rgba(56,45,31,.1)}
-.block-preview-article{width:72%;min-height:100%;margin:0 auto}
+.block-preview-article{width:72%;margin:0 auto;transition:transform .15s ease}
 .block-preview-article>.journal-document{margin:18px 0}
 .block-preview-article .journal-figure--bleed{--figure-width:calc(100% + 120px);margin-left:50%;transform:translateX(-50%)}
 .block-preview-article .journal-gallery.journal-figure--bleed{--figure-width:calc(100% + 120px)}

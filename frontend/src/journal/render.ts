@@ -35,14 +35,32 @@ const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(?:display|medium|thumbnail)(\?.
  * 带上 data-responsive 让 applyResponsiveImages 认出「这张已经处理过」，它继续
  * 为不经这里渲染的存量路径兜底。
  */
-function imageAttrs(src: string, sizes: string): string {
+function imageAttrs(src: string, sizes: string, item?: RenderableMedia): string {
   const match = src.match(MEDIA_VARIANTS)
   const base = match?.[1]
   const responsive = base
     ? ' srcset="' + esc(mediaSrcset(base, match?.[2] ?? ''))
       + '" sizes="' + esc(sizes) + '" data-responsive="on"'
     : ''
-  return ' src="' + esc(src) + '"' + responsive + ' loading="lazy" decoding="async"'
+  return ' src="' + esc(src) + '"' + responsive + intrinsicSize(item)
+    + ' loading="lazy" decoding="async"'
+}
+
+/**
+ * 原图的像素尺寸。
+ *
+ * 有了 width/height，浏览器在图片下载完之前就知道它的长宽比，能先把位置留出来。少了它
+ * 每张图都是「先 0 高度、加载完再撑开」：正文里滚动位置会跳，配置弹窗的等比缩放会先按
+ * 「没有图片」的高度算一遍、图片就位后再跳到实际比例——看起来就是闪一下。
+ *
+ * CSS 里图片一律是 `width:auto; max-width:100%; height:auto`，所以这两个属性只提供比例，
+ * 不会把图片钉死在原始尺寸上。
+ */
+function intrinsicSize(item?: RenderableMedia): string {
+  const width = Number(item?.width)
+  const height = Number(item?.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return ''
+  return ' width="' + Math.round(width) + '" height="' + Math.round(height) + '"'
 }
 
 /**
@@ -68,6 +86,15 @@ const RESPONSIVE_SIZES = '(max-width: 700px) 92vw, (max-width: 1100px) 78vw, 68v
  * 200px 的图解码一整张大图，在手机上就是打开弹窗时的那一下卡顿。
  */
 export const PREVIEW_SIZES = '240px'
+
+/**
+ * 「预览全文」对话框里的正文宽度提示。
+ *
+ * 对话框是 min(900px, 96vw)，扣掉两层内边距，正文图片实际只有两三百像素宽（手机）到
+ * 五百多（桌面）。沿用正文那套 92vw 会让手机去挑 1280 那一档——一篇十几张图的日记
+ * 打开预览就是十几次大图解码。
+ */
+export const ARTICLE_PREVIEW_SIZES = '(max-width: 700px) 50vw, 560px'
 
 /** 渲染选项。 */
 export interface RenderOptions {
@@ -109,7 +136,7 @@ function figure(block: JournalBlock, map: MediaMap, sizes: string): string {
     '<figure class="journal-figure ' +
     figureClasses(settings) +
     '"><img' +
-    imageAttrs(src, sizes) +
+    imageAttrs(src, sizes, item) +
     ' alt="' +
     esc(caption || '旅行照片') +
     '">' +
@@ -135,7 +162,7 @@ function gallery(block: JournalBlock, map: MediaMap, sizes: string): string {
       const caption = str(item?.caption) || '旅行照片'
       // previews 分支里 source 本身就是地址，不是 id
       const src = previews.length ? str(source) : mediaUrl(item, source)
-      return '<img' + imageAttrs(src, sizes) + ' alt="' + esc(caption) + '">'
+      return '<img' + imageAttrs(src, sizes, item) + ' alt="' + esc(caption) + '">'
     })
     .join('')
   const layoutClass = mode ? 'journal-gallery--' + mode : ''
@@ -157,7 +184,7 @@ function postcard(block: JournalBlock, map: MediaMap, sizes: string): string {
   const src = data.previewUrl ? str(data.previewUrl) : mediaUrl(item, data.mediaId)
   const image =
     data.mediaId || data.previewUrl
-      ? '<img' + imageAttrs(src, sizes) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
+      ? '<img' + imageAttrs(src, sizes, item) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
       : '<div class="journal-postcard__placeholder">旅行明信片</div>'
   return (
     '<figure class="journal-postcard">' +
