@@ -165,27 +165,53 @@ git diff --check
 
 ### 在本地复现 CI
 
-Drone 跑的就是上面这些，加上两件本机默认做不到的事，也正是本地绿、CI 红的常见来源：
+Drone 跑的就是上面这些，外加两件事：真实的 PostgreSQL 迁移验证，和连着 MinIO 的图片链路 E2E。
+这两件在本机默认都跑不了，也正是「本地绿、CI 红」的主要来源。依赖用 `docker-compose.dev.yml`
+起（WSL 里的 Docker 就行，Windows 通过 localhost 直接连得到）：
 
-1. **`FlywayMigrationTest` 需要真的 PostgreSQL。** 没有 Docker 也没有 `FLYWAY_TEST_JDBC_URL` 时它会静默跳过，迁移脚本和里面那些 `information_schema` / `pg_constraint` 断言就一次都没执行过。有 Docker 时 Testcontainers 自动起容器；没有就指向任意一个能用的库：
-
-```powershell
-$env:FLYWAY_TEST_JDBC_URL = 'jdbc:postgresql://127.0.0.1:5432/travel_journal_ci'
-$env:FLYWAY_TEST_DB_USERNAME = 'travel_journal'
-$env:FLYWAY_TEST_DB_PASSWORD = 'travel_journal'
-mvn -q test -Dtest=FlywayMigrationTest
+```bash
+docker compose -f docker-compose.dev.yml up -d
 ```
 
-   注意这个库会被真实迁移，别指向正在用的开发库。跑完 `mvn test` 的输出里确认它是 `Tests run: 1`，出现 `Skipped: 1` 就说明这一段根本没验证。
+PostgreSQL 在 `5433`，MinIO 在 `59000`（控制台 `59001`）。端口刻意避开 5432/9000——这台机器上
+它们往往已经被别的项目占着，而验证环境不该要求你先停掉别人的容器。
 
-2. **E2E 需要一个跑起来的实例。** `@smoke` 只要 PostgreSQL；`@media` 还要 MinIO，且要用 Chromium：
+**1. 迁移验证。** 没有 `FLYWAY_TEST_JDBC_URL` 也没有 Docker 时 `FlywayMigrationTest` 会静默跳过，
+迁移脚本和里面那些 `information_schema` / `pg_constraint` 断言就一次都没执行过：
 
-```powershell
-npx playwright test --project=iphone-13 --grep @smoke
+```bash
+FLYWAY_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:5433/travel_journal FLYWAY_TEST_DB_USERNAME=travel_journal FLYWAY_TEST_DB_PASSWORD=travel_journal mvn -q test -Dtest=FlywayMigrationTest
+```
+
+输出里确认它是 `Tests run: 1`；出现 `Skipped: 1` 就说明这一段根本没验证，不能写成「已完成迁移验证」。
+
+**2. E2E。** 先打包并启动应用，指向上面那两个容器：
+
+```bash
+mvn -B -ntp -DskipTests package
+```
+
+```bash
+DB_HOST=127.0.0.1 DB_PORT=5433 DB_NAME=travel_journal DB_USERNAME=travel_journal DB_PASSWORD=travel_journal DB_SSL_MODE=disable MINIO_ENDPOINT=http://127.0.0.1:59000 MINIO_ACCESS_KEY=dev-minio-access MINIO_SECRET_KEY=dev-minio-secret APP_ADMIN_USERNAME=admin APP_ADMIN_PASSWORD=dev-only-password-2026 APP_MAP_SEARCH_ENABLED=false APP_EMPTY_DRAFT_CLEANUP=false java -jar target/travel-journal.jar
+```
+
+再在 `frontend/` 下跑（`E2E_ADMIN_USER` / `E2E_ADMIN_PASS` 要和上面一致）：
+
+```bash
+npx playwright test --project=pixel-7 --grep @smoke
+```
+
+```bash
 npx playwright test --project=desktop-chrome --grep @media
 ```
 
-只跑 `--list` 也有用：整个用例集合不出来（比如把只当类型用的导入写成了普通具名导入）时，`--grep` 会安静地筛出 0 条，CI 那一步等于没跑。
+- `iphone-13` 用的是 WebKit，本机没装就会十条全红（报 `Executable doesn't exist`，不是产品问题）。
+  跑 `npx playwright install webkit` 装上，或者用同为手机视口、基于 Chromium 的 `pixel-7`。
+- `@media` 必须用 Chromium：它测的是 Service Worker 和 Cache Storage。
+- 只跑 `--list` 也有用：整个用例集合不出来时（比如把只当类型用的导入写成了普通具名导入），
+  `--grep` 会安静地筛出 0 条，CI 那一步等于没跑。
+- 改完 UI 一定要真跑一遍 E2E。把下拉换成按钮这类改动，单测和 typecheck 都发现不了
+  「测试还在点一个已经不存在的元素」。
 
 E2E 依赖已运行的 `http://localhost:8080`。本机缺 Playwright 自带浏览器时复用 Edge：
 
