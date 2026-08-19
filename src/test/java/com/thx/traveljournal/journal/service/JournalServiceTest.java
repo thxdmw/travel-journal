@@ -14,6 +14,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import java.time.Duration;
+import com.thx.traveljournal.common.util.SiteClock;
+
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -248,12 +250,21 @@ class JournalServiceTest {
                 .hasMessageContaining("内容区块");
     }
 
+    /**
+     * 草稿日期取的是站点时钟的今天，不是运行环境的今天。
+     *
+     * <p>这条断言原本写的是 {@code LocalDate.now()}，也就是 JVM 默认时区的今天。开发机在
+     * 东八区，和站点时钟一致，所以一直是绿的；CI 容器跑在 UTC，于是每天 16:00 UTC 之后
+     * 上海已经是第二天，这条用例就红一次——一个只在傍晚以后出现的失败。</p>
+     *
+     * <p>SiteClock 存在的意义正是「这个站点只有一个今天」，断言就该问它要。</p>
+     */
     @Test
     void draftIsCreatedWithGeneratedSlugAndToday(){
         JournalEntry created=service.createDraft(1L,null,null);
         assertThat(created.getStatus()).isEqualTo("DRAFT");
         assertThat(created.getTitle()).isEmpty();
-        assertThat(created.getOccurredOn()).isEqualTo(LocalDate.now());
+        assertThat(created.getOccurredOn()).isEqualTo(new SiteClock(null).today());
         assertThat(created.getSlug()).startsWith("journal-").matches("^[a-z0-9]+(?:-[a-z0-9]+)*$");
         assertThat(created.getContentJson().path("blocks")).isEmpty();
         verify(mapper).insert(created);
