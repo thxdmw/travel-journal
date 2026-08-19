@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   tripList: vi.fn(), momentList: vi.fn(), aiStatus: vi.fn(), create: vi.fn(), update: vi.fn(),
   remove: vi.fn(), addPhoto: vi.fn(), removePhoto: vi.fn(), route: vi.fn(), compose: vi.fn(),
   pendingMoments: vi.fn(), queueMoment: vi.fn(), updatePendingMoment: vi.fn(), dropPendingMoment: vi.fn(),
-  push: vi.fn(), replace: vi.fn(),
+  push: vi.fn(), replace: vi.fn(), simpleMap: vi.fn(), renderRoute: vi.fn(),
 }))
 vi.mock('@/api/trip', () => ({ tripApi: { options: mocks.tripList } }))
 vi.mock('@/api/moment', () => ({ momentApi: {
@@ -18,6 +18,8 @@ vi.mock('@/draft/moments', () => ({
   pendingMoments: mocks.pendingMoments, queueMoment: mocks.queueMoment,
   updatePendingMoment: mocks.updatePendingMoment, dropPendingMoment: mocks.dropPendingMoment,
 }))
+vi.mock('@/route/simple-map', () => ({ simpleMap: mocks.simpleMap }))
+vi.mock('@/route/day-route', () => ({ render: mocks.renderRoute }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {}, params: {}, fullPath: '/moments', meta: {} }),
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
@@ -51,6 +53,43 @@ describe('MomentsPage', () => {
     mocks.pendingMoments.mockResolvedValue([])
     mocks.queueMoment.mockResolvedValue(true)
     mocks.replace.mockResolvedValue(undefined)
+  })
+
+  it('看路线拿到的是地图容器本身，不是一个数组', async () => {
+    /*
+     * 容器长在 v-for 里面。字符串 ref 处在 v-for 作用域内时 Vue 会把它收成数组，
+     * 而数组是 truthy，一路穿过 simpleMap 的空值检查，直到建图那步才抛异常——
+     * 那里的 catch 又是「后台失败就是没有地图，不弹提示」。于是点「看路线」什么都
+     * 不发生，控制台也干干净净。ref 的类型是手写的，编译期同样看不出来。
+     */
+    mocks.route.mockResolvedValue([
+      { latitude: 30.05, longitude: 101.96, occurredAt: '2026-10-02T08:30:00+08:00', source: 'GPS' },
+    ])
+    mocks.simpleMap.mockResolvedValue({ destroy: vi.fn(), invalidateSize: vi.fn() })
+    mocks.renderRoute.mockReturnValue({ destroy: vi.fn(), play: vi.fn() })
+    const { wrapper } = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.moment-day header button')[0]?.trigger('click')
+    await flushPromises()
+
+    expect(mocks.simpleMap).toHaveBeenCalledTimes(1)
+    const container = mocks.simpleMap.mock.calls[0]?.[0]
+    expect(Array.isArray(container)).toBe(false)
+    expect(container).toBeInstanceOf(HTMLElement)
+    expect((container as HTMLElement).className).toContain('moment-route-map')
+  })
+
+  it('这一天没有位置信息时不建图，只给一句说明', async () => {
+    mocks.route.mockResolvedValue([])
+    const { wrapper, info } = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.moment-day header button')[0]?.trigger('click')
+    await flushPromises()
+
+    expect(mocks.simpleMap).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalled()
   })
 
   it('默认选择进行中的旅行并按服务端日期分组', async () => {
