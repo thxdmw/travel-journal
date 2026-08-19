@@ -392,6 +392,10 @@
 .journal-pager { display:flex; justify-content:center; padding:16px 0 4px; }
 /* 首次加载时的占位，行高和真实列表接近，数据到了版面不跳 */
 .journal-skeleton { display:grid; gap:18px; padding:6px 2px; }
+/* 骨架卡片沿用真实卡片的外框和封面高度，数据到了只是内容替换，格子不动 */
+.admin-trip-card.is-skeleton { cursor:default; }
+.admin-trip-card.is-skeleton:hover { transform:none; box-shadow:var(--tj-shadow-soft); }
+.admin-trip-card.is-skeleton .trip-card-cover { display:block; width:100%; height:132px; }
 /* 表格在窄屏上横向滚不动，手机改用卡片 */
 .journal-card-list { display:none; }
 .journal-manage-card { padding:14px 16px; border:1px solid var(--tj-border); border-radius:var(--tj-radius); background:var(--tj-surface); }

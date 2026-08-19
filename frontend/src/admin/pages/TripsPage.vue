@@ -23,6 +23,8 @@ const router = useRouter()
 const data = ref<Trip[]>([])
 const themes = ref<ThemeView[]>([])
 const loading = ref(false)
+/** 第一次加载还没回来。之后查询、刷新都不再算首次，避免整页骨架屏反复闪。 */
+const firstLoad = ref(true)
 const dialog = ref(false)
 const editing = ref<number | null>(null)
 const keyword = ref('')
@@ -74,6 +76,7 @@ async function load() {
     props.fail(error)
   } finally {
     loading.value = false
+    firstLoad.value = false
   }
 }
 
@@ -207,11 +210,23 @@ onBeforeUnmount(releasePreview)
 <template>
   <div><div class="page-head"><div><h2>旅行管理</h2><p>从计划到完成，集中整理每一次出发。</p></div><el-button type="primary" @click="open()">新建旅行</el-button></div>
     <div class="panel"><div class="toolbar"><el-input v-model="keyword" clearable placeholder="搜索旅行" style="max-width: 280px" @keyup.enter="load" /><el-button @click="load">查询</el-button></div>
-    <div class="panel-pad"><div v-loading="loading" class="trip-list"><article v-for="item in data" :key="item.id" class="admin-trip-card" @click="router.push('/trips/' + item.id)">
+    <div class="panel-pad">
+      <!--
+        首次加载给骨架卡片，之后的查询给遮罩。
+        和日记管理同一套分工：版面还空着的时候先把卡片位置占住，数据到了只换内容；
+        已经有一屏内容时保留旧列表更好读。
+      -->
+      <div v-if="firstLoad" class="trip-list">
+        <article v-for="index in 6" :key="index" class="admin-trip-card is-skeleton">
+          <el-skeleton-item variant="image" class="trip-card-cover" />
+          <el-skeleton :rows="2" animated />
+        </article>
+      </div>
+      <div v-else v-loading="loading" class="trip-list"><article v-for="item in data" :key="item.id" class="admin-trip-card" @click="router.push('/trips/' + item.id)">
       <img v-if="item.coverMediaId" class="trip-card-cover" :src="`/api/media/${item.coverMediaId}/thumbnail`" loading="lazy" decoding="async" :alt="item.title">
       <div v-else class="trip-card-cover trip-card-cover-empty" aria-hidden="true"><span>还没有封面</span></div>
       <span class="status">{{ statusLabel(item.status) }}</span><h3>{{ item.title }}</h3><p>{{ item.summary || '还没有旅行简介' }}</p><footer><span>{{ item.startDate }} — {{ item.endDate }}</span><el-button link @click.stop="open(item)">编辑</el-button></footer>
-    </article></div><el-empty v-if="!data.length && !loading" description="还没有旅行" /></div></div>
+    </article></div><el-empty v-if="!data.length && !loading && !firstLoad" description="还没有旅行" /></div></div>
     <el-dialog v-model="dialog" :title="editing ? '编辑旅行' : '新建旅行'" width="min(680px,92vw)" @closed="resetCover">
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
         <el-form-item label="标题" prop="title"><el-input v-model="form.title" placeholder="例如：京都的四月" /></el-form-item>

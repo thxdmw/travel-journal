@@ -18,12 +18,14 @@ const template = {
   definitionJson: { title: '慢游模板', blocks: [{ id: 'text-1', type: 'text', title: '今日故事', required: false, config: { placeholder: '写下这一段' } }] },
 }
 
+const ElSkeleton = { template: '<div class="el-skeleton" />' }
+const ElSkeletonItem = { template: '<div class="el-skeleton-item" />' }
 function mountPage() {
   const message = vi.fn(), warning = vi.fn(), fail = vi.fn(), confirm = vi.fn().mockResolvedValue(undefined)
   const wrapper = mount(TemplateManagerPage, {
     props: { message, warning, fail, confirm },
     global: {
-      components: { ElButton, ElDialog, ElInput, ElSwitch, ElEmpty, ElTooltip, ElForm: passthrough, ElFormItem: passthrough, ElSelect: passthrough, ElOption: passthrough, ElInputNumber: passthrough },
+      components: { ElButton, ElDialog, ElInput, ElSwitch, ElEmpty, ElTooltip, ElSkeleton, ElSkeletonItem, ElForm: passthrough, ElFormItem: passthrough, ElSelect: passthrough, ElOption: passthrough, ElInputNumber: passthrough },
       directives: { loading: () => undefined },
     },
   })

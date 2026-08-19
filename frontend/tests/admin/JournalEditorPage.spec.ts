@@ -15,6 +15,7 @@ import { POINTER_KEY } from '@/draft/schema'
 const mocks = vi.hoisted(() => ({
   createDraft: vi.fn(),
   saveDraft: vi.fn(),
+  publish: vi.fn(),
   getJournal: vi.fn(),
   mediaList: vi.fn(),
   mediaUpload: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('@/api/journal', () => ({
     createDraft: mocks.createDraft,
     saveDraft: mocks.saveDraft,
     get: mocks.getJournal,
-    publish: vi.fn(),
+    publish: mocks.publish,
     unpublish: vi.fn(),
     update: vi.fn(),
     createPreviewLink: vi.fn(),
@@ -61,9 +62,16 @@ const ElInput = {
 const passthrough = (tag: string) => ({ template: `<${tag}><slot /></${tag}>` })
 const stubs = {
   ElInput,
-  ElForm: passthrough('form'),
+  // 发布前会调 formRef.validate()：替身不给这个方法，调用会抛 TypeError 被吞掉，
+  // 于是「发布」永远走不到真正的请求那一步，测试测的是一条不存在的路径。
+  ElForm: { template: '<form><slot /></form>', methods: { validate: () => Promise.resolve(true) } },
   ElFormItem: passthrough('div'),
-  ElButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  // 替身要把 loading / disabled 透出来：这两个状态本身就是被断言的对象
+  ElButton: {
+    props: ['loading', 'disabled'],
+    emits: ['click'],
+    template: '<button :data-loading="loading ? \'1\' : \'0\'" :disabled="disabled || loading" @click="$emit(\'click\')"><slot /></button>',
+  },
   ElSelect: passthrough('div'),
   ElOption: passthrough('div'),
   ElDatePicker: passthrough('div'),
@@ -236,6 +244,47 @@ describe('JournalEditorPage 草稿延迟创建', () => {
     const page = wrapper.vm as unknown as { save(silent?: boolean): Promise<boolean> }
     await page.save(true)
     expect(mocks.saveDraft).toHaveBeenCalledWith(5, expect.objectContaining({ expectedRevision: 7 }))
+  })
+
+  it('发布过程中按钮转圈，再点一次不会重复发布', async () => {
+    /*
+     * 发布要先存一遍草稿再发一次请求，手机上并不快。以前这个按钮点下去毫无反应，
+     * 作者只能盯着屏幕猜「到底点上没有」，然后再点一次——而重复点击换来的多半是 409。
+     */
+    mocks.route.params = { id: '5' }
+    mocks.getJournal.mockResolvedValue({ ...draftEntry(5), revision: 7 })
+    mocks.saveDraft.mockResolvedValue({ ...draftEntry(5), revision: 8 })
+    let finishPublish: ((value: unknown) => void) | undefined
+    mocks.publish.mockReturnValue(new Promise(done => { finishPublish = done }))
+    const { wrapper } = mountEditor()
+    await flushPromises()
+    await typeTitle(wrapper, '要发布的标题')
+
+    const publishButton = wrapper.findAll('button').find(item => item.text() === '发布日记')
+    expect(publishButton, '找不到发布按钮').toBeTruthy()
+    await publishButton?.trigger('click')
+    await flushPromises()
+
+    expect(publishButton?.attributes('data-loading')).toBe('1')
+    // 再点一次：按钮已经禁用，不会排上第二次发布
+    await publishButton?.trigger('click')
+    await flushPromises()
+    expect(mocks.publish).toHaveBeenCalledTimes(1)
+
+    /*
+     * 发布成功后这一组按钮整个换掉（发布日记 → 撤回 / 更新发布），所以不能盯着原来那个
+     * DOMWrapper 看——它指向的元素已经被移除，属性永远停在移除前的那一刻。
+     * 发布成功之后还要落一次本机快照，IndexedDB 事务不在 microtask 队列里，用 waitFor。
+     */
+    finishPublish?.({ ...draftEntry(5), status: 'PUBLISHED', revision: 9 })
+    await vi.waitFor(() => {
+      const texts = wrapper.findAll('button').map(item => item.text())
+      expect(texts).toContain('更新发布')
+      expect(texts).not.toContain('发布日记')
+    })
+    // 换上来的按钮不该带着上一次的转圈状态
+    const updateButton = wrapper.findAll('button').find(item => item.text() === '更新发布')
+    expect(updateButton?.attributes('data-loading')).toBe('0')
   })
 
   it('版本冲突时保留本机内容，不被服务器版本覆盖', async () => {

@@ -23,6 +23,8 @@ interface TemplateBlock {
 const props = defineProps<TemplateManagerPageDeps>()
 const items = ref<JournalTemplate[]>([])
 const loading = ref(false)
+/** 第一次加载还没回来。之后的刷新保留旧卡片只加遮罩，不再整页闪骨架屏。 */
+const firstLoad = ref(true)
 const dialog = ref(false)
 const editing = ref<number | null>(null)
 const previewDialog = ref(false)
@@ -63,7 +65,7 @@ async function load() {
   loading.value = true
   try { items.value = await templateApi.list(false) }
   catch (error) { props.fail(error) }
-  finally { loading.value = false }
+  finally { loading.value = false; firstLoad.value = false }
 }
 
 function reset() {
@@ -158,7 +160,11 @@ onBeforeUnmount(() => { teardown(previewEl.value); teardown(builderPreviewEl.val
 
 <template>
   <div><div class="page-head"><div><h2>日记模板</h2><p>把常写的结构保存下来，下次只填当时的天气、心情和故事。</p></div><el-button type="primary" @click="create">新建我的模板</el-button></div>
-    <div v-loading="loading" class="template-card-grid"><article v-for="item in items" :key="item.id" class="panel template-card"><header><span>{{ item.builtin ? '系统模板' : '我的模板' }}</span><small>第 {{ item.version }} 版</small></header><h3>{{ item.name }}</h3><p>{{ item.description || '还没有模板说明' }}</p><div class="template-block-tags"><i v-for="block in blocksOf(item).slice(0, 6)" :key="block.id">{{ block.title || blockLabel(block.type) }}</i></div><footer><el-button link @click="preview(item)">预览</el-button><el-button link @click="duplicate(item)">复制</el-button><template v-if="!item.builtin"><el-button link type="primary" @click="edit(item)">编辑</el-button><el-button link type="danger" @click="remove(item)">删除</el-button></template></footer></article></div>
+    <!-- 首次加载给骨架卡片，之后的刷新给遮罩：和日记管理、旅行管理同一套分工 -->
+    <div v-if="firstLoad" class="template-card-grid">
+      <article v-for="index in 6" :key="index" class="panel template-card"><el-skeleton :rows="3" animated /></article>
+    </div>
+    <div v-else v-loading="loading" class="template-card-grid"><article v-for="item in items" :key="item.id" class="panel template-card"><header><span>{{ item.builtin ? '系统模板' : '我的模板' }}</span><small>第 {{ item.version }} 版</small></header><h3>{{ item.name }}</h3><p>{{ item.description || '还没有模板说明' }}</p><div class="template-block-tags"><i v-for="block in blocksOf(item).slice(0, 6)" :key="block.id">{{ block.title || blockLabel(block.type) }}</i></div><footer><el-button link @click="preview(item)">预览</el-button><el-button link @click="duplicate(item)">复制</el-button><template v-if="!item.builtin"><el-button link type="primary" @click="edit(item)">编辑</el-button><el-button link type="danger" @click="remove(item)">删除</el-button></template></footer></article></div>
     <!-- eslint-disable vue/no-v-html -- 内容由项目内 JournalBlocks 安全渲染器生成。 -->
     <el-dialog v-model="previewDialog" :title="`${previewing?.name || '模板'} · 预览`" width="min(860px,96vw)" class="template-preview-dialog"><p class="template-preview-note">下面是用示例旅行数据渲染的效果，实际生成时会换成这篇日记所属旅行的真实内容。</p><article ref="previewEl" class="preview journal-document template-preview-body" v-html="previewHtml"></article><template #footer><el-button @click="previewDialog = false">关闭</el-button><el-button v-if="previewing" type="primary" @click="previewDialog = false; duplicate(previewing)">复制为我的模板</el-button></template></el-dialog>
     <el-dialog v-model="dialog" :title="editing ? '编辑我的模板' : '新建我的模板'" width="min(1320px,96vw)" class="template-editor-dialog"><el-form label-position="top"><div class="form-grid form-grid-2"><el-form-item label="模板名称"><el-input v-model="form.name" maxlength="120" placeholder="例如：海边慢游的一天" /></el-form-item><el-form-item label="是否启用"><el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" /></el-form-item></div><el-form-item label="模板说明"><el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" show-word-limit /></el-form-item></el-form>

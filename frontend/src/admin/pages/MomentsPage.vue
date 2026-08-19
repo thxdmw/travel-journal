@@ -33,6 +33,8 @@ const route = useRoute()
 const trips = ref<TripOption[]>([])
 const moments = ref<MomentView[]>([])
 const loading = ref(false)
+/** 第一次加载还没回来。切旅行时也会重新置位——那等于换了一份完全不同的列表。 */
+const firstLoad = ref(true)
 const saving = ref(false)
 const pending = ref<PendingMoment[]>([])
 const syncing = ref(false)
@@ -90,11 +92,12 @@ function timeLabel(value: string | null | undefined, zoneId?: string | null): st
 }
 
 async function load() {
-  if (!tripId.value) { moments.value = []; return }
+  // 一场旅行都没有时也要收掉骨架屏，否则空账号会一直停在占位上
+  if (!tripId.value) { moments.value = []; firstLoad.value = false; return }
   loading.value = true
   try { moments.value = await momentApi.list(tripId.value) }
   catch (error) { if (navigator.onLine) props.fail(error) }
-  finally { loading.value = false }
+  finally { loading.value = false; firstLoad.value = false }
 }
 
 function chooseDefaultTrip() {
@@ -287,7 +290,11 @@ onBeforeUnmount(() => { closeRoute(); clearDraftPreviews(); window.removeEventLi
   <div class="moments-page"><div class="page-head"><div><h2>随手记</h2><p>路上看到什么就记一条，晚上一键整理成日记。</p></div><el-select v-model="tripId" filterable placeholder="选择旅行" class="moments-trip"><el-option v-for="item in trips" :key="item.id" :label="item.title" :value="item.id" /></el-select></div>
     <section class="moment-composer panel"><el-input v-model="draft.content" type="textarea" :rows="3" resize="none" placeholder="现在看到了什么？一句话就够。" /><div v-if="draftPreviews.length" class="moment-shots"><figure v-for="(item, index) in draftPreviews" :key="item.id"><img :src="item.url" decoding="async" alt=""><button type="button" @click="dropDraftPhoto(index)">×</button></figure></div><div class="moment-composer-meta"><el-input v-model="draft.placeName" placeholder="在哪儿（可选）" class="moment-place" /><el-input v-model="draft.mood" placeholder="心情（可选）" maxlength="10" class="moment-mood" /></div><div class="moment-composer-actions"><button type="button" @click="capture"><b>📷</b><span>照片</span></button><button type="button" :class="{ active: draft.latitude != null }" :disabled="locating" @click="locate"><b>📍</b><span>{{ draft.latitude != null ? '已定位' : (locating ? '定位中' : '位置') }}</span></button><span class="moment-spacer"></span><el-button type="primary" :loading="saving" :disabled="!canSubmit" @click="submit">记下</el-button></div></section>
     <section v-if="pending.length" class="moment-pending panel" aria-live="polite"><header><div><strong>待同步</strong><small>{{ pending.length }} 条已安全保存在这台设备</small></div><span :class="{ active: syncing }">{{ !online ? '等待网络' : (syncing ? '正在同步' : '等待重试') }}</span></header><article v-for="item in pending" :key="item.clientId"><time>{{ timeLabel(item.payload.occurredAt, item.payload.occurredZoneId) }}</time><div><p v-if="item.payload.content">{{ item.payload.content }}</p><small><template v-if="item.photos.length">{{ item.photos.length }} 张照片 · </template>{{ item.error || (item.state === 'syncing' ? '正在同步' : '已保存在本机') }}</small></div><button v-if="item.state === 'failed'" type="button" @click="retryPending(item)">重试</button><button type="button" class="danger" @click="discardPending(item)">放弃</button></article></section>
-    <div v-loading="loading" class="moment-timeline"><section v-for="group in grouped" :key="group.day" class="moment-day"><header><h3>{{ dayLabel(group.day) }}</h3><small>{{ group.items.length }} 条<template v-if="group.unsorted"> · {{ group.unsorted }} 条待整理</template></small><el-button size="small" plain @click="toggleRoute(group)">{{ routeDay === group.day ? '收起路线' : '看路线' }}</el-button><el-button size="small" type="primary" plain :loading="composing === group.day" @click="compose(group, false)">整理成日记</el-button><el-button v-if="aiAvailable" size="small" type="primary" :loading="composing === `${group.day}-ai`" @click="compose(group, true)">✦ AI 整理</el-button></header><div v-if="routeDay === group.day" class="moment-route"><div :ref="bindRouteEl" class="moment-route-map"></div><button type="button" class="moment-route-play" :class="{ playing: replaying }" @click="toggleReplay">{{ replaying ? '停止回放' : '▶ 回放这一天' }}</button></div>
+    <!-- 首次加载给骨架条，之后的刷新给遮罩：和后台其他列表同一套分工 -->
+    <div v-if="firstLoad" class="moment-timeline">
+      <section v-for="index in 3" :key="index" class="moment-day"><el-skeleton :rows="3" animated /></section>
+    </div>
+    <div v-else v-loading="loading" class="moment-timeline"><section v-for="group in grouped" :key="group.day" class="moment-day"><header><h3>{{ dayLabel(group.day) }}</h3><small>{{ group.items.length }} 条<template v-if="group.unsorted"> · {{ group.unsorted }} 条待整理</template></small><el-button size="small" plain @click="toggleRoute(group)">{{ routeDay === group.day ? '收起路线' : '看路线' }}</el-button><el-button size="small" type="primary" plain :loading="composing === group.day" @click="compose(group, false)">整理成日记</el-button><el-button v-if="aiAvailable" size="small" type="primary" :loading="composing === `${group.day}-ai`" @click="compose(group, true)">✦ AI 整理</el-button></header><div v-if="routeDay === group.day" class="moment-route"><div :ref="bindRouteEl" class="moment-route-map"></div><button type="button" class="moment-route-play" :class="{ playing: replaying }" @click="toggleReplay">{{ replaying ? '停止回放' : '▶ 回放这一天' }}</button></div>
       <article v-for="item in group.items" :key="item.id" class="moment-item" :class="{ 'is-sorted': item.sorted }"><time>{{ timeLabel(item.occurredAt, item.occurredZoneId) }}</time><div class="moment-body"><template v-if="editing?.id === item.id"><el-input v-model="editing.content" type="textarea" :rows="3" /><div class="moment-edit-meta"><el-input v-model="editing.placeName" placeholder="地点" /><el-input v-model="editing.mood" placeholder="心情" /></div><div class="moment-edit-actions"><el-button size="small" @click="editing = null">取消</el-button><el-button size="small" type="primary" @click="saveEdit">保存</el-button></div></template><template v-else><p v-if="item.content">{{ item.content }}</p><div v-if="item.photos.length" class="moment-shots"><figure v-for="photo in item.photos" :key="photo.id"><img :src="photo.thumbnailUrl" loading="lazy" decoding="async" alt=""><button type="button" @click="removePhoto(item, photo.id)">×</button></figure></div><footer><span v-if="item.placeName">📍 {{ item.placeName }}</span><span v-else-if="item.latitude != null">📍 已记录坐标</span><span v-if="item.mood">· {{ item.mood }}</span><span v-if="item.sorted" class="moment-sorted">已整理</span><button type="button" @click="startEdit(item)">修改</button><button type="button" class="danger" @click="removeMoment(item)">删除</button></footer></template></div></article>
     </section><el-empty v-if="!loading && !grouped.length" :image-size="60" :description="tripId ? '这次旅行还没有随手记，上面写一条试试' : '先选一次旅行'" /></div>
     <input ref="photoInput" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden @change="pickPhotos"><input ref="cameraInput" type="file" accept="image/*" capture="environment" hidden @change="pickPhotos"><template v-if="photoSheet"><div class="editor-sheet-backdrop" @click="photoSheet = false"></div><div class="photo-sheet"><button type="button" @click="photoSheet = false; cameraInput?.click()">拍照</button><button type="button" @click="photoSheet = false; photoInput?.click()">从相册选择</button><button type="button" class="cancel" @click="photoSheet = false">取消</button></div></template>

@@ -74,6 +74,8 @@ const trip = {
   themeKey: null,
 } as const
 
+const ElSkeleton = { template: '<div class="el-skeleton" />' }
+const ElSkeletonItem = { template: '<div class="el-skeleton-item" />' }
 function mountPage() {
   const message = vi.fn()
   const warning = vi.fn()
@@ -82,7 +84,7 @@ function mountPage() {
   const wrapper = mount(TripsPage, {
     props: { message, warning, fail, confirm },
     global: {
-      components: { ElButton, ElInput, ElSelect, ElOption, ElDatePicker, ElDialog, ElForm, ElFormItem, ElEmpty },
+      components: { ElButton, ElInput, ElSelect, ElOption, ElDatePicker, ElDialog, ElForm, ElFormItem, ElEmpty, ElSkeleton, ElSkeletonItem },
       directives: { loading: () => undefined },
     },
   })

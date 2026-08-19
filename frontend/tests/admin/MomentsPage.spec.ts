@@ -34,11 +34,13 @@ const ElEmpty = { props: ['description'], template: '<div class="el-empty">{{ de
 const trip = { id: 3, createdAt: '', updatedAt: '', title: '川西秋日', slug: 'west-sichuan', summary: null, status: 'ONGOING', startDate: '2026-10-01', endDate: '2026-10-07', defaultCurrency: 'CNY', coverMediaId: null, internalNote: null, themeKey: null }
 const moment = { id: 9, clientId: null, tripId: 3, tripStopId: null, cityName: null, occurredAt: '2026-10-02T08:30:00+08:00', day: '2026-10-02', occurredZoneId: 'Asia/Shanghai', utcOffsetMinutes: 480, content: '山谷里起雾了', placeName: '折多山', latitude: null, longitude: null, mood: '安静', journalEntryId: null, sorted: false, photos: [] }
 
+const ElSkeleton = { template: '<div class="el-skeleton" />' }
+const ElSkeletonItem = { template: '<div class="el-skeleton-item" />' }
 function mountPage() {
   const message = vi.fn(), warning = vi.fn(), error = vi.fn(), info = vi.fn(), fail = vi.fn(), confirm = vi.fn().mockResolvedValue(undefined), composeConfirm = vi.fn().mockResolvedValue('confirm')
   const wrapper = mount(MomentsPage, {
     props: { session: { user: { id: 1 }, offline: false }, message, warning, error, info, fail, confirm, composeConfirm },
-    global: { components: { ElButton, ElInput, ElSelect, ElOption, ElEmpty }, directives: { loading: () => undefined } },
+    global: { components: { ElButton, ElInput, ElSelect, ElOption, ElEmpty, ElSkeleton, ElSkeletonItem }, directives: { loading: () => undefined } },
   })
   return { wrapper, message, warning, error, info, fail, confirm, composeConfirm }
 }
