@@ -165,6 +165,17 @@ git diff --check
 
 ### 在本地复现 CI
 
+一条命令走完 CI 的四个验证步骤（不含部署）：
+
+```bash
+./verify-ci.sh
+```
+
+也可以只跑其中一步：`./verify-ci.sh frontend | backend | smoke | media`。前置是依赖容器已经起着。
+脚本会强制用 UTC 跑 Java 测试（对齐 CI 容器），并在迁移测试被跳过时直接失败——那种情况等于
+这一段根本没验证。下面是它背后做的事，手工跑或排查时用得上。
+
+
 Drone 跑的就是上面这些，外加两件事：真实的 PostgreSQL 迁移验证，和连着 MinIO 的图片链路 E2E。
 这两件在本机默认都跑不了，也正是「本地绿、CI 红」的主要来源。依赖用 `docker-compose.dev.yml`
 起（WSL 里的 Docker 就行，Windows 通过 localhost 直接连得到）：
