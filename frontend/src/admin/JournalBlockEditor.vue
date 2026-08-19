@@ -3,7 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { CATALOG } from '@/journal/catalog'
 import { createBlock, normalize } from '@/journal/document'
 import { PREVIEW_SIZES, renderBlock } from '@/journal/render'
-import { keepFitted } from '@/admin/fit-preview'
+import { keepFitted, type FitHandle } from '@/admin/fit-preview'
+import { patchPreview } from '@/admin/patch-preview'
 import { enhance, teardown } from '@/media/enhance'
 import type { CatalogEntry, JournalBlock, JournalDocument } from '@/types/journal-block'
 import type { MediaView } from '@/types/media'
@@ -74,6 +75,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       const document=ref<EditorDocument>(editorDocument(JB.normalize(props.modelValue)));
       const catalogOpen=ref(false),editorOpen=ref(false),draft=ref<EditorBlock|null>(null),editIndex=ref(-1),insertAt=ref(0);
       const query=ref(''),activeCategory=ref('全部'),imageTab=ref('content'),previewEl=ref<HTMLElement|null>(null);
+      const previewBody=ref<HTMLElement|null>(null);
       const catalogMode=ref('quick'),catalogCount=JB.CATALOG.length,focusedIndex=ref(-1);
       const quickItems=QUICK_BLOCKS.map(type=>JB.CATALOG.find(x=>x.type===type)).filter((item):item is CatalogEntry=>Boolean(item));
       const categories=['全部',...new Set(JB.CATALOG.map(x=>x.category))];
@@ -87,7 +89,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
        * 转头去下 1280 那一档——为了画这么小一块预览解码一整张大图，打开弹窗时就是
        * 明显的一下卡顿。
        */
-      const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media,{sizes:PREVIEW_SIZES}):'');
+      const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media,{sizes:PREVIEW_SIZES,eager:true}):'');
       const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&['grid','masonry'].includes(draft.value.settings?.layout));
       const layoutUsesRatio=computed(()=>draft.value!==null&&draft.value.type!=='postcard'&&(
         draft.value.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value.settings.layout)));
@@ -267,7 +269,24 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
        * 那种情况仍得等下一拍。
        */
       watch([draftPreview,editorOpen],()=>{
-        const run=()=>{if(editorOpen.value&&previewEl.value){enhance(previewEl.value);fitDialogPreview();}};
+        /*
+         * 关掉就撤观察。
+         *
+         * 弹窗不 destroy-on-close，容器还在，只是高度塌成 0——观察者要是还挂着，就会拿着
+         * 这个 0 算出缩到底的比例写进去，等下次打开再纠正回来，又是一闪。
+         */
+        if(!editorOpen.value){dialogFit?.release();dialogFit=null;fittedEl=null;return;}
+        /*
+         * 先把上一次的增强结构还原，再就地更新，最后重新增强。
+         *
+         * 轮播和对比组件会往块里插自己的结构，不还原就拿它跟渲染器的原始 HTML 比对，形状
+         * 永远对不上，每次都退回整棵替换——白白丢掉复用。
+         */
+        const run=()=>{
+          if(!editorOpen.value||!previewEl.value)return;
+          if(previewBody.value){teardown(previewBody.value);patchPreview(previewBody.value,draftPreview.value);}
+          enhance(previewEl.value);fitDialogPreview();
+        };
         run();
         if(!previewEl.value)nextTick(run);
       },{flush:'post'});
@@ -279,16 +298,31 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
        * 的预览等于没有预览。限制图片最大高度更省事，但那样「大图」和「中等」看起来一模一样，
        * 预览也就没意义了。等比缩放保留全部比例，只是整体小一号。
        */
-      let releaseDialogFit:(()=>void)|null=null;
+      /*
+       * 观察者跟着容器走，不跟着内容走。
+       *
+       * 被缩放的 .block-preview-article 是模板里的固定元素，v-html 换的只是它内部那层，
+       * 节点自始至终是同一个——每次改配置都 disconnect 再新建观察者纯属白费，还会丢掉
+       * 「上次缩到多少」的记录，害得重建后必定再写一遍样式。
+       *
+       * 容器没变就只 refresh：新内容已经在 DOM 里，同一帧内量准并缩好，不给它以原始大小
+       * 露脸的机会。
+       */
+      let dialogFit:FitHandle|null=null,fittedEl:HTMLElement|null=null;
       function fitDialogPreview(){
-        releaseDialogFit?.();
-        releaseDialogFit=previewEl.value?keepFitted(previewEl.value):null;
+        if(previewEl.value!==fittedEl){
+          dialogFit?.release();
+          fittedEl=previewEl.value;
+          dialogFit=previewEl.value?keepFitted(previewEl.value):null;
+          return;
+        }
+        dialogFit?.refresh();
       }
 
       /** 区块列表里每张缩略图各自缩放；容器高度跟着缩放后的实际高度走，不留空。 */
-      const blockFits=new Map<string,()=>void>();
+      const blockFits=new Map<string,FitHandle>();
       function bindBlockPreview(el:Element|ComponentPublicInstance|null,blockId:string){
-        blockFits.get(blockId)?.();
+        blockFits.get(blockId)?.release();
         blockFits.delete(blockId);
         if(el instanceof HTMLElement)blockFits.set(blockId,keepFitted(el,{max:BLOCK_PREVIEW_MAX_HEIGHT}));
       }
@@ -484,7 +518,13 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       function addTableColumn(){const block=draft.value;if(!block)return;block.data.headers.push('新列');block.data.rows.forEach(row=>row.push(''));}
       function removeTableColumn(index:number){const block=draft.value;if(!block||block.data.headers.length<=1)return;block.data.headers.splice(index,1);block.data.rows.forEach(row=>row.splice(index,1));}
       function addTableRow(){const block=draft.value;if(block)block.data.rows.push(block.data.headers.map(()=>''));}
-      /** 区块列表里的缩略展示，同样是小尺寸，不该按正文宽度挑图。 */
+      /*
+       * 区块列表里的缩略展示，同样是小尺寸，不该按正文宽度挑图。
+       *
+       * 但这里不开 eager：那是给配置弹窗的预览用的，只有一张图、就在眼前，且内容一变就整块
+       * 重画，值得抢在同一帧画完。区块列表是一长条几十张图的滚动列表，全部立刻加载并同步
+       * 解码，在手机上就是白白卡一下——那正是 lazy 存在的意义。
+       */
       function render(block:EditorBlock){return JB.renderBlock(block,props.media,{sizes:PREVIEW_SIZES});}
       function label(type:string){return JB.CATALOG.find(x=>x.type===type)?.label||type;}
       function isMediaType(type:string){return IMAGE_BLOCKS.includes(type);}
@@ -727,8 +767,8 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         if(ensureTimer)clearTimeout(ensureTimer);
         if(caretTimer)clearTimeout(caretTimer);
         if(viewportFrame!=null)cancelAnimationFrame(viewportFrame);
-        releaseDialogFit?.();
-        blockFits.forEach(release=>release());
+        dialogFit?.release();
+        blockFits.forEach(handle=>handle.release());
         blockFits.clear();
         teardown(previewEl.value);
         window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
@@ -842,9 +882,8 @@ v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft
           <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock}">
             <aside v-if="isImageBlock" class="block-live-preview"><header><div><strong>正文效果</strong><small>模拟文章正文栏，不是单独放大的图片</small></div><span>文字栏宽度</span></header>
               <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>
-                <!-- eslint-disable vue/no-v-html -- HTML 只来自 Journal Block 白名单渲染器。 -->
-                <div class="journal-document" v-html="draftPreview"></div>
-                <!-- eslint-enable vue/no-v-html -->
+                <!-- 内容不走 v-html：那是整棵重建，图片会跟着重造。改由 patchPreview 就地更新。 -->
+                <div ref="previewBody" class="journal-document"></div>
                 <div v-if="!draftPreview" class="block-preview-empty">选择图片后，这里会显示它在正文中的实际比例和占位</div>
                 <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
             <div class="block-config-form" @pointerdown.capture="rememberSelectScroll" @focusin="ensureVisible">

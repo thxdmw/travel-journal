@@ -35,15 +35,30 @@ const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(?:display|medium|thumbnail)(\?.
  * 带上 data-responsive 让 applyResponsiveImages 认出「这张已经处理过」，它继续
  * 为不经这里渲染的存量路径兜底。
  */
-function imageAttrs(src: string, sizes: string, item?: RenderableMedia): string {
+function imageAttrs(src: string, image: ImageMode, item?: RenderableMedia): string {
   const match = src.match(MEDIA_VARIANTS)
   const base = match?.[1]
   const responsive = base
     ? ' srcset="' + esc(mediaSrcset(base, match?.[2] ?? ''))
-      + '" sizes="' + esc(sizes) + '" data-responsive="on"'
+      + '" sizes="' + esc(image.sizes) + '" data-responsive="on"'
     : ''
   return ' src="' + esc(src) + '"' + responsive + intrinsicSize(item)
-    + ' loading="lazy" decoding="async"'
+    + (image.eager ? ' loading="eager" decoding="sync"' : ' loading="lazy" decoding="async"')
+}
+
+/**
+ * 图片怎么加载。
+ *
+ * <p>正文和公开端一律 lazy + async：一篇日记几十张图，滚到哪儿加载到哪儿，绝不为了图片
+ * 推迟正文出现。</p>
+ *
+ * <p>编辑器里的小预览反过来。那里的图只有两百来像素、就在眼前，lazy 那轮可见性判断毫无
+ * 用处；而 async 的意思正是「先画周围、图晚一点补上」——每次内容重建都会露出一帧空框，
+ * 看起来就是预览闪了一下。sync 让浏览器画这一帧之前先把图解好，图文一起出现。</p>
+ */
+interface ImageMode {
+  sizes: string
+  eager: boolean
 }
 
 /**
@@ -100,6 +115,12 @@ export const ARTICLE_PREVIEW_SIZES = '(max-width: 700px) 50vw, 560px'
 export interface RenderOptions {
   /** 覆盖 sizes。只影响浏览器挑哪一档图，不改变版式和输出结构。 */
   sizes?: string
+  /**
+   * 图片抢在这一帧画出来，而不是晚一步补上。
+   *
+   * 编辑器里的小预览专用，理由见 {@link ImageMode}。正文和公开端不要开。
+   */
+  eager?: boolean
 }
 
 function blockTitle(block: JournalBlock): string {
@@ -125,7 +146,7 @@ function figureClasses(settings: BlockData, extra?: string): string {
   return values.map(esc).join(' ')
 }
 
-function figure(block: JournalBlock, map: MediaMap, sizes: string): string {
+function figure(block: JournalBlock, map: MediaMap, image: ImageMode): string {
   const data = block.data
   const settings = block.settings
   const item = map.get(Number(data.mediaId))
@@ -136,7 +157,7 @@ function figure(block: JournalBlock, map: MediaMap, sizes: string): string {
     '<figure class="journal-figure ' +
     figureClasses(settings) +
     '"><img' +
-    imageAttrs(src, sizes, item) +
+    imageAttrs(src, image, item) +
     ' alt="' +
     esc(caption || '旅行照片') +
     '">' +
@@ -145,7 +166,7 @@ function figure(block: JournalBlock, map: MediaMap, sizes: string): string {
   )
 }
 
-function gallery(block: JournalBlock, map: MediaMap, sizes: string): string {
+function gallery(block: JournalBlock, map: MediaMap, image: ImageMode): string {
   const data = block.data
   const settings = block.settings
   const ids = arr(data.mediaIds)
@@ -162,7 +183,7 @@ function gallery(block: JournalBlock, map: MediaMap, sizes: string): string {
       const caption = str(item?.caption) || '旅行照片'
       // previews 分支里 source 本身就是地址，不是 id
       const src = previews.length ? str(source) : mediaUrl(item, source)
-      return '<img' + imageAttrs(src, sizes, item) + ' alt="' + esc(caption) + '">'
+      return '<img' + imageAttrs(src, image, item) + ' alt="' + esc(caption) + '">'
     })
     .join('')
   const layoutClass = mode ? 'journal-gallery--' + mode : ''
@@ -178,17 +199,17 @@ function gallery(block: JournalBlock, map: MediaMap, sizes: string): string {
   )
 }
 
-function postcard(block: JournalBlock, map: MediaMap, sizes: string): string {
+function postcard(block: JournalBlock, map: MediaMap, image: ImageMode): string {
   const data = block.data
   const item = map.get(Number(data.mediaId))
   const src = data.previewUrl ? str(data.previewUrl) : mediaUrl(item, data.mediaId)
-  const image =
+  const picture =
     data.mediaId || data.previewUrl
-      ? '<img' + imageAttrs(src, sizes, item) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
+      ? '<img' + imageAttrs(src, image, item) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
       : '<div class="journal-postcard__placeholder">旅行明信片</div>'
   return (
     '<figure class="journal-postcard">' +
-    image +
+    picture +
     '<div class="journal-postcard__writing">' +
     '<div class="journal-postcard__meta"><span>' +
     esc(data.location) +
@@ -215,7 +236,7 @@ function stars(score: number, max: number): string {
   return '★'.repeat(score) + '☆'.repeat(max - score)
 }
 
-function renderBody(block: JournalBlock, map: MediaMap, sizes: string): string | null {
+function renderBody(block: JournalBlock, map: MediaMap, image: ImageMode): string | null {
   const d = block.data
   const s = block.settings
   switch (block.type) {
@@ -517,11 +538,11 @@ function renderBody(block: JournalBlock, map: MediaMap, sizes: string): string |
       )
     }
     case 'image':
-      return figure(block, map, sizes)
+      return figure(block, map, image)
     case 'gallery':
-      return gallery(block, map, sizes)
+      return gallery(block, map, image)
     case 'postcard':
-      return postcard(block, map, sizes)
+      return postcard(block, map, image)
     case 'divider':
       return '<hr>'
     default:
@@ -536,7 +557,10 @@ export function renderBlock(
   options?: RenderOptions,
 ): string {
   const map = media instanceof Map ? media : mediaMap(media)
-  const body = renderBody(block, map, options?.sizes ?? RESPONSIVE_SIZES)
+  const body = renderBody(block, map, {
+    sizes: options?.sizes ?? RESPONSIVE_SIZES,
+    eager: options?.eager ?? false,
+  })
   if (body === null) return ''
   return (
     '<section class="journal-block journal-block--' +

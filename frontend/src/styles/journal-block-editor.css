@@ -124,6 +124,29 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-editor-card--media .journal-document{--figure-max-h:230px;gap:8px}
 .block-editor-card--media .journal-figure,.block-editor-card--media .journal-gallery,.block-editor-card--media .journal-postcard{margin:.25em auto}
 .block-editor-card--media .journal-gallery--story,.block-editor-card--media .journal-gallery--staggered{gap:12px}
+/*
+ * 胶片条 / 轮播 / 前后对比的缩略展示。
+ *
+ * 这三种版式的横排是 media/enhance.ts 在渲染后重排结构撑起来的，而区块列表不跑 enhance——
+ * 缩略图上就写着「点击编辑查看完整效果」，整张卡片点一下即进配置，再套一层轮播的箭头和
+ * 圆点只会和它打架。可不 enhance 的代价是它们退化成一张张竖着堆，两张竖图叠起来顶掉大半屏。
+ *
+ * 这里用纯 CSS 摆成静态的一行：版式一眼认得出，也不占地方，交互仍旧留给配置弹窗。
+ *
+ * 图片一律 flex:1 1 0——基准是 0，多少张都挤在同一行等分，不会换行。这一点是要紧的：
+ * 一旦换行就成了「缩得越窄、行数越多、反而越高」，和 fit-preview 的等比缩放凑一起会来回
+ * 打架。允许 wrap 只是为了让说明文字掉到第二行去。
+ */
+.block-editor-preview .journal-gallery--filmstrip,
+.block-editor-preview .journal-gallery--carousel{display:flex;flex-wrap:wrap;gap:var(--figure-gap,10px);overflow:hidden}
+.block-editor-preview .journal-gallery--filmstrip>img,
+.block-editor-preview .journal-gallery--carousel>img{flex:1 1 0;min-width:0;aspect-ratio:var(--gallery-ratio,3/2);object-fit:cover}
+.block-editor-preview .journal-gallery--compare{display:grid;grid-template-columns:1fr 1fr;gap:var(--figure-gap,10px)}
+.block-editor-preview .journal-gallery--compare>img{aspect-ratio:var(--gallery-ratio,3/2);object-fit:cover}
+/* 说明文字单独占一行，别被挤进图片中间 */
+.block-editor-preview .journal-gallery--filmstrip>figcaption,
+.block-editor-preview .journal-gallery--carousel>figcaption{flex:0 0 100%}
+.block-editor-preview .journal-gallery--compare>figcaption{grid-column:1/-1}
 .block-editor-card--media .journal-postcard{max-height:260px}
 .block-editor-card--media .journal-postcard>img,.block-editor-card--media .journal-postcard__placeholder,.block-editor-card--media .journal-postcard__writing{min-height:240px;max-height:240px}
 .block-insert-line{display:flex;align-items:center;justify-content:center;height:22px;opacity:0;transition:opacity .18s}
@@ -175,10 +198,24 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
  * 极端长图缩到下限之后仍然可能溢出，那时宁可能滚，也不要把内容截断。
  */
 .block-preview-paper{flex:1;min-height:0;overflow:auto;padding:28px 14px;background:var(--tj-surface);box-shadow:0 7px 24px rgba(56,45,31,.1)}
-.block-preview-article{width:72%;margin:0 auto;transition:transform .15s ease}
-.block-preview-article>.journal-document{margin:18px 0}
+/*
+ * 预览的等比缩放，比例由 admin/fit-preview.ts 量出来写进 --fit-scale。
+ *
+ * 缩的是正文栏宽度：图片 max-width:100% + height:auto，栏窄一圈图片就小一圈，高度自己按
+ * 比例跟上。这样全程只是普通布局，而 transform 会把整块交给合成器单独栅格化，比例一改整层
+ * 缓存作废，手机 GPU 重画要一到几帧、期间那层是空的——就是真机上「唰」地白一下。
+ *
+ * 也不要给它加 transition：比例是量出来的布局结果，不是状态切换，一步到位才不会和别的
+ * 尺寸变化错开。
+ */
+[data-fitted]{width:calc(var(--fit-base-width,100%) * var(--fit-scale,1));margin-inline:auto}
+.block-preview-article{--fit-base-width:72%}
+/* 不随栏宽走的固定尺寸也得跟着缩，否则缩得越狠它们占比越大，算出来的高度就对不上 */
+.block-preview-article>.journal-document{margin:calc(18px * var(--fit-scale,1)) 0}
 .block-preview-article .journal-figure--bleed{--figure-width:calc(100% + 120px);margin-left:50%;transform:translateX(-50%)}
 .block-preview-article .journal-gallery.journal-figure--bleed{--figure-width:calc(100% + 120px)}
+/* 预览纸的正文栏本来就窄，轮播按钮按正文那套 40px 留白会把图片挤没，这里按比例收小 */
+.block-preview-article .journal-carousel{--carousel-nav:24px;--carousel-nav-gap:6px}
 .block-preview-article .journal-postcard{grid-template-columns:1fr}
 .block-preview-article .journal-postcard>img,.block-preview-article .journal-postcard__placeholder{min-height:0;aspect-ratio:4/3}
 .block-preview-article .journal-postcard__writing{min-height:190px;padding:18px}

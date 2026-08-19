@@ -352,7 +352,18 @@
 .journal-gallery--staggered img:nth-of-type(4n+4) { width:78%; margin-left:auto; margin-right:0; }
 
 /* ---- 轮播 / 胶片条：结构由 journal-media.js 重排出来 */
-.journal-carousel { position:relative; }
+/*
+ * 左右按钮让到图片外面。
+ *
+ * 压在图片上的箭头总是挡着照片本身，而照片才是这块的全部内容；两侧留出按钮的宽度，箭头
+ * 和图片各占各的地方。留白是按钮宽度加一点间隙算出来的，容器窄的时候（配置弹窗的预览纸）
+ * 把 --carousel-nav 调小，留白跟着一起收，不用另写一套定位。
+ */
+.journal-carousel {
+  position:relative;
+  --carousel-nav:40px; --carousel-nav-gap:12px;
+  padding-inline:calc(var(--carousel-nav) + var(--carousel-nav-gap));
+}
 .journal-carousel__track {
   display:flex; gap:12px;
   overflow-x:auto; overscroll-behavior-inline:contain;
@@ -369,16 +380,17 @@
 /* 胶片条按高度排，保持原始比例，所以显式清掉 aspect-ratio */
 .journal-carousel--strip .journal-carousel__track img { flex:0 0 auto; width:auto; height:220px; aspect-ratio:auto; scroll-snap-align:start; }
 .journal-carousel__nav {
-  position:absolute; top:calc(50% - 20px); z-index:2;
+  position:absolute; top:50%; transform:translateY(-50%); z-index:2;
   display:grid; place-items:center;
-  width:40px; height:40px; padding:0;
+  width:var(--carousel-nav); height:var(--carousel-nav); padding:0;
   border:1px solid var(--tj-border); border-radius:50%;
   color:var(--tj-primary); background:color-mix(in srgb,var(--tj-surface) 88%,transparent);
-  box-shadow:var(--tj-shadow-soft); font-size:19px; line-height:1;
+  box-shadow:var(--tj-shadow-soft); font-size:calc(var(--carousel-nav) * .48); line-height:1;
   backdrop-filter:blur(6px); transition:opacity .18s ease;
 }
-.journal-carousel__nav--prev { left:10px; }
-.journal-carousel__nav--next { right:10px; }
+/* 贴着容器边缘，也就是图片区域之外 */
+.journal-carousel__nav--prev { left:0; }
+.journal-carousel__nav--next { right:0; }
 .journal-carousel__nav[disabled] { opacity:.28; pointer-events:none; }
 .journal-carousel__dots { display:flex; justify-content:center; gap:7px; margin-top:12px; }
 .journal-carousel__dots button { width:7px; height:7px; padding:0; border:0; border-radius:50%; background:color-mix(in srgb,var(--tj-primary) 24%,transparent); transition:background .18s ease,transform .18s ease; }
@@ -465,7 +477,9 @@
   .journal-figure--frame-postcard img { padding:10px 10px 44px; }
   .journal-carousel__track img { flex:0 0 92%; }
   .journal-carousel--strip .journal-carousel__track img { height:170px; }
+  /* 窄屏靠滑动翻页，不出按钮；两侧给按钮留的位置也一并收掉，别白占宽度 */
   .journal-carousel__nav { display:none; }
+  .journal-carousel { padding-inline:0; }
 }
 
 /* 触摸设备没有 hover，倾斜会一直挂着，直接关掉；其余动效本来就只在 hover 生效 */

@@ -6,7 +6,37 @@
  *
  * 限制图片最大高度是更省事的做法，但那会让「大图」和「中等」看起来一模一样，预览也就没有
  * 意义了。等比缩放保留全部比例关系，只是整体小一号——这正是缩略预览该有的样子。
+ *
+ *
+ * 缩放靠改正文栏宽度，不用 transform。
+ *
+ * transform 把元素交给合成器单独栅格化。比例一改，那一层的栅格化缓存整个作废，GPU 要按
+ * 新尺寸重画一遍——桌面上快到看不见，手机 GPU 上要一到几帧，这期间那层是空的，看起来就是
+ * 预览「唰」地白一下再回来。连纯 CSS 画的假文字线都跟着白，因为整层都没了，与图片无关。
+ * 这也是为什么桌面开仿真设备怎么试都不复现：仿真换的是视口尺寸，渲染仍走桌面 GPU。
+ *
+ * 而「等比缩小」这件事本来就等于「正文栏窄一圈」：图片是 max-width:100% + height:auto，
+ * 栏宽小一圈图片就小一圈，高度按固有比例自己跟上。全程只是普通布局，没有图层作废重建这
+ * 回事；也省掉了 transform 那套补偿——transform 不改变布局尺寸，缩完还得拿负 marginBottom
+ * 把空出来的地方收回去，改宽度则布局高度本来就等于眼睛看到的高度。
+ *
+ * 中途试过 zoom，不行：Blink 的 zoom 只缩绝对长度，不缩百分比。正文栏是 width:72%，宽度
+ * 纹丝不动，里面的图片自然也不会变小。
+ *
+ * 代价是量尺寸要当心：栏宽一变高度就跟着变，带着缩放量到的是缩过之后的高度，拿它再算一次
+ * 就会越缩越小，所以每次测量前先把缩放归位（见 measure）。
  */
+
+/**
+ * 缩放比写在这个自定义属性上，怎么用由 CSS 决定。
+ *
+ * 除了栏宽，那些不随宽度走的固定尺寸——假文字线的高度、段落间距——也得乘上它，否则缩得越
+ * 狠它们占的比例越大，算出来的高度就对不上，缩完仍旧塞不下。
+ */
+export const FIT_SCALE_PROPERTY = '--fit-scale'
+
+/** 标记「这个元素归 keepFitted 管」，CSS 靠它把缩放比接到栏宽上。 */
+export const FIT_ATTRIBUTE = 'data-fitted'
 
 /**
  * 缩放下限。
@@ -51,34 +81,65 @@ export interface FitOptions {
   max?: number
 }
 
+/** {@link keepFitted} 的句柄。 */
+export interface FitHandle {
+  /**
+   * 立刻重量一次。
+   *
+   * 内容刚换过、还等不到观察者回调的那一帧用它——ResizeObserver 要等布局结束才通知，
+   * 那之前新内容会以未缩放的原始大小画出来一帧。
+   */
+  refresh(): void
+  /** 取消观察。 */
+  release(): void
+}
+
 /**
  * 让容器里的内容保持等比缩放到容器内，并跟随内容变化。
  *
- * <p>缩放用 transform，它不参与布局，所以容器高度需要单独交代：固定高度的容器什么都不用做，
- * 由内容撑开的容器则要把高度改成缩放之后的实际高度，否则下面会空出一大块。</p>
+ * <p>缩放走 zoom，它参与布局，所以缩完布局高度自己就是对的。只有由内容撑开的容器需要额外
+ * 把自身高度定下来，免得下面空出一块。</p>
  *
  * @param container 外层容器，它的第一个元素子节点会被缩放
- * @returns 取消观察的函数
  */
-export function keepFitted(container: HTMLElement, options: FitOptions = {}): () => void {
+export function keepFitted(container: HTMLElement, options: FitOptions = {}): FitHandle {
   const inner = container.firstElementChild
-  if (!(inner instanceof HTMLElement)) return () => undefined
+  if (!(inner instanceof HTMLElement)) return { refresh: () => undefined, release: () => undefined }
+  inner.setAttribute(FIT_ATTRIBUTE, '')
+
+  /*
+   * 上一次写进去的那组值。
+   *
+   * 观察者在图片解码、容器改高时会连着回调好几次，而其中大多数算出来的缩放和上次一模一样。
+   * 照写不误的话每次都是一轮样式重算，还会让 ResizeObserver 因为「回调里改了尺寸」再排一轮
+   * 通知。量到什么写什么、量到一样就住手，闪的机会少一次是一次。
+   */
+  let applied = ''
+
+  /**
+   * 正文栏满宽时内容有多高。
+   *
+   * 栏宽一缩高度就跟着缩，所以量之前得先把缩放归位，否则量到的是缩过之后的高度——拿这个
+   * 再算一次，一次比一次小，最后缩成一小条。归位和写回在同一个任务里完成，中间只有布局
+   * 没有绘制，屏幕上看不到。
+   */
+  const measure = (): number => {
+    const current = inner.style.getPropertyValue(FIT_SCALE_PROPERTY)
+    if (!current || current === '1') return inner.scrollHeight
+    inner.style.setProperty(FIT_SCALE_PROPERTY, '1')
+    const natural = inner.scrollHeight
+    inner.style.setProperty(FIT_SCALE_PROPERTY, current)
+    return natural
+  }
 
   const apply = () => {
-    // scrollHeight 是布局尺寸，不受 transform 影响，所以这里量到的一直是「没缩之前有多高」
-    const natural = inner.scrollHeight
+    const natural = measure()
     const available = options.max ?? usableHeight(container)
     const scale = fitScale(natural, available)
-    inner.style.transformOrigin = 'top center'
-    inner.style.transform = scale < 1 ? `scale(${scale})` : ''
-    /*
-     * transform 不参与布局，缩小之后那块空间还占着。
-     *
-     * 固定高度的容器因此仍然按「没缩之前」的高度提供滚动：图片明明已经整张看得见了，
-     * 却还能往下滚出一片空白——预览区看着就像没放下。用负 margin 把多出来的那段收掉，
-     * 布局高度就等于眼睛看到的高度。
-     */
-    inner.style.marginBottom = scale < 1 ? `${-Math.round(natural * (1 - scale))}px` : ''
+    const signature = `${scale}:${natural}`
+    if (signature === applied) return
+    applied = signature
+    inner.style.setProperty(FIT_SCALE_PROPERTY, String(scale))
     if (options.max != null) container.style.height = `${Math.round(natural * scale)}px`
   }
 
@@ -89,8 +150,19 @@ export function keepFitted(container: HTMLElement, options: FitOptions = {}): ()
    *
    * 拿不到这个 API 时退回「只算这一次」：预览不跟随后续变化，但不会因此整个崩掉。
    */
-  if (typeof ResizeObserver === 'undefined') return () => undefined
+  if (typeof ResizeObserver === 'undefined') return { refresh: apply, release: () => undefined }
   const observer = new ResizeObserver(apply)
   observer.observe(inner)
-  return () => observer.disconnect()
+  /*
+   * 容器也要观察，否则「容器变高了」这件事只能等下一次内容变化顺带纠正。
+   *
+   * 弹窗有入场动画，第一次 apply 赶上的是过渡当中的高度，算出来的比例偏小；等图片解码完
+   * 触发观察者时容器已经稳定，比例又跳回去——打开配置弹窗时那一下闪就是这么来的。切 Tab、
+   * 旋屏、软键盘收放同理。
+   *
+   * 由内容撑开的容器（给了 max）不能这么观察：那种容器的高度正是 apply 自己写的，观察它
+   * 等于自己盯着自己。
+   */
+  if (options.max == null) observer.observe(container)
+  return { refresh: apply, release: () => observer.disconnect() }
 }

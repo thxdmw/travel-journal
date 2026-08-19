@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FIT_MIN_SCALE, fitScale, keepFitted } from '@/admin/fit-preview'
+import { FIT_MIN_SCALE, FIT_SCALE_PROPERTY, fitScale, keepFitted } from '@/admin/fit-preview'
 
 /*
  * 预览缩放比。
@@ -40,12 +40,14 @@ describe('预览缩放比', () => {
 })
 
 /*
- * 缩放之后布局高度也要跟着收。
+ * 缩放比怎么落到元素上。
  *
- * transform 不参与布局：视觉上缩小了，那块空间还占着。固定高度的容器于是仍按「没缩之前」
- * 提供滚动——图片明明整张都看得见了，却还能往下滚出一片空白，预览区看着就像没放下。
+ * 写进 --fit-scale，由 CSS 接到正文栏宽度上，不再用 transform：transform 会把这块交给合成器
+ * 单独栅格化，比例一改整层缓存作废，手机 GPU 重画要一到几帧、期间那层是空的——就是真机上
+ * 「唰」地白一下。改栏宽只是普通布局，没有这个过程，也不再需要负 margin 去补偿「视觉缩了、
+ * 空间还占着」。
  */
-describe('缩放后的布局高度', () => {
+describe('缩放比的落点', () => {
   /** 造一个内容比容器高的预览区。jsdom 不做布局，所以两个高度都要自己交代。 */
   function preview(naturalHeight: number, containerHeight: number) {
     const container = document.createElement('div')
@@ -57,18 +59,22 @@ describe('缩放后的布局高度', () => {
     return { container, inner }
   }
 
-  it('缩小时用负 margin 把多出来的高度收掉', () => {
+  function scaleOf(inner: HTMLElement) {
+    return inner.style.getPropertyValue(FIT_SCALE_PROPERTY)
+  }
+
+  it('放不下就把比例写到元素上', () => {
     const { container, inner } = preview(400, 200)
 
     keepFitted(container)
 
-    // scale 0.5 之后视觉高度是 200，布局上要收掉另外那 200
-    expect(inner.style.transform).toBe('scale(0.5)')
-    expect(inner.style.marginBottom).toBe('-200px')
+    expect(scaleOf(inner)).toBe('0.5')
+    // CSS 靠这个属性把缩放比接到栏宽上
+    expect(inner.hasAttribute('data-fitted')).toBe(true)
   })
 
-  it('放得下时不留任何补偿', () => {
-    const { container, inner } = preview(150, 300)
+  it('缩放不再借助 transform 和负 margin', () => {
+    const { container, inner } = preview(400, 200)
 
     keepFitted(container)
 
@@ -76,12 +82,75 @@ describe('缩放后的布局高度', () => {
     expect(inner.style.marginBottom).toBe('')
   })
 
+  it('放得下就是原样', () => {
+    const { container, inner } = preview(150, 300)
+
+    keepFitted(container)
+
+    expect(scaleOf(inner)).toBe('1')
+  })
+
   it('由内容撑开的容器同时收紧自身高度', () => {
     const { container, inner } = preview(600, 0)
 
     keepFitted(container, { max: 300 })
 
-    expect(inner.style.transform).toBe('scale(0.5)')
+    expect(scaleOf(inner)).toBe('0.5')
     expect(container.style.height).toBe('300px')
+  })
+
+  /*
+   * 量到一样就不要再写。
+   *
+   * 图片解码、容器改高会让观察者连着回调好几次，其中多数算出来的比例和上次相同。照写不误
+   * 只是白白多几轮样式重算，而每一轮都是一次闪的机会。
+   */
+  it('比例没变就不重复写样式', () => {
+    const { container, inner } = preview(400, 200)
+    const handle = keepFitted(container)
+    inner.style.setProperty(FIT_SCALE_PROPERTY, '(改过了)')
+
+    handle.refresh()
+
+    expect(scaleOf(inner)).toBe('(改过了)')
+  })
+
+  it('内容高度变了立刻跟上', () => {
+    const { container, inner } = preview(400, 200)
+    const handle = keepFitted(container)
+    expect(scaleOf(inner)).toBe('0.5')
+
+    // 换了版式，同一块预览变矮了一半
+    Object.defineProperty(inner, 'scrollHeight', { value: 200, configurable: true })
+    handle.refresh()
+
+    expect(scaleOf(inner)).toBe('1')
+  })
+
+  /*
+   * zoom 参与布局，带着它量到的是缩过之后的高度。拿这个再算一次缩放就会越缩越小——
+   * 一块 400 高、缩到 0.5 的预览，再量一次得到 200，正好「放得下」，于是弹回 1；下一轮
+   * 又变 0.5。真机上这就是没完没了的抖动。
+   */
+  it('重复测量不会越缩越小', () => {
+    const { container, inner } = preview(400, 200)
+    /*
+     * jsdom 不做布局，栏宽对高度的影响得自己造出来：真实浏览器里栏窄一圈，图片跟着小一圈，
+     * 量到的就是缩过的高度——这正是测量必须先把缩放归位的原因。
+     */
+    Object.defineProperty(inner, 'scrollHeight', {
+      get: () => {
+        const scale = Number(inner.style.getPropertyValue(FIT_SCALE_PROPERTY) || 1)
+        return Math.round(400 * (Number.isFinite(scale) && scale > 0 ? scale : 1))
+      },
+      configurable: true,
+    })
+    const handle = keepFitted(container)
+
+    handle.refresh()
+    handle.refresh()
+
+    // 归位再量，每次都该量到 400、算出 0.5。少了归位这一步就会 0.5 → 1 → 0.5 地抖
+    expect(scaleOf(inner)).toBe('0.5')
   })
 })

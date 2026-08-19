@@ -193,3 +193,36 @@ describe('正文图片的响应式属性', () => {
     expect(output).not.toContain('92vw')
   })
 })
+
+/*
+ * 编辑器里的小预览要图文一起出现。
+ *
+ * async 的意思正是「先画周围，图晚一点补上」——每次内容重建都会露出一帧空框，看起来就是
+ * 预览闪了一下。而 lazy 的那轮可见性判断对一张就在眼前、只有两百来像素的图毫无用处。
+ * 正文反过来：一篇几十张图，绝不能为了图片推迟正文出现。
+ */
+describe('图片的加载时机', () => {
+  it('编辑器预览抢在这一帧把图画出来', () => {
+    const output = renderBlock(imageBlock(), media, { sizes: PREVIEW_SIZES, eager: true })
+
+    expect(output).toContain('loading="eager"')
+    expect(output).toContain('decoding="sync"')
+  })
+
+  it('正文照旧是滚到哪儿加载到哪儿', () => {
+    const output = html(imageBlock())
+
+    expect(output).toContain('loading="lazy"')
+    expect(output).toContain('decoding="async"')
+  })
+
+  it('图片组和明信片跟着同一套规矩', () => {
+    const group = createBlock('gallery')
+    Object.assign(group.data, { mediaIds: [9, 9] })
+    const card = createBlock('postcard')
+    Object.assign(card.data, { mediaId: 9, location: '京都' })
+
+    expect(renderBlock(group, media, { eager: true }).match(/decoding="sync"/g)).toHaveLength(2)
+    expect(renderBlock(card, media, { eager: true })).toContain('decoding="sync"')
+  })
+})

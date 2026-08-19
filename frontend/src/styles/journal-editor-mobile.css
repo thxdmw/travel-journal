@@ -120,8 +120,8 @@
   .block-live-preview{flex:0 0 min(32vh,320px);padding:10px}
   .block-live-preview>header small{display:none}
   .block-preview-paper{padding:12px 8px}
-  .block-preview-article{width:74%}
-  .block-preview-article>.journal-document{margin:8px 0}
+  .block-preview-article{--fit-base-width:74%}
+  .block-preview-article>.journal-document{margin:calc(8px * var(--fit-scale,1)) 0}
   .block-preview-article .journal-figure--bleed,.block-preview-article .journal-gallery.journal-figure--bleed{--figure-width:calc(100% + 72px)}
   /* 普通组件的整张表单可滚；图片组件由四个 Tab 共用的内容区滚动。 */
   .block-config-dialog .block-config-form{flex:1;min-height:0;height:auto;padding:0 2px calc(88px + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scroll-padding-bottom:88px}

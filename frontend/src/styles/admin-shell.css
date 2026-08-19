@@ -159,7 +159,8 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
 }
 .el-popper,.el-dialog { font-family:var(--tj-sans); }
 .el-date-editor.el-input,.el-date-editor.el-input__wrapper,.el-select { width:100%; }
-.preview-text-line{display:block;width:82%;height:6px;margin:8px 0;border-radius:9px;background:color-mix(in srgb,var(--tj-muted) 22%,transparent)}
+/* 高度和间距跟着 --fit-scale 走：预览缩小时它们要是不缩，占的比例会越来越大 */
+.preview-text-line{display:block;width:82%;height:calc(6px * var(--fit-scale,1));margin:calc(8px * var(--fit-scale,1)) 0;border-radius:9px;background:color-mix(in srgb,var(--tj-muted) 22%,transparent)}
 .preview-text-line.wide{width:100%}
 .preview-text-line.short{width:56%}
 .image-setting-tabs{height:100%;display:flex;flex-direction:column}
@@ -186,7 +187,7 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
 .travel-data-binding__actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .travel-data-binding__actions small{max-width:520px}
 @media(max-width:780px){
-  .preview-text-line{height:4px;margin:5px 0}
+  .preview-text-line{height:calc(4px * var(--fit-scale,1));margin:calc(5px * var(--fit-scale,1)) 0}
   .image-setting-tabs>.el-tabs__header{margin-bottom:8px}
   .image-setting-tabs>.el-tabs__content{padding:0 2px 14px}
   .travel-data-binding>header,.travel-data-binding__actions{align-items:stretch;flex-direction:column}
