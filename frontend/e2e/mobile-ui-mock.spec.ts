@@ -77,7 +77,7 @@ test.describe('移动端 UI 隔离回归', () => {
     await expect(tripSelect).toContainText('所属旅行（可选）');
   });
 
-  test('图片设置可到底、下拉复位、回车换行与离线提示关闭', async ({ page, context }) => {
+  test('图片设置可到底、选完不跑位、回车换行与离线提示关闭', async ({ page, context }) => {
     await mockApi(page);
     await page.goto('/admin/#/journals/1');
     const ghost = page.locator('.block-inline--ghost textarea');
@@ -104,12 +104,13 @@ test.describe('移动端 UI 隔离回归', () => {
       expect(lastBox!.y + lastBox!.height).toBeLessThanOrEqual(footerBox!.y + 1);
     }
     await dialog.getByRole('tab', { name:'外观', exact:true }).click();
-    const effect = dialog.locator('.image-setting-section label').filter({ hasText:'电脑悬停效果' }).locator('.el-select');
+    // 选项改成了平铺按钮：没有浮层，但「选一下不该让页面动」这条要求还在
+    const effect = dialog.locator('.image-setting-section label').filter({ hasText:'电脑悬停效果' }).locator('.option-chips');
     await effect.scrollIntoViewIfNeeded();
     const before = await scroller.evaluate(element => element.scrollTop);
-    await effect.click();
-    await scroller.evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 36); });
-    await page.locator('.el-select-dropdown__item').filter({ hasText:'轻轻浮起' }).click();
+    const liftChip = effect.getByRole('radio', { name:'轻轻浮起' });
+    await liftChip.click();
+    await expect(liftChip).toHaveAttribute('aria-checked', 'true');
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(before);
     await dialog.getByRole('button', { name:'确认插入' }).click();
     await page.locator('.block-editor-card').last().dblclick();

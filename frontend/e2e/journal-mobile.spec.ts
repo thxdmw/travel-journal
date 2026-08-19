@@ -378,7 +378,7 @@ test.describe('手机端布局', () => {
   })
 
   test(
-      '@smoke 图片四个设置页都能滚到底，下拉选完恢复位置，组件可双击编辑',
+      '@smoke 图片四个设置页都能滚到底，选完选项不跑位，组件可双击编辑',
       async ({ page }) => {
         await openNewJournal(page)
 
@@ -433,10 +433,17 @@ test.describe('手机端布局', () => {
             .getByRole('tab', { name: '外观', exact: true })
             .click()
 
+        /*
+         * 选项现在是平铺按钮，不再是下拉。
+         *
+         * 原来这里测的是「下拉选完之后滚动位置要回到原处」——那是为了修一个具体的毛病：
+         * el-select 的浮层一开一关会把整个设置区滚走。按钮没有浮层，那个毛病从根上没有了，
+         * 但「选一下不该让页面动」这条要求还在，所以断言保留，触发方式换成点按钮。
+         */
         const effect = dialog
             .locator('.image-setting-section label')
             .filter({ hasText: '电脑悬停效果' })
-            .locator('.el-select')
+            .locator('.option-chips')
 
         await effect.scrollIntoViewIfNeeded()
 
@@ -444,20 +451,11 @@ test.describe('手机端布局', () => {
             element => element.scrollTop,
         )
 
-        await effect.click()
+        const liftChip = effect.getByRole('radio', { name: '轻轻浮起' })
+        await liftChip.click()
 
-        await scroller.evaluate(element => {
-          element.scrollTop = Math.max(
-              0,
-              element.scrollTop - 36,
-          )
-        })
-
-        await page
-            .locator('.el-select-dropdown__item')
-            .filter({ hasText: '轻轻浮起' })
-            .click()
-
+        // 选中态要落在被点的那一个上，而不是只把值写进了数据
+        await expect(liftChip).toHaveAttribute('aria-checked', 'true')
         await expect
             .poll(() =>
                 scroller.evaluate(element => element.scrollTop),

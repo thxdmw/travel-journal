@@ -1,0 +1,56 @@
+# 本地验证用的依赖服务：PostgreSQL 和 MinIO。
+#
+# 只为「在本地把 CI 跑的那两件事跑起来」而存在——Flyway 迁移测试要真的 PostgreSQL，
+# 图片缓存的 E2E 要真的对象存储。应用本身不在这里跑，仍旧用 IDE 或 mvn 起在宿主机上。
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml down -v     # -v 连数据一起删
+#
+# 端口刻意避开常用号段：这台机器上 5432 和 9000 往往已经被别的项目占着，
+# 而验证环境不该要求你先把别人的容器停掉。
+#
+# 版本跟 .drone.yml 对齐。CI 用 postgres:17，本地用 16 也能跑，但迁移脚本一旦用到
+# 17 才有的语法，就会变成「本地绿、CI 红」——那种问题最难查。
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: travel-journal-dev-db
+    environment:
+      POSTGRES_DB: travel_journal
+      POSTGRES_USER: travel_journal
+      POSTGRES_PASSWORD: travel_journal
+    ports:
+      - "5433:5432"
+    volumes:
+      - dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travel_journal -d travel_journal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: travel-journal-dev-minio
+    environment:
+      MINIO_ROOT_USER: dev-minio-access
+      MINIO_ROOT_PASSWORD: dev-minio-secret
+    ports:
+      - "59000:9000"   # S3 API
+      - "59001:9001"   # 控制台，浏览器打开可以直接翻桶里的文件
+    volumes:
+      - dev-minio:/data
+    # 桶就是数据目录下的同名文件夹，建出来就行，省掉一个 mc 客户端。
+    # 名字对齐 application.yml 里 MINIO_BUCKET 的默认值，跑应用时就不用再传这一项。
+    # 应用启动时会校验桶存在与否，桶不在会直接启动失败。
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /data/travel-journal-dev && exec minio server /data --console-address :9001"]
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  dev-db:
+  dev-minio:

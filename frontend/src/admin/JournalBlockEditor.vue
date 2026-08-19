@@ -373,9 +373,26 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       watch(()=>dataBinding.value?.recordId,()=>applyBinding());
       watch(()=>dataBinding.value?.fields,()=>applyBinding(),{deep:true});
       watch(()=>props.travelContext,()=>{if(hasTravelContext.value)applyBinding();},{deep:true});
+      /*
+       * 内容没变就不往上报。
+       *
+       * commit 每次都产出一个全新的文档对象，父组件那边 form.contentJson 是被深度监听的，
+       * 换成一个「长得一样但引用不同」的对象照样算一次编辑。而编辑器在卸载时会无条件
+       * flushInline 一次（为的是收住最后那几个还没提交的击键），于是：
+       *
+       *     打开「写日记」→ 一个字没写 → 离开
+       *       → 卸载时 flush 一次
+       *       → 父组件认为「作者编辑过」
+       *       → 建出一篇空草稿
+       *
+       * 这正是「点开看一眼就多一条空草稿」，而且因为监听回调是排进调度队列的，能不能赶在
+       * 组件卸干净之前跑掉全看时序——所以它在 CI 上表现为偶发。比对一下再决定报不报，
+       * 既堵住这条路，也省掉大量无谓的整篇重算。
+       */
       function commit(){
-        syncing=true;
         const value=editorDocument(JB.normalize(document.value));
+        if(JSON.stringify(value)===JSON.stringify(props.modelValue)){document.value=value;return;}
+        syncing=true;
         document.value=value;emit('update:modelValue',value);
         nextTick(()=>syncing=false);
       }

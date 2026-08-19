@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import JournalBlockEditor from '@/admin/JournalBlockEditor.vue'
 import { createBlock, emptyDocument } from '@/journal/document'
@@ -53,6 +54,35 @@ function documentWith(...types: string[]): JournalDocument {
   types.forEach(type => doc.blocks.push(createBlock(type)))
   return doc
 }
+
+describe('JournalBlockEditor 向上提交', () => {
+  it('内容没变时不往上报，避免被当成一次编辑', async () => {
+    /*
+     * commit 每次都产出一个全新的文档对象，而父组件那边 form 是被深度监听的——
+     * 「长得一样但引用不同」照样算一次编辑。编辑器卸载时又会无条件 flush 一次（为的是
+     * 收住最后那几个还没提交的击键），于是「点开写日记，一个字没写就离开」会在库里留下
+     * 一篇空草稿。这条断言把这条路堵死。
+     */
+    const wrapper = mountEditor(emptyDocument())
+    const editor = wrapper.vm as unknown as { flushInline(): void }
+
+    editor.flushInline()
+    await nextTick()
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('内容真的变了还是要报上去', async () => {
+    const wrapper = mountEditor(emptyDocument())
+    const editor = wrapper.vm as unknown as { insertQuick(type: string): void, flushInline(): void }
+
+    editor.insertQuick('paragraph')
+    editor.flushInline()
+    await nextTick()
+
+    expect(wrapper.emitted('update:modelValue')).toBeTruthy()
+  })
+})
 
 describe('JournalBlockEditor 起笔输入框', () => {
   it('空文档时可以直接打字', () => {
