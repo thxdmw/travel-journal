@@ -5,6 +5,7 @@ import { createBlock, normalize } from '@/journal/document'
 import { PREVIEW_SIZES, renderBlock } from '@/journal/render'
 import { keepFitted, type FitHandle } from '@/admin/fit-preview'
 import { patchPreview } from '@/admin/patch-preview'
+import OptionChips from '@/admin/OptionChips.vue'
 import { enhance, teardown } from '@/media/enhance'
 import type { CatalogEntry, JournalBlock, JournalDocument } from '@/types/journal-block'
 import type { MediaView } from '@/types/media'
@@ -66,6 +67,42 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
   const QUICK_BLOCKS=['image','chapter','location-card','heading','day-opener','gallery','day-summary','divider'];
   const PLACEHOLDERS={paragraph:'继续写……',heading:'小标题',quote:'想记住的一句话',callout:'写下这条提示'};
   const CALLOUT_TONES=[['note','心得'],['tip','提示'],['warning','提醒'],['memory','记忆']] as const;
+  /*
+   * 图片设置的选项集合。
+   *
+   * 以前这些都写成 el-option 摊在模板里，一行两百多字符。挪出来还有个用处：同一组选项
+   * 现在由平铺按钮渲染（见 OptionChips），标签文案只有一处。
+   */
+  /*
+   * 手机上不让日期选择器唤起软键盘。
+   *
+   * el-date-picker 的输入框默认可以手打，于是点一下同时冒出日历面板和软键盘，两个一起
+   * 抢屏幕——而在这个全屏弹窗里，剩下的可视高度本来就不多。editable=false 会把它设成
+   * readonly，移动浏览器对 readonly 输入框不弹键盘，日历照常出来。
+   *
+   * 桌面保持可以手打：键盘输入日期比点日历快，而鼠标环境下没有这个矛盾。
+   * 后台其他几个页面（旅行、工作台、日记元信息）早就是这么做的，这里补齐。
+   */
+  const allowTextInput=!window.matchMedia?.('(pointer: coarse)').matches;
+  const IMAGE_SIZE_OPTIONS=[['','跟随主题'],['small','小图 42%'],['medium','中等 68%'],['large','大图 90%'],
+    ['full','正文宽度'],['bleed','通栏出血']] as const;
+  const IMAGE_ALIGN_OPTIONS=[['left','靠左'],['center','居中'],['right','靠右']] as const;
+  const GALLERY_LAYOUT_OPTIONS=[['','跟随主题'],['grid','规则网格'],['row','横向并排'],['masonry','瀑布流'],
+    ['mosaic','主图拼贴'],['magazine','杂志版'],['story','故事流'],['staggered','错落画廊'],['carousel','轮播'],
+    ['filmstrip','胶片条'],['compare','前后对比']] as const;
+  const COLUMN_OPTIONS=[[1,'1 列'],[2,'2 列'],[3,'3 列'],[4,'4 列'],[5,'5 列'],[6,'6 列']] as const;
+  const IMAGE_FRAME_OPTIONS=[['','跟随主题'],['none','无边框'],['line','细线描边'],['paper','相纸白边'],
+    ['float','浮起阴影'],['polaroid','宝丽来'],['tape','手账胶带'],['film','胶片边框'],['postcard','明信片边框']] as const;
+  const IMAGE_RADIUS_OPTIONS=[['','跟随主题'],['none','直角'],['soft','小圆角'],['round','大圆角']] as const;
+  const IMAGE_TONE_OPTIONS=[['','保留原图'],['warm','暖色'],['vintage','复古'],['mono','黑白']] as const;
+  const IMAGE_EFFECT_OPTIONS=[['','无'],['lift','轻轻浮起'],['zoom','轻微放大'],['tilt','手账倾斜']] as const;
+  const CAPTION_POS_OPTIONS=[['','下方居中'],['left','下方靠左'],['overlay','覆盖底部'],['side','图片右侧'],
+    ['none','隐藏图注']] as const;
+  /** 比例那一组的第一项在单图和图片组下说法不同，其余相同。 */
+  const ratioOptions=computed(()=>[
+    ['',draft.value?.type==='gallery'?'排版默认':'原始比例'],
+    ['16x9','16:9 横向'],['4x3','4:3 常规'],['1x1','1:1 方形'],['3x4','3:4 竖向'],
+  ] as const);
   // textarea 跟着内容长高，让正文看起来是连续的一篇，而不是一格格输入框
   const autoGrow=(el:Element|null)=>{if(!(el instanceof HTMLTextAreaElement))return;el.style.height='auto';el.style.height=el.scrollHeight+'px';};
   const vGrow={mounted:autoGrow,updated:autoGrow};
@@ -923,7 +960,7 @@ v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft
               <template v-else-if="['checklist','route'].includes(draft.type)"><div v-for="(item,i) in (draft.type==='checklist'?objectItems(draft.data.items):draft.data.items)" :key="i" class="block-row"><template v-if="typeof item==='object'"><el-checkbox v-model="item.checked"/><el-input v-model="item.text" placeholder="清单内容"/></template><el-input v-else v-model="draft.data.items[i]" placeholder="地点"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',draft.type==='checklist'?{text:'',checked:false}:'')">＋ 添加一项</el-button></template>
               <template v-else-if="draft.type==='stats'"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-row"><el-input v-model="item.value" placeholder="数字，例如 18,642"/><el-input v-model="item.label" placeholder="说明，例如 步"/><button type="button" @click="removeRow('items',i)">×</button></div><el-button plain @click="addRow('items',{value:'',label:''})">＋ 添加数字</el-button></template>
               <template v-else-if="draft.type==='companions'"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-complex-row"><el-input v-model="item.name" placeholder="名字"/><el-input v-model="item.role" placeholder="关系或角色"/><el-input v-model="item.note" type="textarea" placeholder="想记住的小事"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{name:'',role:'',note:''})">＋ 添加同行者</el-button></template>
-              <template v-else-if="draft.type==='trip-info'"><div class="form-grid form-grid-2"><label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label><label>地点<el-input v-model="draft.data.city"/></label><label>旅行<el-input v-model="draft.data.tripTitle"/></label><label>天气<el-input v-model="draft.data.weather"/></label><label>心情<el-input v-model="draft.data.mood"/></label></div></template>
+              <template v-else-if="draft.type==='trip-info'"><div class="form-grid form-grid-2"><label>日期<el-date-picker v-model="draft.data.date" type="date" :editable="allowTextInput" value-format="YYYY-MM-DD"/></label><label>地点<el-input v-model="draft.data.city"/></label><label>旅行<el-input v-model="draft.data.tripTitle"/></label><label>天气<el-input v-model="draft.data.weather"/></label><label>心情<el-input v-model="draft.data.mood"/></label></div></template>
               <template v-else-if="['itinerary','timeline'].includes(draft.type)"><div v-for="(item,i) in objectItems(draft.data.items)" :key="i" class="block-complex-row"><el-input v-model="item.time" placeholder="时间"/><el-input v-model="item.title" placeholder="发生了什么"/><el-input v-model="item.address" placeholder="地点（可选）"/><el-input v-if="draft.type==='timeline'" v-model="item.description" type="textarea" placeholder="补充描述"/><button type="button" @click="removeRow('items',i)">删除</button></div><el-button plain @click="addRow('items',{time:'',title:'',address:'',description:''})">＋ 添加行程</el-button></template>
               <template v-else-if="draft.type==='expense-summary'"><div class="form-grid form-grid-2"><label>币种<el-input v-model="draft.data.currency"/></label><label>合计<el-input-number v-model="draft.data.total" :min="0"/></label></div><div v-for="(item,i) in draft.data.categories" :key="i" class="block-row"><el-input v-model="item.name" placeholder="分类"/><el-input-number v-model="item.amount" :min="0"/><button type="button" @click="removeRow('categories',i)">×</button></div><el-button plain @click="addRow('categories',{name:'',amount:0})">＋ 添加分类</el-button></template>
               <template v-else-if="draft.type==='location-card'"><label>地点名称<el-input v-model="draft.data.name"/></label><label>地址<el-input v-model="draft.data.address"/></label><div class="form-grid form-grid-2"><label>开放时间<el-input v-model="draft.data.hours"/></label><label>费用<el-input v-model="draft.data.cost"/></label></div><label>感受与建议<el-input v-model="draft.data.impression" type="textarea" :rows="4"/></label></template>
@@ -933,7 +970,7 @@ v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft
               <template v-else-if="draft.type==='day-opener'">
                 <p class="setting-explain">开头这一屏是读者看到的第一眼。城市、第几天、路线和花费都从旅行工作台自动取，天气写一个字就够。</p>
                 <div class="form-grid form-grid-2"><label>城市<el-input v-model="draft.data.city" placeholder="东京"/></label><label>第几天<el-input v-model="draft.data.dayLabel" placeholder="Day 4"/></label>
-                  <label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label><label>天气<el-input v-model="draft.data.weather" placeholder="晴"/></label></div>
+                  <label>日期<el-date-picker v-model="draft.data.date" type="date" :editable="allowTextInput" value-format="YYYY-MM-DD"/></label><label>天气<el-input v-model="draft.data.weather" placeholder="晴"/></label></div>
                 <label>今天走过的地方</label>
                 <div v-for="(_,i) in draft.data.route" :key="i" class="block-row"><el-input v-model="draft.data.route[i]" placeholder="浅草"/><button type="button" @click="removeRow('route',i)">×</button></div>
                 <el-button plain @click="addRow('route','')">＋ 添加一站</el-button>
@@ -956,24 +993,24 @@ v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft
                 <el-tabs v-model="imageTab" class="image-setting-tabs">
                   <el-tab-pane label="内容" name="content"><div class="image-setting-section"><header><strong>选择要放进正文的图片</strong><small>{{draft.type==='gallery'?'可多选，再到“版式”选择组合方式':'单击图片进行选择'}}</small></header>
                     <div class="block-image-picker"><button v-for="item in media" :key="item.id" type="button" :class="{selected:selectedMedia(item)}" @click="toggleDraftMedia(item)"><img :src="item.thumbnailUrl||item.displayUrl" loading="lazy" decoding="async" :alt="item.caption||item.filename"><span>{{item.caption||item.filename}}</span></button><p v-if="!media.length">图片库为空，请先在图片管理中上传。</p></div>
-                    <template v-if="draft.type==='postcard'"><p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2"><label>地点<el-input v-model="draft.data.location"/></label><label>日期<el-date-picker v-model="draft.data.date" type="date" value-format="YYYY-MM-DD"/></label></div><label>明信片正文<el-input v-model="draft.data.message" type="textarea" :rows="5" placeholder="写下想和这张照片一起留下的话"/></label><label>署名<el-input v-model="draft.data.signature"/></label></template>
+                    <template v-if="draft.type==='postcard'"><p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2"><label>地点<el-input v-model="draft.data.location"/></label><label>日期<el-date-picker v-model="draft.data.date" type="date" :editable="allowTextInput" value-format="YYYY-MM-DD"/></label></div><label>明信片正文<el-input v-model="draft.data.message" type="textarea" :rows="5" placeholder="写下想和这张照片一起留下的话"/></label><label>署名<el-input v-model="draft.data.signature"/></label></template>
                     <label v-else>图注（可选）<el-input v-model="draft.data.caption" placeholder="会跟随图片显示，也可以在“图注”中调整位置"/></label>
                   </div></el-tab-pane>
                   <el-tab-pane v-if="draft.type!=='postcard'" label="版式" name="layout"><div class="image-setting-section"><header><strong>图片在正文里占多大、怎样排列</strong><small>预览中的灰色短线代表文章文字</small></header>
                     <p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2">
-                      <label>占用宽度<el-select v-model="draft.settings.size"><el-option label="跟随当前主题" value=""/><el-option label="小图 · 约文字栏 42%" value="small"/><el-option label="中等 · 约文字栏 68%" value="medium"/><el-option label="大图 · 约文字栏 90%" value="large"/><el-option label="正文宽度 · 与文字同宽" value="full"/><el-option label="通栏出血 · 超出文字栏" value="bleed"/></el-select><small class="field-help">未单独选择时使用主题设计器的图片默认宽度；“通栏出血”会向文字栏两侧延伸。</small></label>
-                      <label v-if="alignAvailable">在文字栏中的位置<el-select v-model="draft.settings.align"><el-option label="靠左" value="left"/><el-option label="居中" value="center"/><el-option label="靠右" value="right"/></el-select></label><p v-else class="setting-inline-note">当前宽度已经占满或超出文字栏，因此无需设置左右位置。</p>
-                      <label v-if="draft.type==='gallery'">图片组排版<el-select v-model="draft.settings.layout"><el-option label="跟随当前主题" value=""/><el-option label="规则网格" value="grid"/><el-option label="横向并排" value="row"/><el-option label="瀑布流" value="masonry"/><el-option label="主图拼贴" value="mosaic"/><el-option label="杂志版" value="magazine"/><el-option label="故事流" value="story"/><el-option label="错落画廊" value="staggered"/><el-option label="轮播" value="carousel"/><el-option label="胶片条" value="filmstrip"/><el-option label="前后对比" value="compare"/></el-select><small class="field-help">{{imageModeHint}}</small></label>
-                      <label v-if="layoutUsesColumns">每行列数<el-input-number v-model="draft.settings.columns" :min="1" :max="6"/><small class="field-help">只在规则网格和瀑布流中生效。</small></label>
-                      <label v-if="layoutUsesRatio">照片显示比例<el-select v-model="draft.settings.ratio"><el-option :label="draft.type==='gallery'?'使用当前排版的默认比例':'保留照片原始比例'" value=""/><el-option label="16:9 · 横向风景" value="16x9"/><el-option label="4:3 · 常规照片" value="4x3"/><el-option label="1:1 · 方形" value="1x1"/><el-option label="3:4 · 竖向照片" value="3x4"/></el-select><small class="field-help">指定比例会裁切照片，但不会拉伸变形；图片组留空时由所选排版决定。</small></label><p v-else class="setting-inline-note">当前排版会保留每张照片的原始比例，因此无需设置裁切比例。</p>
+                      <label>占用宽度<OptionChips v-model="draft.settings.size" label="占用宽度" :options="IMAGE_SIZE_OPTIONS"/><small class="field-help">未单独选择时使用主题设计器的图片默认宽度；“通栏出血”会向文字栏两侧延伸。</small></label>
+                      <label v-if="alignAvailable">在文字栏中的位置<OptionChips v-model="draft.settings.align" label="在文字栏中的位置" :options="IMAGE_ALIGN_OPTIONS"/></label><p v-else class="setting-inline-note">当前宽度已经占满或超出文字栏，因此无需设置左右位置。</p>
+                      <label v-if="draft.type==='gallery'">图片组排版<OptionChips v-model="draft.settings.layout" label="图片组排版" :options="GALLERY_LAYOUT_OPTIONS"/><small class="field-help">{{imageModeHint}}</small></label>
+                      <label v-if="layoutUsesColumns">每行列数<OptionChips v-model="draft.settings.columns" label="每行列数" :options="COLUMN_OPTIONS"/><small class="field-help">只在规则网格和瀑布流中生效。</small></label>
+                      <label v-if="layoutUsesRatio">照片显示比例<OptionChips v-model="draft.settings.ratio" label="照片显示比例" :options="ratioOptions"/><small class="field-help">指定比例会裁切照片，但不会拉伸变形；图片组留空时由所选排版决定。</small></label><p v-else class="setting-inline-note">当前排版会保留每张照片的原始比例，因此无需设置裁切比例。</p>
                     </div></div></el-tab-pane>
                   <el-tab-pane v-if="draft.type!=='postcard'" label="外观" name="appearance"><div class="image-setting-section"><header><strong>装饰照片</strong><small>这些效果不会改变原图文件</small></header><div class="form-grid form-grid-2">
-                    <label>相框样式<el-select v-model="draft.settings.frame"><el-option label="跟随当前主题" value=""/><el-option label="无边框" value="none"/><el-option label="细线描边" value="line"/><el-option label="相纸白边" value="paper"/><el-option label="浮起阴影" value="float"/><el-option label="宝丽来" value="polaroid"/><el-option label="手账胶带" value="tape"/><el-option label="胶片边框" value="film"/><el-option label="明信片边框" value="postcard"/></el-select></label>
-                    <label>圆角<el-select v-model="draft.settings.radius"><el-option label="跟随当前主题" value=""/><el-option label="直角" value="none"/><el-option label="小圆角" value="soft"/><el-option label="大圆角" value="round"/></el-select></label>
-                    <label>色调<el-select v-model="draft.settings.tone"><el-option label="保留原图" value=""/><el-option label="暖色" value="warm"/><el-option label="复古" value="vintage"/><el-option label="黑白" value="mono"/></el-select></label>
-                    <label>电脑悬停效果<el-select v-model="draft.settings.effect"><el-option label="无" value=""/><el-option label="轻轻浮起" value="lift"/><el-option label="轻微放大" value="zoom"/><el-option label="手账倾斜" value="tilt"/></el-select><small class="field-help">只在鼠标悬停时生效，手机浏览不会触发。</small></label>
+                    <label>相框样式<OptionChips v-model="draft.settings.frame" label="相框样式" :options="IMAGE_FRAME_OPTIONS"/></label>
+                    <label>圆角<OptionChips v-model="draft.settings.radius" label="圆角" :options="IMAGE_RADIUS_OPTIONS"/></label>
+                    <label>色调<OptionChips v-model="draft.settings.tone" label="色调" :options="IMAGE_TONE_OPTIONS"/></label>
+                    <label>电脑悬停效果<OptionChips v-model="draft.settings.effect" label="电脑悬停效果" :options="IMAGE_EFFECT_OPTIONS"/><small class="field-help">只在鼠标悬停时生效，手机浏览不会触发。</small></label>
                   </div></div></el-tab-pane>
-                  <el-tab-pane v-if="draft.type!=='postcard'" label="图注" name="caption"><div class="image-setting-section"><header><strong>照片说明</strong><small>图注为空时不会显示</small></header><label>图注文字<el-input v-model="draft.data.caption" placeholder="例如 青城山下山时的薄雾"/></label><label>显示位置<el-select v-model="draft.settings.captionPos"><el-option label="图片下方居中" value=""/><el-option label="图片下方靠左" value="left"/><el-option label="覆盖在图片底部" value="overlay"/><el-option label="显示在图片右侧" value="side"/><el-option label="隐藏图注" value="none"/></el-select><small class="field-help">“右侧”更适合中等或大图；手机上会自动移到图片下方。</small></label></div></el-tab-pane>
+                  <el-tab-pane v-if="draft.type!=='postcard'" label="图注" name="caption"><div class="image-setting-section"><header><strong>照片说明</strong><small>图注为空时不会显示</small></header><label>图注文字<el-input v-model="draft.data.caption" placeholder="例如 青城山下山时的薄雾"/></label><label>显示位置<OptionChips v-model="draft.settings.captionPos" label="图注显示位置" :options="CAPTION_POS_OPTIONS"/><small class="field-help">“右侧”更适合中等或大图；手机上会自动移到图片下方。</small></label></div></el-tab-pane>
                 </el-tabs>
               </template>
             </div>
