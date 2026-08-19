@@ -62,7 +62,15 @@
   background:repeating-linear-gradient(to bottom,transparent 0,transparent 31px,
     color-mix(in srgb,var(--tj-border) 60%,transparent) 32px);
 }
-.journal-postcard__meta { display:flex; justify-content:space-between; gap:1em; color:var(--tj-muted); }
+/*
+ * 地点和日期放不下时整体换行，而不是把日期本身断开。
+ *
+ * 没有 wrap 的时候，窄到一定程度 flex 会去压缩子项，「2026-08-08」被拆成三行，
+ * 看着像坏掉了。地点名可长可短，窄屏和编辑器预览里都够得着这个宽度。
+ */
+.journal-postcard__meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.35em 1em; color:var(--tj-muted); }
+/* 只护住日期：地点名可以很长，该换行就换行，日期断开则纯粹是坏了 */
+.journal-postcard__meta time { white-space:nowrap; }
 .journal-postcard__writing p { flex:1; margin:1.5em 0; line-height:2; }
 .journal-postcard__writing footer { align-self:flex-end; color:var(--tj-primary); }
 .journal-block--divider hr { width:38%; margin:.2em auto; border:0; border-top:1px solid var(--tj-border); }

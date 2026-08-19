@@ -158,10 +158,25 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-categories button{flex:0 0 auto;padding:6px 12px;border:1px solid var(--tj-border);border-radius:999px;background:var(--tj-surface);cursor:pointer}
 .block-categories button.active{border-color:var(--tj-accent);background:var(--tj-accent);color:#fff}
 .block-catalog{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:0 20px 24px;overflow:auto}
-.block-catalog>button{display:flex;align-items:center;gap:11px;min-height:72px;padding:12px;border:1px solid var(--tj-border);border-radius:12px;background:var(--tj-surface);text-align:left;cursor:pointer}
+/*
+ * 卡片内容顶部对齐，不是垂直居中。
+ *
+ * 格子的高度由同一行里最高的那张决定（grid 默认拉伸），这没问题；但内容一居中，说明文字
+ * 占一行的卡片和占两行的卡片，图标和标题就落在不同的高度上——一整屏扫下来每张卡的标题
+ * 都在各自的位置，看着就是没对齐。顶部对齐之后，无论说明多长，图标和标题永远在同一条线上。
+ */
+.block-catalog>button{display:flex;align-items:flex-start;gap:11px;min-height:72px;padding:12px;border:1px solid var(--tj-border);border-radius:12px;background:var(--tj-surface);text-align:left;cursor:pointer}
 .block-catalog>button:hover{border-color:var(--tj-accent);background:var(--tj-surface-soft)}
 .block-catalog b{display:grid;place-items:center;flex:0 0 36px;height:36px;border-radius:10px;background:var(--tj-surface-soft);color:var(--tj-accent)}
-.block-catalog span{display:grid;gap:3px}
+/*
+ * 文字列贴顶排，标题和图标同一条起始线。
+ *
+ * min-width:0 是给长标签留的：grid 子项默认按内容撑宽，说明文字长一点就会把卡片顶出格子，
+ * 一行里两张卡的宽度也跟着不一样。
+ */
+.block-catalog span{display:grid;align-content:start;gap:3px;min-width:0}
+/* 图标是 36px 的方块，标题往下让 6px，视觉上落在它的中段而不是顶边 */
+.block-catalog span>strong{padding-top:6px;line-height:1.3}
 .block-catalog small{color:var(--tj-muted);line-height:1.35}
 .block-config-form{flex:1;width:min(760px,100%);margin:0 auto;padding:4px 20px 120px;overflow-y:auto;overscroll-behavior:contain}
 .block-config-form>label,.block-config-form .form-grid>label{display:grid;gap:7px;margin-bottom:16px;color:var(--tj-primary);font-size:14px}
@@ -218,7 +233,22 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-preview-article .journal-carousel{--carousel-nav:24px;--carousel-nav-gap:6px}
 .block-preview-article .journal-postcard{grid-template-columns:1fr}
 .block-preview-article .journal-postcard>img,.block-preview-article .journal-postcard__placeholder{min-height:0;aspect-ratio:4/3}
-.block-preview-article .journal-postcard__writing{min-height:190px;padding:18px}
+/*
+ * 明信片里的固定尺寸也要乘 --fit-scale。
+ *
+ * 缩放是靠收窄正文栏实现的：图片按固有比例自己变小，而 min-height 和 padding 这种写死的
+ * 像素值不会。栏宽缩到一半时，寄语区仍旧占着 190px，于是内容永远塞不进预览区——缩放算法
+ * 只好一路缩到下限，正文栏细成一条，日期被断成三行，末尾照样露在外面。这就是手机上打开
+ * 明信片看到的样子。
+ *
+ * fit-preview.ts 顶上那段注释早就写明了这一点（「那些不随宽度走的固定尺寸也得乘上它」），
+ * 只是当初漏了明信片这一处。
+ */
+.block-preview-article .journal-postcard__writing{
+  min-height:calc(190px * var(--fit-scale,1));
+  padding:calc(18px * var(--fit-scale,1));
+}
+.block-preview-article .journal-postcard__writing p{margin:calc(1.5em * var(--fit-scale,1)) 0}
 .block-preview-empty{display:grid;min-height:180px;place-items:center;padding:20px;text-align:center;color:var(--tj-muted);border:1px dashed var(--tj-border);background:var(--tj-surface-soft)}
 .block-image-picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:-4px 0 18px;max-height:230px;overflow-y:auto}
 .block-image-picker>button{position:relative;display:grid;gap:5px;padding:6px;border:2px solid transparent;border-radius:9px;background:var(--tj-surface-soft);cursor:pointer}
