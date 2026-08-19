@@ -35,12 +35,12 @@ const MEDIA_VARIANTS = /^(.*\/api\/media\/\d+)\/(?:display|medium|thumbnail)(\?.
  * 带上 data-responsive 让 applyResponsiveImages 认出「这张已经处理过」，它继续
  * 为不经这里渲染的存量路径兜底。
  */
-function imageAttrs(src: string): string {
+function imageAttrs(src: string, sizes: string): string {
   const match = src.match(MEDIA_VARIANTS)
   const base = match?.[1]
   const responsive = base
     ? ' srcset="' + esc(mediaSrcset(base, match?.[2] ?? ''))
-      + '" sizes="' + esc(RESPONSIVE_SIZES) + '" data-responsive="on"'
+      + '" sizes="' + esc(sizes) + '" data-responsive="on"'
     : ''
   return ' src="' + esc(src) + '"' + responsive + ' loading="lazy" decoding="async"'
 }
@@ -59,6 +59,21 @@ export function mediaSrcset(base: string, query = ''): string {
 
 /** 正文里的图默认占内容宽度的 68%，猜小了会糊，所以宁可往大了写。 */
 const RESPONSIVE_SIZES = '(max-width: 700px) 92vw, (max-width: 1100px) 78vw, 68vw'
+
+/**
+ * 编辑器里那些小预览用的尺寸提示。
+ *
+ * 区块列表的缩略图和图片配置弹窗里的「正文效果」都只有一两百像素宽，套用正文那套
+ * 92vw 的话，浏览器按手机屏幕算出上千设备像素，转头就去下 1280 那一档——为了画一张
+ * 200px 的图解码一整张大图，在手机上就是打开弹窗时的那一下卡顿。
+ */
+export const PREVIEW_SIZES = '240px'
+
+/** 渲染选项。 */
+export interface RenderOptions {
+  /** 覆盖 sizes。只影响浏览器挑哪一档图，不改变版式和输出结构。 */
+  sizes?: string
+}
 
 function blockTitle(block: JournalBlock): string {
   return block.title ? '<h2 class="journal-block__title">' + esc(block.title) + '</h2>' : ''
@@ -83,7 +98,7 @@ function figureClasses(settings: BlockData, extra?: string): string {
   return values.map(esc).join(' ')
 }
 
-function figure(block: JournalBlock, map: MediaMap): string {
+function figure(block: JournalBlock, map: MediaMap, sizes: string): string {
   const data = block.data
   const settings = block.settings
   const item = map.get(Number(data.mediaId))
@@ -94,7 +109,7 @@ function figure(block: JournalBlock, map: MediaMap): string {
     '<figure class="journal-figure ' +
     figureClasses(settings) +
     '"><img' +
-    imageAttrs(src) +
+    imageAttrs(src, sizes) +
     ' alt="' +
     esc(caption || '旅行照片') +
     '">' +
@@ -103,7 +118,7 @@ function figure(block: JournalBlock, map: MediaMap): string {
   )
 }
 
-function gallery(block: JournalBlock, map: MediaMap): string {
+function gallery(block: JournalBlock, map: MediaMap, sizes: string): string {
   const data = block.data
   const settings = block.settings
   const ids = arr(data.mediaIds)
@@ -120,7 +135,7 @@ function gallery(block: JournalBlock, map: MediaMap): string {
       const caption = str(item?.caption) || '旅行照片'
       // previews 分支里 source 本身就是地址，不是 id
       const src = previews.length ? str(source) : mediaUrl(item, source)
-      return '<img' + imageAttrs(src) + ' alt="' + esc(caption) + '">'
+      return '<img' + imageAttrs(src, sizes) + ' alt="' + esc(caption) + '">'
     })
     .join('')
   const layoutClass = mode ? 'journal-gallery--' + mode : ''
@@ -136,13 +151,13 @@ function gallery(block: JournalBlock, map: MediaMap): string {
   )
 }
 
-function postcard(block: JournalBlock, map: MediaMap): string {
+function postcard(block: JournalBlock, map: MediaMap, sizes: string): string {
   const data = block.data
   const item = map.get(Number(data.mediaId))
   const src = data.previewUrl ? str(data.previewUrl) : mediaUrl(item, data.mediaId)
   const image =
     data.mediaId || data.previewUrl
-      ? '<img' + imageAttrs(src) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
+      ? '<img' + imageAttrs(src, sizes) + ' alt="' + esc(str(data.location) || '旅行明信片') + '">'
       : '<div class="journal-postcard__placeholder">旅行明信片</div>'
   return (
     '<figure class="journal-postcard">' +
@@ -173,7 +188,7 @@ function stars(score: number, max: number): string {
   return '★'.repeat(score) + '☆'.repeat(max - score)
 }
 
-function renderBody(block: JournalBlock, map: MediaMap): string | null {
+function renderBody(block: JournalBlock, map: MediaMap, sizes: string): string | null {
   const d = block.data
   const s = block.settings
   switch (block.type) {
@@ -475,11 +490,11 @@ function renderBody(block: JournalBlock, map: MediaMap): string | null {
       )
     }
     case 'image':
-      return figure(block, map)
+      return figure(block, map, sizes)
     case 'gallery':
-      return gallery(block, map)
+      return gallery(block, map, sizes)
     case 'postcard':
-      return postcard(block, map)
+      return postcard(block, map, sizes)
     case 'divider':
       return '<hr>'
     default:
@@ -491,9 +506,10 @@ function renderBody(block: JournalBlock, map: MediaMap): string | null {
 export function renderBlock(
   block: JournalBlock,
   media?: MediaMap | readonly RenderableMedia[] | null,
+  options?: RenderOptions,
 ): string {
   const map = media instanceof Map ? media : mediaMap(media)
-  const body = renderBody(block, map)
+  const body = renderBody(block, map, options?.sizes ?? RESPONSIVE_SIZES)
   if (body === null) return ''
   return (
     '<section class="journal-block journal-block--' +
@@ -508,9 +524,10 @@ export function renderBlock(
   )
 }
 
-export function render(source: unknown, media?: readonly RenderableMedia[] | null): string {
+export function render(source: unknown, media?: readonly RenderableMedia[] | null,
+                       options?: RenderOptions): string {
   const map = mediaMap(media)
   return normalize(source)
-    .blocks.map(block => renderBlock(block, map))
+    .blocks.map(block => renderBlock(block, map, options))
     .join('')
 }

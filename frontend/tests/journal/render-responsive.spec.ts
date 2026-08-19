@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, renderBlock } from '@/journal/render'
+import { PREVIEW_SIZES, render, renderBlock } from '@/journal/render'
 import { createBlock, emptyDocument } from '@/journal/document'
 import { applyResponsiveImages } from '@/media/responsive'
 import type { JournalBlock } from '@/types/journal-block'
@@ -115,5 +115,37 @@ describe('正文图片的响应式属性', () => {
     doc.blocks.push(imageBlock())
 
     expect(render(doc, media)).toContain('srcset=')
+  })
+
+  /*
+   * 编辑器里的小预览不该按正文宽度挑图。
+   *
+   * 区块列表的缩略图和配置弹窗里的「正文效果」都只有一两百像素宽，沿用正文那套 92vw
+   * 的话，浏览器按手机屏幕算出上千设备像素、转头去下 1280 那一档——为了画这么小一块
+   * 解码一整张大图，打开弹窗时就是可见的一下卡顿。
+   */
+
+  it('小预览用自己的尺寸提示，候选档位不变', () => {
+    const output = renderBlock(imageBlock(), media, { sizes: PREVIEW_SIZES })
+
+    expect(output).toContain(`sizes="${PREVIEW_SIZES}"`)
+    expect(output).not.toContain('92vw')
+    // 候选档位照旧三档，变的只是浏览器该挑哪一档
+    expect(output).toContain('/api/media/9/thumbnail 480w')
+    expect(output).toContain('/api/media/9/display 1280w')
+  })
+
+  it('不传选项时仍然是正文那套宽度', () => {
+    expect(renderBlock(imageBlock(), media)).toContain('92vw')
+  })
+
+  it('图片组和明信片同样接受尺寸提示', () => {
+    const gallery = createBlock('gallery')
+    Object.assign(gallery.data, { mediaIds: [9, 9] })
+    const postcard = createBlock('postcard')
+    Object.assign(postcard.data, { mediaId: 9, location: '京都' })
+
+    expect(renderBlock(gallery, media, { sizes: PREVIEW_SIZES }).match(/240px/g)).toHaveLength(2)
+    expect(renderBlock(postcard, media, { sizes: PREVIEW_SIZES })).toContain('240px')
   })
 })

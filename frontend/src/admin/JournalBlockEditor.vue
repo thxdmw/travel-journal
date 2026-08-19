@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CATALOG } from '@/journal/catalog'
 import { createBlock, normalize } from '@/journal/document'
-import { renderBlock } from '@/journal/render'
+import { PREVIEW_SIZES, renderBlock } from '@/journal/render'
 import { enhance, teardown } from '@/media/enhance'
 import type { CatalogEntry, JournalBlock, JournalDocument } from '@/types/journal-block'
 import type { MediaView } from '@/types/media'
@@ -76,7 +76,14 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       const filtered=()=>JB.CATALOG.filter(x=>(activeCategory.value==='全部'||x.category===activeCategory.value)
         &&(!query.value||[x.label,x.description,x.category].join(' ').includes(query.value)));
       const isImageBlock=computed(()=>draft.value!==null&&IMAGE_BLOCKS.includes(draft.value.type));
-      const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media):'');
+      /*
+       * 配置弹窗里的「正文效果」只有一两百像素宽。
+       *
+       * 不给尺寸提示的话，它会沿用正文那套 92vw，浏览器按手机屏幕算出上千设备像素、
+       * 转头去下 1280 那一档——为了画这么小一块预览解码一整张大图，打开弹窗时就是
+       * 明显的一下卡顿。
+       */
+      const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media,{sizes:PREVIEW_SIZES}):'');
       const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&['grid','masonry'].includes(draft.value.settings?.layout));
       const layoutUsesRatio=computed(()=>draft.value!==null&&draft.value.type!=='postcard'&&(
         draft.value.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value.settings.layout)));
@@ -419,7 +426,8 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       function addTableColumn(){const block=draft.value;if(!block)return;block.data.headers.push('新列');block.data.rows.forEach(row=>row.push(''));}
       function removeTableColumn(index:number){const block=draft.value;if(!block||block.data.headers.length<=1)return;block.data.headers.splice(index,1);block.data.rows.forEach(row=>row.splice(index,1));}
       function addTableRow(){const block=draft.value;if(block)block.data.rows.push(block.data.headers.map(()=>''));}
-      function render(block:EditorBlock){return JB.renderBlock(block,props.media);}
+      /** 区块列表里的缩略展示，同样是小尺寸，不该按正文宽度挑图。 */
+      function render(block:EditorBlock){return JB.renderBlock(block,props.media,{sizes:PREVIEW_SIZES});}
       function label(type:string){return JB.CATALOG.find(x=>x.type===type)?.label||type;}
       function isMediaType(type:string){return IMAGE_BLOCKS.includes(type);}
       function ensureVisible(event?:FocusEvent){
