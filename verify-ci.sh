@@ -9,7 +9,12 @@
 #   ./verify-ci.sh            # 全套
 #   ./verify-ci.sh backend    # 只跑某一步：frontend | backend | smoke | media
 #
-# 前置：docker compose -f docker-compose.dev.yml up -d
+# 前置：依赖容器已经起着。这台机器的 Docker 在 WSL 里，Windows 侧没有 docker 命令，
+# 所以带 docker 的命令都得进 WSL 执行（仓库在 WSL 里的路径是 /mnt/d/... 这种形式）：
+#
+#   wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/ideaProject/travel-journal && docker compose -f docker-compose.dev.yml up -d"
+#
+# 容器端口经 WSL 的 localhost 转发，所以下面这些命令连 127.0.0.1 就行。
 #
 # 和 CI 的已知差异，看结果时要心里有数：
 #
@@ -36,7 +41,7 @@ fail() { printf '\n\033[1;31m×  %s\033[0m\n' "$1"; exit 1; }
 
 require_deps() {
   curl --silent --fail --max-time 3 "http://127.0.0.1:${MINIO_PORT_LOCAL}/minio/health/live" >/dev/null \
-    || fail "MinIO 没起来，先执行：docker compose -f docker-compose.dev.yml up -d"
+    || fail "MinIO 连不上（127.0.0.1:${MINIO_PORT_LOCAL}）。依赖容器要在 WSL 里起，见本文件开头的命令。"
 }
 
 verify_frontend() {

@@ -178,11 +178,21 @@ git diff --check
 
 Drone 跑的就是上面这些，外加两件事：真实的 PostgreSQL 迁移验证，和连着 MinIO 的图片链路 E2E。
 这两件在本机默认都跑不了，也正是「本地绿、CI 红」的主要来源。依赖用 `docker-compose.dev.yml`
-起（WSL 里的 Docker 就行，Windows 通过 localhost 直接连得到）：
+起。这台机器的 Docker 装在 WSL 里，Windows 侧没有 `docker` 命令，所以带 docker 的命令都要在
+WSL 里执行；容器端口经 WSL 的 localhost 转发，Windows 这边的 Java 和 Playwright 直接连
+`127.0.0.1` 就行，不需要知道 WSL 的 IP。
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/ideaProject/travel-journal && docker compose -f docker-compose.dev.yml up -d"
 ```
+
+用完清掉容器和数据（`-v` 连卷一起删，dev 库里那些 E2E 造的数据就没了）：
+
+```bash
+wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/ideaProject/travel-journal && docker compose -f docker-compose.dev.yml down -v"
+```
+
+已经在 WSL 的 shell 里时，前面那层 `wsl -d Ubuntu -e bash -lc` 去掉即可。
 
 PostgreSQL 在 `5433`，MinIO 在 `59000`（控制台 `59001`）。端口刻意避开 5432/9000——这台机器上
 它们往往已经被别的项目占着，而验证环境不该要求你先停掉别人的容器。
