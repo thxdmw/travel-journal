@@ -159,10 +159,6 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
 }
 .el-popper,.el-dialog { font-family:var(--tj-sans); }
 .el-date-editor.el-input,.el-date-editor.el-input__wrapper,.el-select { width:100%; }
-/* 高度和间距跟着 --fit-scale 走：预览缩小时它们要是不缩，占的比例会越来越大 */
-.preview-text-line{display:block;width:82%;height:calc(6px * var(--fit-scale,1));margin:calc(8px * var(--fit-scale,1)) 0;border-radius:9px;background:color-mix(in srgb,var(--tj-muted) 22%,transparent)}
-.preview-text-line.wide{width:100%}
-.preview-text-line.short{width:56%}
 .image-setting-tabs{height:100%;display:flex;flex-direction:column}
 .image-setting-tabs>.el-tabs__header{flex:0 0 auto;margin:0 0 14px}
 .image-setting-tabs>.el-tabs__content{flex:1;min-height:0;overflow-y:auto;padding-right:4px}
@@ -180,8 +176,14 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
  * 放不下就换行，不做横向滚动——横滑的那一排永远有一半选项藏在屏幕外，
  * 而这些选项本来就该一眼看完。
  */
-.option-chips{display:flex;flex-wrap:wrap;gap:7px}
-.option-chip{padding:6px 12px;border:1px solid var(--tj-border);border-radius:999px;background:var(--tj-surface);color:var(--tj-text);font-size:13px;line-height:1.4;cursor:pointer;transition:border-color .15s,background .15s,color .15s}
+/*
+ * 排成等宽的两列，而不是按文字长短挤在一起。
+ *
+ * 「跟随主题」四个字和「宝丽来」三个字排一行时，两个胶囊一长一短、下一行又错开另一个位置，
+ * 十来个选项堆下来就是一片参差。等宽之后每行两个、左右对齐，扫一眼就能比较。
+ */
+.option-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:7px}
+.option-chip{padding:6px 12px;border:1px solid var(--tj-border);border-radius:999px;background:var(--tj-surface);color:var(--tj-text);font-size:13px;line-height:1.4;text-align:center;cursor:pointer;transition:border-color .15s,background .15s,color .15s}
 .option-chip:hover{border-color:var(--tj-accent);color:var(--tj-accent)}
 .option-chip.is-active{border-color:var(--tj-accent);background:var(--tj-accent);color:#fff}
 /* 手机上指头比鼠标粗，按钮给到 36px 高，间距也松一点 */
@@ -202,7 +204,6 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
 .travel-data-binding__actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .travel-data-binding__actions small{max-width:520px}
 @media(max-width:780px){
-  .preview-text-line{height:calc(4px * var(--fit-scale,1));margin:calc(5px * var(--fit-scale,1)) 0}
   .image-setting-tabs>.el-tabs__header{margin-bottom:8px}
   .image-setting-tabs>.el-tabs__content{padding:0 2px 14px}
   .travel-data-binding>header,.travel-data-binding__actions{align-items:stretch;flex-direction:column}

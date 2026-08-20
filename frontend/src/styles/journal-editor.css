@@ -17,13 +17,28 @@
 .editor-save-state.is-failed { color:var(--tj-danger); cursor:pointer; text-decoration:underline; }
 .editor-context { color:var(--tj-primary); font:700 15px var(--tj-serif); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .editor-back em { font-style:normal; }
-.editor-more,.editor-preview-btn { display:none; }
+/* 「···」是手机端专属（桌面这些操作都在右上角的操作区里），预览两端都有 */
+.editor-more { display:none; }
+/* margin-left:auto 让它和右边的操作组连在一起（原本是 .editor-actions 在占这个位置） */
+.editor-preview-btn { display:block; margin-left:auto; width:40px; height:40px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--tj-primary); font-size:19px; line-height:1; cursor:pointer; }
+.editor-preview-btn:hover,.editor-preview-btn:active { background:var(--tj-surface-soft); }
 
 /* 发布前的成稿预览。套的是公开端的 .journal-document，
-   所以这里看到的排版、图片版式和读者看到的是同一份。 */
-.article-preview-dialog .el-dialog__body { max-height:min(74vh,760px); padding:8px 20px 16px; overflow:auto; }
+   所以这里看到的排版、图片版式和读者看到的是同一份。
+   铺满整屏：读者是在整块屏幕上读这篇文章的，预览挤在一个 74vh 的小窗里就差着一层。 */
+.article-preview-dialog { width:100vw!important; max-width:100vw; height:100vh; max-height:100vh; margin:0!important; display:flex; flex-direction:column; border-radius:0!important; }
+.article-preview-dialog .el-dialog__header,.article-preview-dialog .el-dialog__footer { flex:0 0 auto; }
+.article-preview-dialog .el-dialog__body { flex:1; min-height:0; max-height:none; padding:8px 20px 24px; overflow:auto; }
 .article-preview-note { margin:0 0 14px; color:var(--tj-muted); font-size:12px; }
-.article-preview-body { padding:26px 30px; border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface); }
+/*
+ * 正文宽度必须和公开端一致，否则预览是骗人的。
+ *
+ * 读者那边是 `.article { width:min(var(--tj-article-width,760px),100%) }`，图片的「大图」
+ * 「中等」「通栏」全都相对这个宽度计算。预览要是比它宽或窄，同一张图在这里和发布之后就是
+ * 两个大小，看了也白看。
+ */
+/* box-sizing 是 border-box，所以内边距和那 2px 边框都得加回去，内容盒才正好是正文宽 */
+.article-preview-body { --preview-pad:30px; width:min(calc(var(--tj-article-width,760px) + var(--preview-pad) * 2 + 2px),100%); margin-inline:auto; padding:26px var(--preview-pad); border:1px solid var(--tj-border); border-radius:10px; background:var(--tj-surface); }
 .article-preview-head { margin-bottom:22px; padding-bottom:16px; border-bottom:1px solid var(--tj-border); }
 .article-preview-head p { margin:0 0 8px; color:var(--tj-muted); font-size:13px; letter-spacing:.04em; }
 .article-preview-head h1 { margin:0; color:var(--tj-primary); font:700 clamp(24px,3.2vw,32px)/1.3 var(--tj-serif); }

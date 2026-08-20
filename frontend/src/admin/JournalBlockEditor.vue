@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { CATALOG } from '@/journal/catalog'
 import { createBlock, normalize } from '@/journal/document'
-import { PREVIEW_SIZES, renderBlock } from '@/journal/render'
+import { ARTICLE_PREVIEW_SIZES, PREVIEW_SIZES, render as renderDocument, renderBlock } from '@/journal/render'
 import { keepFitted, type FitHandle } from '@/admin/fit-preview'
 import { patchPreview } from '@/admin/patch-preview'
 import OptionChips from '@/admin/OptionChips.vue'
@@ -57,7 +57,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
   /** 区块列表里缩略展示的高度上限。原来是硬裁切，现在缩到这个高度以内，图片能看全。 */
   /** 区块列表里图片缩略的高度上限。竖图缩到 260 太小看不出内容，360 是能看清又不占满屏的折中。 */
   const BLOCK_PREVIEW_MAX_HEIGHT=360;
-  const JB={CATALOG,createBlock,normalize,renderBlock};
+  const JB={CATALOG,createBlock,normalize,renderDocument,renderBlock};
   const IMAGE_BLOCKS=['image','gallery','postcard'];
   const LINKABLE_BLOCKS=['trip-info','route','itinerary','timeline','expense-summary','location-card','food','stay','transport',
     'day-opener','day-summary'];
@@ -113,12 +113,27 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       const catalogOpen=ref(false),editorOpen=ref(false),draft=ref<EditorBlock|null>(null),editIndex=ref(-1),insertAt=ref(0);
       const query=ref(''),activeCategory=ref('全部'),imageTab=ref('content'),previewEl=ref<HTMLElement|null>(null);
       const previewBody=ref<HTMLElement|null>(null);
+      const effectOpen=ref(false),effectPreviewEl=ref<HTMLElement|null>(null);
+      /*
+       * 窄屏不并排放预览纸，改用「看它在文章中的效果」按钮。
+       *
+       * 断点必须和 journal-editor-mobile.css 里弹窗转全屏的那个断点一致（780px）：那以下
+       * 弹窗铺满整屏，并排的预览纸只剩 32vh，还是假文字线模拟的，不如整篇看得准。
+       *
+       * 用 matchMedia 而不是纯 CSS 隐藏，是为了让 aside 干脆不渲染——留在 DOM 里只是看不见的话，
+       * keepFitted 仍会在一个高度为 0 的容器上量来量去。取不到 matchMedia 就当宽屏，走并排那条老路。
+       */
+      const compactQuery=window.matchMedia?.('(max-width:780px)')??null;
+      const compactLayout=ref(compactQuery?.matches??false);
+      const onCompactChange=(event:MediaQueryListEvent)=>{compactLayout.value=event.matches;};
       const catalogMode=ref('quick'),catalogCount=JB.CATALOG.length,focusedIndex=ref(-1);
       const quickItems=QUICK_BLOCKS.map(type=>JB.CATALOG.find(x=>x.type===type)).filter((item):item is CatalogEntry=>Boolean(item));
       const categories=['全部',...new Set(JB.CATALOG.map(x=>x.category))];
       const filtered=()=>JB.CATALOG.filter(x=>(activeCategory.value==='全部'||x.category===activeCategory.value)
         &&(!query.value||[x.label,x.description,x.category].join(' ').includes(query.value)));
       const isImageBlock=computed(()=>draft.value!==null&&IMAGE_BLOCKS.includes(draft.value.type));
+      /** 并排布局（宽屏的图片块）时，操作按钮跟着右边的设置栏走，而不是横跨整个弹窗底部。 */
+      const sideActions=computed(()=>isImageBlock.value&&!compactLayout.value);
       /*
        * 配置弹窗里的「正文效果」只有一两百像素宽。
        *
@@ -126,7 +141,31 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
        * 转头去下 1280 那一档——为了画这么小一块预览解码一整张大图，打开弹窗时就是
        * 明显的一下卡顿。
        */
-      const draftPreview=computed(()=>draft.value?JB.renderBlock(draft.value,props.media,{sizes:PREVIEW_SIZES,eager:true}):'');
+      /**
+       * 把正在编辑的这一块按当前设置放回整篇里。
+       *
+       * 编辑已有区块就替换掉原来那一块，新增则插到它将要落脚的位置——这样预览里的前后文
+       * 和确认之后的结果一致，而不是把它挂在文末。
+       */
+      const effectDocument=computed<JournalDocument>(()=>{
+        const blocks=[...document.value.blocks];
+        if(draft.value){
+          if(editIndex.value>=0)blocks.splice(editIndex.value,1,draft.value);
+          else blocks.splice(insertAt.value,0,draft.value);
+        }
+        return {...document.value,blocks} as JournalDocument;
+      });
+      /**
+       * 整篇预览的 HTML，宽屏并排和窄屏弹窗共用一份。
+       *
+       * 宽屏一直要（并排区就是它），窄屏只有点开「看效果」时才要——整篇渲染不便宜，
+       * 没必要为一个没打开的弹窗付。
+       */
+      const effectHtml=computed(()=>{
+        if(!editorOpen.value)return '';
+        if(compactLayout.value&&!effectOpen.value)return '';
+        return JB.renderDocument(effectDocument.value,props.media,{sizes:ARTICLE_PREVIEW_SIZES});
+      });
       const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&['grid','masonry'].includes(draft.value.settings?.layout));
       const layoutUsesRatio=computed(()=>draft.value!==null&&draft.value.type!=='postcard'&&(
         draft.value.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value.settings.layout)));
@@ -292,68 +331,62 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         if(JSON.stringify(incoming)!==JSON.stringify(document.value))document.value=incoming;
       },{deep:true});
       /*
-       * 缩放必须和内容更新落在同一帧。
+       * 宽屏并排预览：内容一变就地更新。
        *
-       * flush:'post' 已经保证 DOM 更新完才跑，再套一层 nextTick 等于把重算又推迟一个微任务。
-       * 这期间宿主 div 上仍挂着按旧版式算出的 transform 和负 marginBottom，新内容配着旧缩放
-       * 参数——改版式时看到的那一下跳动就是它。负 marginBottom 尤其明显：从大图切回小图，
-       * 小小的内容上还带着几百像素的负边距，下方元素先被拽上去再弹回。
+       * flush:'post' 保证 DOM 更新完才跑，别再套 nextTick——那会把更新推迟一个微任务。只有
+       * previewEl 尚未挂载（弹窗首次打开）时才退回下一拍。
        *
-       * 只有 scale 跨越 1 ↔ <1 时才看得见：小图和中等都放得下（scale=1），互相切换没有
-       * 参数变化，所以不闪。
-       *
-       * nextTick 不能直接删掉——弹窗首次打开时 el-dialog 的内容还没挂载，previewEl 是 null，
-       * 那种情况仍得等下一拍。
+       * 先 teardown 再 patch 再 enhance：轮播和对比组件会往块里插自己的结构，不还原就拿它
+       * 跟渲染器的原始 HTML 比对，形状永远对不上，每次都退回整棵替换——白白丢掉复用。
        */
-      watch([draftPreview,editorOpen],()=>{
-        /*
-         * 关掉就撤观察。
-         *
-         * 弹窗不 destroy-on-close，容器还在，只是高度塌成 0——观察者要是还挂着，就会拿着
-         * 这个 0 算出缩到底的比例写进去，等下次打开再纠正回来，又是一闪。
-         */
-        if(!editorOpen.value){dialogFit?.release();dialogFit=null;fittedEl=null;return;}
-        /*
-         * 先把上一次的增强结构还原，再就地更新，最后重新增强。
-         *
-         * 轮播和对比组件会往块里插自己的结构，不还原就拿它跟渲染器的原始 HTML 比对，形状
-         * 永远对不上，每次都退回整棵替换——白白丢掉复用。
-         */
+      watch([effectHtml,editorOpen],()=>{
+        // 配置弹窗关了，压在它上面的效果预览也一起收掉
+        if(!editorOpen.value){effectOpen.value=false;return;}
         const run=()=>{
-          if(!editorOpen.value||!previewEl.value)return;
-          if(previewBody.value){teardown(previewBody.value);patchPreview(previewBody.value,draftPreview.value);}
-          enhance(previewEl.value);fitDialogPreview();
+          if(!editorOpen.value||!previewEl.value||!previewBody.value)return;
+          teardown(previewBody.value);
+          patchPreview(previewBody.value,effectHtml.value);
+          enhance(previewBody.value);
+          markEditingBlock(previewBody.value);
+          /*
+           * 每改一个设置都重新定位。
+           *
+           * 改设置的人正盯着这一块看它变成什么样，可改完之后它未必还在原处——换个宽度、
+           * 换个比例，它上下的高度全变了，尤其在一篇长日记里，翻两下就找不着了。所以哪怕
+           * 刚刚手动滚开过，也把它带回视野中间：这一刻作者关心的就是这一块。
+           */
+          scrollToEditingBlock(previewBody.value);
         };
         run();
         if(!previewEl.value)nextTick(run);
       },{flush:'post'});
 
-      /*
-       * 预览等比缩放。
-       *
-       * 图片区块的高度随版式差好几倍，而预览区是固定高度的，大图必然溢出——要滚动才能看完
-       * 的预览等于没有预览。限制图片最大高度更省事，但那样「大图」和「中等」看起来一模一样，
-       * 预览也就没意义了。等比缩放保留全部比例，只是整体小一号。
-       */
-      /*
-       * 观察者跟着容器走，不跟着内容走。
-       *
-       * 被缩放的 .block-preview-article 是模板里的固定元素，v-html 换的只是它内部那层，
-       * 节点自始至终是同一个——每次改配置都 disconnect 再新建观察者纯属白费，还会丢掉
-       * 「上次缩到多少」的记录，害得重建后必定再写一遍样式。
-       *
-       * 容器没变就只 refresh：新内容已经在 DOM 里，同一帧内量准并缩好，不给它以原始大小
-       * 露脸的机会。
-       */
-      let dialogFit:FitHandle|null=null,fittedEl:HTMLElement|null=null;
-      function fitDialogPreview(){
-        if(previewEl.value!==fittedEl){
-          dialogFit?.release();
-          fittedEl=previewEl.value;
-          dialogFit=previewEl.value?keepFitted(previewEl.value):null;
-          return;
-        }
-        dialogFit?.refresh();
+      /** 把正在编辑的那一块标出来，长日记里才找得到自己在配哪一块。 */
+      function markEditingBlock(root:HTMLElement){
+        root.querySelector('.is-editing')?.classList.remove('is-editing');
+        const id=draft.value?.id;
+        if(id)root.querySelector('[data-block-id="'+id+'"]')?.classList.add('is-editing');
+      }
+      function scrollToEditingBlock(root:HTMLElement){
+        const id=draft.value?.id;
+        if(!id)return;
+        const target=root.querySelector('[data-block-id="'+id+'"]');
+        if(!target)return;
+        target.scrollIntoView?.({block:'center'});
+        /*
+         * 图片就位之后再对一次。
+         *
+         * 刚插进来的 <img> 还没加载，占的是按宽高比留出的位置；它和最终高度未必分毫不差，
+         * 何况弹窗这时还在入场动画里，容器尺寸也在变。等它加载完再滚一次，位置才真的准
+         * ——打开配置却停在文章开头，多半就是差这一下。
+         */
+        target.querySelectorAll('img').forEach(image=>{
+          if(image.complete)return;
+          image.addEventListener('load',()=>{
+            // 这期间可能已经换去编辑别的块了，别把人拽回来
+            if(draft.value?.id===id&&target.isConnected)target.scrollIntoView?.({block:'center'});
+          },{once:true});
+        });
       }
 
       /** 区块列表里每张缩略图各自缩放；容器高度跟着缩放后的实际高度走，不留空。 */
@@ -546,6 +579,25 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         // 差一两像素是正常的舍入，不值得写回去再触发一次滚动
         if(Math.abs(page.scrollTop-pinnedScrollTop)>2)page.scrollTop=pinnedScrollTop;
       }
+      function openEffectPreview(){effectOpen.value=true;}
+      /*
+       * 打开之后要做两件事：把轮播这类需要结构重排的块补上交互，再滚到正在编辑的那一块。
+       *
+       * 不滚的话，一篇长日记打开预览停在开头，作者还得自己找刚改的那张图在哪——「看效果」
+       * 这个动作就白费了一半。用 block 属性对齐到中间，前后文正好都在视野里。
+       */
+      watch(effectOpen,open=>{
+        if(!open){teardown(effectPreviewEl.value);return;}
+        void nextTick(()=>{
+          enhance(effectPreviewEl.value);
+          const id=draft.value?.id;
+          if(!id)return;
+          const target=effectPreviewEl.value?.querySelector('[data-block-id="'+id+'"]');
+          if(!target)return;
+          target.classList.add('is-editing');
+          target.scrollIntoView?.({block:'center'});
+        });
+      });
       function backToCatalog(){editorOpen.value=false;draft.value=null;nextTick(()=>catalogOpen.value=true);}
       function confirmEdit(){
         if(!draft.value)return;
@@ -582,8 +634,23 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       function render(block:EditorBlock){return JB.renderBlock(block,props.media,{sizes:PREVIEW_SIZES});}
       function label(type:string){return JB.CATALOG.find(x=>x.type===type)?.label||type;}
       function isMediaType(type:string){return IMAGE_BLOCKS.includes(type);}
+      /**
+       * 会唤起软键盘的那些控件。
+       *
+       * 只有它们才需要「滚进可视区」——键盘弹起来会盖掉半屏，输入框正好在下半屏时就看不见了。
+       * 按钮、单选、Tab 不会唤起键盘，却同样能拿到焦点：以前不加区分，点一下版式里的选项、
+       * 切一个 Tab，页面就居中跳一下，作者刚看的位置全没了。
+       */
+      function needsKeyboardRoom(el:Element){
+        if(el instanceof HTMLTextAreaElement)return true;
+        if(el instanceof HTMLElement&&el.isContentEditable)return true;
+        if(!(el instanceof HTMLInputElement))return false;
+        // 勾选框和单选钮是 input，但它们弹不出键盘
+        return !['checkbox','radio','button','submit','reset','range','color','file'].includes(el.type);
+      }
       function ensureVisible(event?:FocusEvent){
         const el=(event?.target||window.document.activeElement) as Element|null;if(!el)return;
+        if(!needsKeyboardRoom(el))return;
         if(ensureTimer)clearTimeout(ensureTimer);
         ensureTimer=window.setTimeout(()=>{
           ensureTimer=null;
@@ -815,16 +882,18 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
       }
       onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);
+        compactQuery?.addEventListener('change',onCompactChange);
         window.document.addEventListener('click',onDocumentClick,true);window.document.addEventListener('selectionchange',onSelectionChange);});
       onBeforeUnmount(()=>{
         if(inlineTimer){clearTimeout(inlineTimer);inlineTimer=null;commit();}
         if(ensureTimer)clearTimeout(ensureTimer);
         if(caretTimer)clearTimeout(caretTimer);
         if(viewportFrame!=null)cancelAnimationFrame(viewportFrame);
-        dialogFit?.release();
         blockFits.forEach(handle=>handle.release());
         blockFits.clear();
-        teardown(previewEl.value);
+        teardown(previewBody.value);
+        teardown(effectPreviewEl.value);
+        compactQuery?.removeEventListener('change',onCompactChange);
         window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);
         window.document.removeEventListener('click',onDocumentClick,true);
         window.document.removeEventListener('selectionchange',onSelectionChange);
@@ -930,16 +999,39 @@ class="block-inline-input block-inline-input--paragraph" rows="1"
           </template>
         </el-dialog>
 
+        <!--
+          图片块的配置铺满整屏。
+
+          它要同时装下「真实文章宽度的预览」和「设置面板」：正文 760 加面板再加各层内边距，
+          1400px 都紧张，预览一被压窄，图片大小就不是发布之后的大小，预览也就失去意义。
+          整屏之后左边给足 760，右边的设置面板也终于有完整的高度可滚。
+
+          全屏这个类跟着 sideActions 走而不是 isImageBlock：窄屏本来就有自己那套全屏样式，
+          跟着加上的话，footer 会被全屏规则藏掉，而按钮又只在并排布局里渲染——手机上就
+          一个按钮都不剩了。
+        -->
         <el-dialog
-v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
-          :width="isImageBlock?'min(1120px,96vw)':'min(760px,94vw)'" class="block-config-dialog" append-to-body align-center :close-on-click-modal="false">
-          <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock}">
-            <aside v-if="isImageBlock" class="block-live-preview"><header><div><strong>正文效果</strong><small>模拟文章正文栏，不是单独放大的图片</small></div><span>文字栏宽度</span></header>
-              <div ref="previewEl" class="block-preview-paper"><div class="block-preview-article"><i class="preview-text-line wide"></i><i class="preview-text-line"></i>
+          v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft.type):'内容')"
+          :width="isImageBlock?'100vw':'min(760px,94vw)'"
+          :class="['block-config-dialog',{'block-config-dialog--full':sideActions}]"
+          append-to-body align-center :close-on-click-modal="false">
+          <div v-if="draft" class="block-config-layout" :class="{'has-preview':isImageBlock&&!compactLayout}">
+            <!--
+              手机上不并排放预览纸，改成一个按钮开整篇预览。
+              那块纸在窄屏只有 32vh，又是假文字线模拟的正文栏，看不出图片放进文章里前后是什么样。
+            -->
+            <button v-if="isImageBlock&&compactLayout" type="button" class="block-effect-entry" @click="openEffectPreview">👁 看它在文章中的效果</button>
+            <!--
+              宽屏并排的是整篇真实文章，不是模拟纸。
+
+              以前这里画的是假文字线加孤零零一块，只能看出「图片占正文栏多宽」；宽屏地方够，
+              直接渲染整篇（用的是和公开页面同一套），前后文都在，才谈得上「最后是什么效果」。
+            -->
+            <aside v-if="isImageBlock&&!compactLayout" class="block-live-preview"><header><div><strong>文章预览</strong><small>和读者看到的是同一套渲染，改设置会实时跟着变</small></div><span>正在编辑的一块已高亮</span></header>
+              <div ref="previewEl" class="block-preview-paper">
                 <!-- 内容不走 v-html：那是整棵重建，图片会跟着重造。改由 patchPreview 就地更新。 -->
-                <div ref="previewBody" class="journal-document"></div>
-                <div v-if="!draftPreview" class="block-preview-empty">选择图片后，这里会显示它在正文中的实际比例和占位</div>
-                <i class="preview-text-line wide"></i><i class="preview-text-line short"></i></div></div></aside>
+                <article ref="previewBody" class="preview journal-document article-preview-body"></article>
+              </div></aside>
             <div class="block-config-form" @pointerdown.capture="rememberSelectScroll" @focusin="ensureVisible">
               <label v-if="!['heading','divider'].includes(draft.type)">区块标题（可选）<el-input v-model="draft.title" placeholder="例如 今日路线"/></label>
               <section v-if="isLinkableBlock&&hasTravelContext" class="travel-data-binding">
@@ -1031,8 +1123,36 @@ v-model="editorOpen" :title="(editIndex>=0?'编辑':'添加')+(draft?label(draft
                 </el-tabs>
               </template>
             </div>
+            <!--
+              并排布局时按钮钉在设置栏底部。
+
+              放在滚动区外面（grid 的第二行），位置才真的不动：搁在里面的话，内容短的那个
+              Tab（比如「外观」）滚不起来，按钮就跟在内容后面浮着，切一次 Tab 换一个位置。
+              横跨整个弹窗底部也不合适——鼠标要从右边的设置一路划到中间去按确认，而左边
+              那一大片是预览，底下并没有要操作的东西。
+            -->
+            <div v-if="sideActions" class="block-config-actions">
+              <el-button v-if="editIndex<0" @click="backToCatalog">← 返回重选</el-button><span></span>
+              <el-button @click="editorOpen=false">取消</el-button>
+              <el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button>
+            </div>
           </div>
-          <template #footer><div class="block-dialog-actions"><el-button v-if="editIndex<0" @click="backToCatalog">← 返回重选</el-button><span></span><el-button @click="editorOpen=false">取消</el-button><el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button></div></template>
+          <template v-if="!sideActions" #footer><div class="block-dialog-actions"><el-button v-if="editIndex<0" @click="backToCatalog">← 返回重选</el-button><span></span><el-button @click="editorOpen=false">取消</el-button><el-button type="primary" @click="confirmEdit">确认{{editIndex>=0?'修改':'插入'}}</el-button></div></template>
         </el-dialog>
+
+        <!--
+          「在文章中的效果」。手机上代替并排预览纸。
+
+          走的是和「预览全文」「公开页面」同一套渲染，正在调的这一块按当前设置就地放进整篇里，
+          所以看到的就是发布之后的样子，不是模拟。
+        -->
+        <!-- eslint-disable vue/no-v-html -- HTML 只来自 Journal Block 白名单渲染器。 -->
+        <el-dialog
+          v-model="effectOpen" title="在文章中的效果" width="min(900px,96vw)"
+          class="article-preview-dialog block-effect-dialog" append-to-body align-center destroy-on-close>
+          <p class="article-preview-note">这是这一块放进文章之后的样子，和读者看到的是同一套渲染。正在编辑的那一块已经高亮。</p>
+          <article ref="effectPreviewEl" class="preview journal-document article-preview-body" v-html="effectHtml"></article>
+        </el-dialog>
+        <!-- eslint-enable vue/no-v-html -->
       </div>
 </template>

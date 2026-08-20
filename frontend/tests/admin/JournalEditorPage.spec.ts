@@ -339,3 +339,39 @@ describe('JournalEditorPage 草稿延迟创建', () => {
     expect(await pendingPhotos(localId)).toEqual([])
   })
 })
+
+/*
+ * 预览入口两种状态都得有。
+ *
+ * 「预览全文」以前只写在草稿那一支的操作组里，已发布的日记那一支只有「查看文章 / 撤回 /
+ * 更新发布」——而「查看文章」打开的是线上已发布的版本，看不到手里这些还没保存的改动。
+ * 现在统一成顶栏那个 👁，两种状态、两种屏幕都是同一个。
+ */
+describe('预览全文的入口', () => {
+  it('草稿有预览按钮', async () => {
+    mocks.route.params = { id: '11' }
+    mocks.getJournal.mockResolvedValue({ ...draftEntry(11), revision: 1 })
+    const { wrapper } = mountEditor()
+    await flushPromises()
+
+    expect(wrapper.find('.editor-preview-btn').exists()).toBe(true)
+  })
+
+  it('已发布的日记同样有预览按钮', async () => {
+    mocks.route.params = { id: '12' }
+    mocks.getJournal.mockResolvedValue({ ...draftEntry(12), status: 'PUBLISHED', revision: 1 })
+    const { wrapper } = mountEditor()
+    await flushPromises()
+
+    expect(wrapper.find('.editor-preview-btn').exists()).toBe(true)
+  })
+
+  it('操作组里不再留一个重复的文字按钮', async () => {
+    mocks.route.params = { id: '13' }
+    mocks.getJournal.mockResolvedValue({ ...draftEntry(13), revision: 1 })
+    const { wrapper } = mountEditor()
+    await flushPromises()
+
+    expect(wrapper.find('.editor-actions').text()).not.toContain('预览全文')
+  })
+})

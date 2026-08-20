@@ -26,7 +26,8 @@
   .el-overlay:has(.article-preview-dialog){ background:var(--el-dialog-bg-color,var(--tj-surface)); }
   .article-preview-dialog .el-dialog__footer { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); }
   .article-preview-dialog .el-dialog__footer .el-button { flex:1; min-height:44px; }
-  .article-preview-body { padding:16px 14px; }
+  /* 只改内边距本身，正文宽度仍由 --tj-article-width 决定（手机上它会被 100% 截住） */
+  .article-preview-body { --preview-pad:14px; padding:16px var(--preview-pad); }
   .article-preview-head { margin-bottom:16px; padding-bottom:12px; }
   .editor-more:active { background:var(--tj-surface-soft); }
   .editor-context { font-size:14px; }
@@ -116,20 +117,13 @@
   .block-config-dialog .el-dialog__body{padding:4px 12px 0;overflow:hidden}
   .block-config-dialog .el-dialog__footer{position:relative;z-index:3;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--tj-border);background:var(--tj-surface)}
   .block-config-layout,.block-config-layout.has-preview{height:100%;min-height:0;display:flex;flex-direction:column;gap:8px}
-  /* 大图等比缩完还得看得清，250px 太局促；下面的表单仍有足够空间 */
-  .block-live-preview{flex:0 0 min(32vh,320px);padding:10px}
-  .block-live-preview>header small{display:none}
-  .block-preview-paper{padding:12px 8px}
-  .block-preview-article{--fit-base-width:74%}
-  .block-preview-article>.journal-document{margin:calc(8px * var(--fit-scale,1)) 0}
-  .block-preview-article .journal-figure--bleed,.block-preview-article .journal-gallery.journal-figure--bleed{--figure-width:calc(100% + 72px)}
-  /* 普通组件的整张表单可滚；图片组件由四个 Tab 共用的内容区滚动。 */
-  .block-config-dialog .block-config-form{flex:1;min-height:0;height:auto;padding:0 2px calc(88px + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scroll-padding-bottom:88px}
-  .block-config-layout.has-preview .block-config-form{padding-bottom:0;overflow:hidden}
-  .image-setting-tabs>.el-tabs__content{padding:0 2px calc(96px + env(safe-area-inset-bottom) + var(--browser-bottom-inset,0px));overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scroll-padding-bottom:96px}
+  /* 窄屏根本不渲染并排预览区（组件里按 780px 判断），这里不必再为它写样式 */
+  /* 单一滚动区、图片选择器不再自己滚、标题 sticky 现在两端通用，见 journal-block-editor.css */
+  .block-config-dialog .block-config-form{flex:1;min-height:0;height:auto;padding:0 2px calc(88px + env(safe-area-inset-bottom));overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scroll-padding-bottom:88px}
+  .image-setting-tabs>.el-tabs__content{padding:0 2px}
   .image-setting-section{min-height:min-content}
   .block-config-form .form-grid-2,.block-dual-list{grid-template-columns:1fr}
-  .block-image-picker{grid-template-columns:repeat(3,minmax(0,1fr));max-height:150px}
+  .block-image-picker{grid-template-columns:repeat(3,minmax(0,1fr))}
   .block-catalog-dialog .block-catalog{max-height:none}
   .block-catalog-dialog .block-catalog>button:last-child{margin-bottom:calc(14px + env(safe-area-inset-bottom))}
   /* 高度上限由 fit-preview 按 BLOCK_PREVIEW_MAX_HEIGHT 设定，这里不再重复限制 */
