@@ -269,26 +269,11 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 
 ## 前端说明
 
-前端源码位于 `frontend/`，使用 Vite、TypeScript 和 Vue SFC。完整构建结果只生成在 `frontend/dist/`，Maven 打包时将其放入 Jar 的 `BOOT-INF/classes/static/`；运行已经构建好的 Jar 不依赖 Node.js。
+前端源码在 `frontend/`，用 Vite、TypeScript 和 Vue SFC。构建结果只生成在 `frontend/dist/`，Maven 打包时放进 Jar 的 `BOOT-INF/classes/static/`——**运行已构建好的 Jar 不需要 Node.js**。
 
-主要入口：
+公开端和后台是同一套 Vite 多页构建，直接用 ESM，不建业务 `window.*` 全局。依赖由 `frontend/package-lock.json` 锁定并进入 Vite 模块图，不引用 CDN。构建后的 hash 资源由 Service Worker 缓存进应用外壳；主题的颜色、字体、圆角和阴影都通过 CSS 变量控制。
 
-- `frontend/src/entries/public.ts`：公开端入口与路由
-- `frontend/src/entries/admin.ts`：管理端入口、会话守卫与路由
-- `frontend/src/public/`、`frontend/src/admin/`：公开页与后台 SFC
-- `frontend/src/journal/`：区块协议、默认值和统一渲染器
-- `frontend/src/draft/`：草稿、待上传照片和随手记离线队列
-- `frontend/src/media/`、`frontend/src/theme/`、`frontend/src/effects/`：媒体、主题与特效运行时
-- `frontend/src/map/`、`frontend/src/route/`：地图适配和当天路线回放
-- `frontend/src/enhancements/`：自定义光标、Service Worker 注册与离线横幅
-- `frontend/public/service-worker.js`、`frontend/public/manifest.json`：PWA 源文件
-- `frontend/src/styles/`：公开端、后台、编辑器、主题和媒体样式
-- `frontend/public/assets/themes/stickers/`：主题贴纸 SVG
-- `frontend/public/img/`：需要稳定 URL 的站点图片与 PWA 图标
-
-公开端和后台是同一套 Vite 多页构建，直接使用 ESM 模块，不建立业务 `window.*` 全局。CSS 由三个入口按既定顺序导入，样式顺序不要随意调换。
-
-前端依赖由 `frontend/package-lock.json` 锁定并进入 Vite 模块图，不引用 CDN。构建后的 hash 资源由 Service Worker 缓存进应用外壳；主题颜色、字体、圆角和阴影均通过 CSS 变量控制。
+各目录的职责和入口文件见 [PROJECT.md](PROJECT.md#代码快速定位)。
 
 ## Maven 构建
 
@@ -371,43 +356,17 @@ mc mirror minio/travel-journal /backup/travel-journal
 
 ## 测试
 
-当前自动化测试覆盖：
+后端有 161 个 Java 测试，覆盖 slug 处理、登录限流、初始管理员强密码、旅行日期校验、预算汇总与超支、日记草稿与发布的两套校验、空草稿判空与延迟回收、Blocks JSON 协议与图片外观校验、主题 Token 白名单与贴纸路径白名单、全站主题 AUTO/FIXED 切换、图片上传处理、随手记幂等与当地日期换算，以及空库上的 Flyway 迁移。
 
-- Slug 处理
-- 登录失败限流
-- 生产环境初始管理员强密码约束
-- 旅行日期校验
-- 预算汇总和超支判断
-- 日记草稿与发布的两套校验（草稿允许空标题空正文，发布严格）
-- 空草稿的判空与延迟回收、自动 slug 生成
-- Blocks JSON 协议、扩展区块与图片外观设置校验
-- 主题 Token 白名单与危险颜色值校验
-- 主题贴纸的位置与素材名白名单（路径穿越、像素坐标都会被丢弃）
-- 主题互动只收枚举，脚本类取值退回默认或被剔除
-- 全站主题的 AUTO / FIXED 模式切换
-- 图片上传处理
-- 随手记客户端幂等与当地日期换算
-- 空 PostgreSQL 的 Flyway 迁移（本机有 Docker 时运行；Drone 使用流水线 PostgreSQL 服务强制执行）
+前端有 479 个 Vitest 单测，外加一套 Playwright 端到端测试（iPhone 13 / Pixel 7 / 桌面 Chrome）。E2E 是开发依赖，**不参与 Maven 打包和 Docker 构建**。
 
-前端改动需要完成工程校验并重建随 Jar 发布的产物：
+一条命令跑完 CI 的四步验证：
 
 ~~~bash
-npm ci --prefix frontend
-npm run lint --prefix frontend
-npm run typecheck --prefix frontend
-npm run test:unit --prefix frontend
-npm run build --prefix frontend
-npm run verify:build --prefix frontend
+./verify-ci.sh
 ~~~
 
-移动端布局还有一套 Playwright 端到端测试，覆盖 iPhone 13、Pixel 7 和桌面 Chrome。完整套件是开发依赖，**不参与 Maven 打包和 Docker 镜像构建**；Drone 只在部署前运行标记为 `@smoke` 的 4 条关键路径。日常运行项目仍然不需要 Node.js。完整测试需要一个已经跑起来的应用实例：
-
-~~~bash
-npm ci --prefix frontend && npx --prefix frontend playwright install chromium
-E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=你的密码 npm run e2e --prefix frontend
-~~~
-
-用例位于 `frontend/e2e/`：除独立日记新建、旅行日记兼容、连续写作、刷新恢复、发布和手机端布局外，还覆盖快捷组件弹出软键盘后的光标可见性、图片设置四个 Tab 的底部可达性、下拉关闭后的滚动复位、工作台无横向溢出、预算全部保存，以及“白天整理、晚上追加”仍写入同一篇日记。
+前置条件、只跑某一步、以及排查「本地绿 CI 红」的办法，见 [PROJECT.md](PROJECT.md#验证) 和 [docs/ci-verification.md](docs/ci-verification.md)。
 
 ## 项目结构
 
@@ -428,4 +387,9 @@ src/main/java/com/thx/traveljournal/
 └── trip
 ~~~
 
-日记区块协议、图片设置语义和扩展约定见 [docs/journal-editor.md](docs/journal-editor.md)。
+参与开发前先读这两份：
+
+- [AGENTS.md](AGENTS.md)：通用的开发规范与工作流（跨项目可复用）。
+- [PROJECT.md](PROJECT.md)：本项目的代码地图、领域边界、验证入口和易错点。
+
+专题文档：日记区块协议与编辑器设计见 [docs/journal-editor.md](docs/journal-editor.md)，CI 与本地复现见 [docs/ci-verification.md](docs/ci-verification.md)。

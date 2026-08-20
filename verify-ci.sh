@@ -12,7 +12,7 @@
 # 前置：依赖容器已经起着。这台机器的 Docker 在 WSL 里，Windows 侧没有 docker 命令，
 # 所以带 docker 的命令都得进 WSL 执行（仓库在 WSL 里的路径是 /mnt/d/... 这种形式）：
 #
-#   wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/ideaProject/travel-journal && docker compose -f docker-compose.dev.yml up -d"
+#   wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/IdeaProjects/travel-journal && docker compose -f docker-compose.dev.yml up -d"
 #
 # 容器端口经 WSL 的 localhost 转发，所以下面这些命令连 127.0.0.1 就行。
 #
