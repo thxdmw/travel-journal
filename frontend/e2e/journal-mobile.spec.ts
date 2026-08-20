@@ -392,9 +392,14 @@ test.describe('手机端布局', () => {
             .click()
 
         const dialog = page.locator('.block-config-dialog')
-        const scroller = dialog.locator(
-            '.image-setting-tabs > .el-tabs__content',
-        )
+        /*
+         * 滚的是整张表单，不是 Tab 内容区。
+         *
+         * 手机上这里只留一个滚动区：以前是三层嵌套（表单自己滚、四个 Tab 共用的内容区滚、
+         * 图片选择器还有一层），手指往下一划滚的是哪一层全看落点在哪。现在 Tab 内容区
+         * 按内容自然铺开，scrollTop 恒为 0——对着它设 scrollHeight 什么也不会发生。
+         */
+        const scroller = dialog.locator('.block-config-form')
         const footer = dialog.locator('.el-dialog__footer')
 
         await expect(dialog).toBeVisible()
