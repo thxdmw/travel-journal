@@ -36,13 +36,23 @@ import java.util.regex.Pattern;
  * 因为这些值最终会变成页面上的 CSS 变量。</p>
  */
 public class ThemePresetService {
-    /** 兜底主题，任何环节找不到有效主题时都回落到它 */
-    public static final String DEFAULT_THEME = "travel-classic";
     /**
-     * 允许的基础视觉。曾经还有 sanya-breeze，但它相对 travel-classic 只多提供了一张首页封面图，
-     * 而封面图已经改成每套主题自己上传，于是在 V6 迁移里下线了。
+     * 兜底主题，任何环节找不到有效主题时都回落到它。
+     *
+     * <p>取春日漫游而不是某套「中性」主题：系统预设只剩春夏秋冬，回落也该落在真实存在的
+     * 一套上。正常路径几乎走不到这里——全站主题默认跟随季节，只有季节主题被停用时才回落。</p>
      */
-    private static final Set<String> BASE_THEMES = Set.of(DEFAULT_THEME);
+    public static final String DEFAULT_THEME = "preset-spring";
+    /**
+     * 允许的基础视觉。
+     *
+     * <p>只有 base 一种，它不是一套可选主题，而是所有主题共用的 CSS 变量兜底层
+     * （frontend/src/styles/themes/base.css，挂在 {@code <html data-theme>} 上）。
+     * 曾经这个位置叫 travel-classic，同时还是列表里的「远行手记」，一个 key 两种身份；
+     * V32 把预设下线、底座改名，从此 base 只是底座。sanya-breeze 更早在 V6 就下线了。</p>
+     */
+    public static final String DEFAULT_BASE = "base";
+    private static final Set<String> BASE_THEMES = Set.of(DEFAULT_BASE);
     private static final Pattern HEX_COLOR = Pattern.compile("^#[0-9a-fA-F]{6}$");
     /** Theme Pack V2 的区块比原来多了一倍，上限跟着放宽一点，仍然远小于任何正常主题的体积。 */
     private static final int MAX_DEFINITION_LENGTH = 30_000;
@@ -205,8 +215,11 @@ public class ThemePresetService {
             Token.option("blockStyles", "timeline", "line", "line", "dots", "stamps", "tickets"),
             Token.option("blockStyles", "stats", "plain", "plain", "badge", "ticket"),
             Token.option("blockStyles", "locationCard", "plain", "plain", "postcard", "label", "passport"),
+            // classic 是「不带季节修饰」的默认档，不是某一套主题，所以留着；
+            // retro 随复古主题在 V32 一起下线，对应 CSS 也删了——留着选项而没有渲染，
+            // 选中它只会落进「面板高亮了、页面什么都没变」的空档
             Token.option("blockStyles", "journalMoment", "classic", "classic", "spring", "summer",
-                    "autumn", "winter", "retro"),
+                    "autumn", "winter"),
 
             /*
              * 互动。
@@ -431,7 +444,9 @@ public class ThemePresetService {
                        String previewImageUrl, JsonNode definitionJson, Boolean enabled) {
         if (!StringUtils.hasText(name) || name.trim().length() > 100) throw BusinessException.badRequest("主题名称不能为空且不能超过 100 字");
         if (description != null && description.length() > 500) throw BusinessException.badRequest("主题说明不能超过 500 字");
-        String base = StringUtils.hasText(baseThemeKey) ? baseThemeKey.trim() : DEFAULT_THEME;
+        // 兜底用的是基础视觉 base，不是 DEFAULT_THEME——自从 V32 把预设和底座拆开，
+        // 这两个已经不是同一个值了，混用会让新建主题挂到一个不存在的基础视觉上
+        String base = StringUtils.hasText(baseThemeKey) ? baseThemeKey.trim() : DEFAULT_BASE;
         if (!BASE_THEMES.contains(base)) throw BusinessException.badRequest("基础主题不支持");
         if (previewImageUrl != null && previewImageUrl.length() > 500) throw BusinessException.badRequest("预览图片地址过长");
         preset.setName(name.trim());

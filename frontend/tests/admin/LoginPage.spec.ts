@@ -37,8 +37,8 @@ function mountPage() {
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.login.mockResolvedValue({ id: 1, username: 'admin', displayName: '站长', avatarUrl: null, themeKey: 'travel-classic' })
-    mocks.profile.mockResolvedValue({ displayName: '站长', avatarUrl: null, themeKey: 'travel-classic', theme: null })
+    mocks.login.mockResolvedValue({ id: 1, username: 'admin', displayName: '站长', avatarUrl: null, themeKey: 'preset-spring' })
+    mocks.profile.mockResolvedValue({ displayName: '站长', avatarUrl: null, themeKey: 'preset-spring', theme: null })
     mocks.ensureCsrf.mockResolvedValue({ token: 'test' })
     mocks.replace.mockResolvedValue(undefined)
   })
@@ -52,7 +52,7 @@ describe('LoginPage', () => {
     const user = expect.objectContaining({ displayName: '站长' })
     expect(completeSession).toHaveBeenCalledWith(user)
     expect(rememberSession).toHaveBeenCalledWith(user)
-    expect(applyTheme).toHaveBeenCalledWith('travel-classic')
+    expect(applyTheme).toHaveBeenCalledWith('preset-spring')
     expect(mocks.ensureCsrf).toHaveBeenCalledOnce()
     expect(mocks.replace).toHaveBeenCalledWith('/')
   })

@@ -1,6 +1,6 @@
 import 'element-plus/dist/index.css'
 import 'leaflet/dist/leaflet.css'
-import '@/styles/themes/travel-classic.css'
+import '@/styles/themes/base.css'
 import '@/styles/theme-tokens.css'
 import '@/styles/theme-pack.css'
 import '@/styles/admin-shell.css'

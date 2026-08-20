@@ -477,30 +477,12 @@
   background:color-mix(in srgb,var(--tj-accent) 7%,var(--tj-surface));box-shadow:inset 3px 0 0 var(--tj-accent);
 }
 
-/* 复古：护照页、日期戳和双线框。 */
-[data-block-styles-journal-moment="retro"] .journal-day-opener {
-  padding-right:5.4em;border:3px double var(--tj-accent);border-radius:0;
-  background:repeating-linear-gradient(135deg,transparent 0 12px,color-mix(in srgb,var(--tj-accent) 4%,transparent) 12px 13px),color-mix(in srgb,var(--tj-sand) 22%,var(--tj-surface));
-}
-[data-block-styles-journal-moment="retro"] .journal-day-opener::after {
-  content:"";position:absolute;right:.8em;top:.65em;width:68px;height:68px;opacity:.68;transform:rotate(-9deg);
-  background:url('/assets/themes/stickers/retro-postmark.svg') center/contain no-repeat;
-}
-[data-block-styles-journal-moment="retro"] .journal-chapter { border-top:2px dashed color-mix(in srgb,var(--tj-sand) 65%,var(--tj-accent)); }
-[data-block-styles-journal-moment="retro"] .journal-chapter time {
-  display:grid;place-items:center;min-width:3.5em;min-height:3.5em;padding:.2em;
-  border:2px dashed var(--tj-accent);border-radius:50%;color:var(--tj-accent);transform:rotate(-4deg);
-}
-[data-block-styles-journal-moment="retro"] .journal-day-summary article {
-  border:3px double color-mix(in srgb,var(--tj-sand) 65%,var(--tj-accent));border-radius:0;
-  background:color-mix(in srgb,var(--tj-sand) 22%,var(--tj-surface));
-}
+/* 复古那一档（护照页、日期戳、双线框）随「复古」主题在 V32 一起下线，token 的枚举也去掉了。 */
 
 @media (max-width:680px) {
   [data-block-styles-journal-moment]:not([data-block-styles-journal-moment="classic"]) .journal-day-opener { padding:1em; }
   [data-block-styles-journal-moment="spring"] .journal-day-opener,
-  [data-block-styles-journal-moment="winter"] .journal-day-opener,
-  [data-block-styles-journal-moment="retro"] .journal-day-opener { padding-right:4em; }
+  [data-block-styles-journal-moment="winter"] .journal-day-opener { padding-right:4em; }
 }
 
 /* ========================================================== 首页封面 */

@@ -8,8 +8,8 @@ test.describe('后台登录页 SFC', () => {
       calls.push(path)
       let data: unknown = null
       if (path === '/api/admin/auth/session') data = null
-      else if (path === '/api/admin/auth/login') data = { id: 1, username: 'admin', displayName: '测试站长', avatarUrl: null, themeKey: 'travel-classic' }
-      else if (path === '/api/public/profile') data = { displayName: '测试站长', avatarUrl: null, themeKey: 'travel-classic', theme: null }
+      else if (path === '/api/admin/auth/login') data = { id: 1, username: 'admin', displayName: '测试站长', avatarUrl: null, themeKey: 'preset-spring' }
+      else if (path === '/api/public/profile') data = { displayName: '测试站长', avatarUrl: null, themeKey: 'preset-spring', theme: null }
       else if (path === '/api/public/csrf') data = { token: 'test' }
       else if (path === '/api/admin/trips') data = { items: [], page: 1, pageSize: 100, total: 0, totalPages: 0 }
       else if (path === '/api/admin/journals') data = { items: [], page: 1, pageSize: 100, total: 0, totalPages: 0 }

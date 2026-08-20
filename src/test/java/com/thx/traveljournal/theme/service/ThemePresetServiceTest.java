@@ -39,7 +39,7 @@ class ThemePresetServiceTest {
                  "typography":{"bodySize":30},"script":"alert(1)"}
                 """);
 
-        var result = service.create("我的主题", "说明", "travel-classic", null, definition, true);
+        var result = service.create("我的主题", "说明", "base", null, definition, true);
 
         assertEquals(9L, result.id());
         assertEquals("#F7F2E8", result.definitionJson().path("colors").path("background").asText());
@@ -66,7 +66,7 @@ class ThemePresetServiceTest {
                   {"asset":"summer-wave","area":"footer"}]}}
                 """);
 
-        var result = service.create("贴纸主题", null, "travel-classic", null, definition, true);
+        var result = service.create("贴纸主题", null, "base", null, definition, true);
 
         var items = result.definitionJson().path("stickers").path("items");
         assertEquals(2, items.size());
@@ -82,7 +82,7 @@ class ThemePresetServiceTest {
                                  "onclick":"steal()"}}
                 """);
 
-        var result = service.create("互动主题", null, "travel-classic", null, definition, true);
+        var result = service.create("互动主题", null, "base", null, definition, true);
 
         var interactions = result.definitionJson().path("interactions");
         assertEquals("pop", interactions.path("stickerClick").asText());
@@ -97,13 +97,13 @@ class ThemePresetServiceTest {
                 "\"colors\":{\"background\":\"url(javascript:alert(1))\"}}" );
 
         assertThrows(BusinessException.class,
-                () -> service.create("危险主题", null, "travel-classic", null, definition, true));
+                () -> service.create("危险主题", null, "base", null, definition, true));
         verify(mapper, never()).insert(any(ThemePreset.class));
     }
 
     /** 造一份和真实 builtin 种子数据同构的官方 definitionJson：全部 SCHEMA 字段都被填满默认值。 */
     private JsonNode officialBaseline(String overrides) throws Exception {
-        return service.create("官方基线", null, "travel-classic", null, objectMapper.readTree(overrides), true)
+        return service.create("官方基线", null, "base", null, objectMapper.readTree(overrides), true)
                 .definitionJson();
     }
 
@@ -113,7 +113,7 @@ class ThemePresetServiceTest {
         preset.setThemeKey("preset-summer");
         preset.setName("盛夏出逃");
         preset.setDescription("官方预设");
-        preset.setBaseThemeKey("travel-classic");
+        preset.setBaseThemeKey("base");
         preset.setBuiltin(true);
         preset.setEnabled(true);
         preset.setVersion(3);
@@ -135,7 +135,7 @@ class ThemePresetServiceTest {
         ObjectNode submitted = official.deepCopy();
         ((ObjectNode) submitted.get("colors")).put("accent", "#EE873F");
 
-        var result = service.update(5L, "改名字也不会生效", "改说明也不会生效", "travel-classic", null, submitted, true);
+        var result = service.update(5L, "改名字也不会生效", "改说明也不会生效", "base", null, submitted, true);
 
         assertEquals("#2E9BC9", preset.getDefinitionJson().path("colors").path("accent").asText(),
                 "官方 definitionJson 不能被写回");
@@ -165,7 +165,7 @@ class ThemePresetServiceTest {
                  "card":{"style":"border","opacity":1}}
                 """);
 
-        var result = service.update(5L, "盛夏出逃", null, "travel-classic", null,
+        var result = service.update(5L, "盛夏出逃", null, "base", null,
                 submitted, true, java.util.List.of("colors.accent"));
 
         assertEquals("#EE873F", result.overrideJson().path("colors").path("accent").asText());
@@ -182,7 +182,7 @@ class ThemePresetServiceTest {
         ThemePreset preset = builtinPreset(5L, official);
         when(mapper.selectById(5L)).thenReturn(preset);
 
-        var result = service.update(5L, "无所谓", null, "travel-classic", null, official.deepCopy(), true);
+        var result = service.update(5L, "无所谓", null, "base", null, official.deepCopy(), true);
 
         assertNull(preset.getOverrideJson());
         assertEquals(0, result.customizedCount());
@@ -195,7 +195,7 @@ class ThemePresetServiceTest {
         preset.setId(11L);
         preset.setThemeKey("custom-abc123");
         preset.setName("旧名字");
-        preset.setBaseThemeKey("travel-classic");
+        preset.setBaseThemeKey("base");
         preset.setBuiltin(false);
         preset.setEnabled(true);
         preset.setVersion(1);
@@ -203,7 +203,7 @@ class ThemePresetServiceTest {
         when(mapper.selectById(11L)).thenReturn(preset);
 
         var submitted = objectMapper.readTree("{\"colors\":{\"accent\":\"#EE873F\"}}");
-        var result = service.update(11L, "新名字", "新说明", "travel-classic", null, submitted, true);
+        var result = service.update(11L, "新名字", "新说明", "base", null, submitted, true);
 
         assertEquals("新名字", result.name());
         assertEquals("#EE873F", preset.getDefinitionJson().path("colors").path("accent").asText());

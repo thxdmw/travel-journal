@@ -13,32 +13,32 @@ beforeEach(() => {
 
 const withDefinition = (definitionJson: ThemeDefinition) => ({
   themeKey: 'custom',
-  baseThemeKey: 'travel-classic',
+  baseThemeKey: 'base',
   definitionJson,
 })
 
 describe('normalize', () => {
   it('空值退回基础主题', () => {
     expect(normalize(null)).toEqual({
-      themeKey: 'travel-classic',
-      baseThemeKey: 'travel-classic',
+      themeKey: 'base',
+      baseThemeKey: 'base',
       definitionJson: {},
     })
   })
 
   it('字符串是已知基础视觉时直接用它', () => {
-    expect(normalize('travel-classic')).toEqual({
-      themeKey: 'travel-classic',
-      baseThemeKey: 'travel-classic',
+    expect(normalize('base')).toEqual({
+      themeKey: 'base',
+      baseThemeKey: 'base',
       definitionJson: {},
     })
   })
 
   it('字符串是自定义主题时基础视觉退回默认', () => {
-    // 自定义主题的 key 不在 supportedBases 里，视觉底子仍是 travel-classic
+    // 自定义主题的 key 不在 supportedBases 里，视觉底子仍是 base
     expect(normalize('my-autumn')).toEqual({
       themeKey: 'my-autumn',
-      baseThemeKey: 'travel-classic',
+      baseThemeKey: 'base',
       definitionJson: {},
     })
   })
@@ -46,7 +46,7 @@ describe('normalize', () => {
   it('对象上不认识的 baseThemeKey 退回默认', () => {
     // sanya-breeze 在 V6 迁移里下线了，库里可能还有历史数据指着它
     const theme = normalize({ themeKey: 'x', baseThemeKey: 'sanya-breeze' })
-    expect(theme.baseThemeKey).toBe('travel-classic')
+    expect(theme.baseThemeKey).toBe('base')
   })
 
   it('对象缺 definitionJson 时补成空对象', () => {
@@ -138,7 +138,7 @@ describe('apply：切换主题不留残留', () => {
     apply(withDefinition({ card: { blur: 12 } }))
     expect(root().style.getPropertyValue('--tj-card-blur')).toBe('12px')
 
-    apply('travel-classic')
+    apply('base')
     expect(root().style.getPropertyValue('--tj-card-blur')).toBe('')
   })
 
@@ -151,7 +151,7 @@ describe('apply：切换主题不留残留', () => {
     expect(root().dataset.effectsParticles).toBe('snow')
     expect(root().dataset.cardStyle).toBe('glass')
 
-    apply('travel-classic')
+    apply('base')
     expect(root().dataset.effectsParticles).toBeUndefined()
     expect(root().dataset.cardStyle).toBeUndefined()
   })
@@ -159,7 +159,7 @@ describe('apply：切换主题不留残留', () => {
   it('清理不会误伤前缀同名但更短的属性', () => {
     // dataset.theme / dataset.motion 都是前缀本身，长度相等，不该被删
     apply(withDefinition({ motion: { level: 'lively' } }))
-    expect(root().dataset.theme).toBe('travel-classic')
+    expect(root().dataset.theme).toBe('base')
     expect(root().dataset.motion).toBe('lively')
   })
 })
@@ -197,7 +197,7 @@ describe('apply：持久化与广播', () => {
     expect(localStorage.getItem('travel-theme')).toBe('custom')
     expect(JSON.parse(localStorage.getItem('travel-theme-config') ?? 'null')).toMatchObject({
       themeKey: 'custom',
-      baseThemeKey: 'travel-classic',
+      baseThemeKey: 'base',
     })
   })
 
@@ -241,7 +241,7 @@ describe('stored', () => {
   })
 
   it('什么都没有时给基础主题', () => {
-    expect(stored()).toBe('travel-classic')
+    expect(stored()).toBe('base')
   })
 })
 

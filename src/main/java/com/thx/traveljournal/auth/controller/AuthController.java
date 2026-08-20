@@ -8,6 +8,7 @@ import com.thx.traveljournal.auth.service.LoginAttemptService;
 import com.thx.traveljournal.auth.service.LoginDeviceService;
 import com.thx.traveljournal.common.api.ApiResponse;
 import com.thx.traveljournal.common.exception.BusinessException;
+import com.thx.traveljournal.theme.service.ThemePresetService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -142,7 +143,8 @@ public class AuthController {
     private AdminInfo toInfo(AdminUser user) {
         String avatarUrl = user.getAvatarObjectKey() == null ? null
                 : "/api/public/profile/avatar?v=" + Integer.toUnsignedString(user.getAvatarObjectKey().hashCode());
-        String themeKey = user.getThemeKey() == null ? "travel-classic" : user.getThemeKey();
+        // 没挑过主题（跟随季节）时给兜底主题，前端拿它去 applyTheme
+        String themeKey = user.getThemeKey() == null ? ThemePresetService.DEFAULT_THEME : user.getThemeKey();
         return new AdminInfo(user.getId(), user.getUsername(), user.getDisplayName(), avatarUrl, themeKey);
     }
 

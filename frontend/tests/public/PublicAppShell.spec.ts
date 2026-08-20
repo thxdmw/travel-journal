@@ -23,7 +23,7 @@ function mountShell(overrides: Partial<InstanceType<typeof PublicAppShell>['$pro
 describe('PublicAppShell', () => {
   beforeEach(() => {
     profile.mockReset()
-    profile.mockResolvedValue({ displayName: '小旅', avatarUrl: '/avatar.jpg', themeKey: 'travel-classic', theme: null })
+    profile.mockResolvedValue({ displayName: '小旅', avatarUrl: '/avatar.jpg', themeKey: 'preset-spring', theme: null })
   })
 
   it('加载公开资料并应用站点主题', async () => {
@@ -31,7 +31,7 @@ describe('PublicAppShell', () => {
     await flushPromises()
     expect(wrapper.get('.admin-link').attributes('title')).toBe('小旅 · 管理后台')
     expect(wrapper.get('.admin-link img').attributes('src')).toBe('/avatar.jpg')
-    expect(setSiteTheme).toHaveBeenCalledWith('travel-classic')
+    expect(setSiteTheme).toHaveBeenCalledWith('preset-spring')
     wrapper.unmount()
   })
 

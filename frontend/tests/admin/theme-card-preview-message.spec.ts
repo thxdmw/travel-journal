@@ -9,7 +9,7 @@ function theme(): ThemeView {
     themeKey: 'preset-spring',
     name: '春日漫游',
     description: '春日主题',
-    baseThemeKey: 'travel-classic',
+    baseThemeKey: 'base',
     previewImageUrl: null,
     definitionJson: { colors: { background: '#fff8f3', accent: '#e695a5' } },
     builtin: true,
@@ -32,7 +32,7 @@ describe('主题卡片预览消息', () => {
     expect(() => structuredClone(message)).not.toThrow()
     expect(message.theme).toEqual({
       themeKey: 'preset-spring',
-      baseThemeKey: 'travel-classic',
+      baseThemeKey: 'base',
       definitionJson: { colors: { background: '#fff8f3', accent: '#e695a5' } },
     })
   })

@@ -1,12 +1,18 @@
 import type { FontFamilyName, ThemeColors } from '@/types/theme'
 
 /**
- * 基础视觉目前只剩 travel-classic。原先的 sanya-breeze 相对它只多一张首页封面图，
- * 而封面图已经改成每套主题自己上传，于是在 V6 迁移里下线了。
+ * 基础视觉只有 base 一种。
+ *
+ * 它不是一套可选主题，而是所有主题共用的 CSS 变量兜底层（styles/themes/base.css，
+ * 挂在 `<html data-theme>` 上），主题自己的值由 theme.ts 用行内样式盖上去。
+ *
+ * 这个位置曾经叫 travel-classic，同时还是主题列表里的「远行手记」，一个 key 两种身份，
+ * 「删掉这套主题」和「删掉所有主题的地基」看起来是同一件事。V32 把预设下线、底座改名，
+ * 从此 base 只是底座。sanya-breeze 更早在 V6 就下线了。
  */
-export const SUPPORTED_BASES = ['travel-classic'] as const
+export const SUPPORTED_BASES = ['base'] as const
 
-export const DEFAULT_BASE = 'travel-classic'
+export const DEFAULT_BASE = 'base'
 
 /** colors 区块不走通用映射（值都是十六进制色），单独列出各自的 CSS 变量名。 */
 export const COLOR_VARIABLES: Record<keyof Omit<ThemeColors, 'scheme'>, string> = {

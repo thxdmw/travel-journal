@@ -1,5 +1,14 @@
+/*
+ * 基础视觉：所有主题共用的 CSS 变量兜底层。
+ *
+ * 这不是一套可选主题。theme.ts 把 baseThemeKey 写进 <html data-theme>，实际主题的值
+ * 随后由行内样式盖上去；主题没提供的变量就露出这里的值，所以这一层必须是完整的一套。
+ *
+ * 这些颜色原本属于「远行手记」——那时它一个 key 两种身份，既是列表里的一套预设，
+ * 又是所有主题的地基。V32 把预设下线、底座改名成 base，配色作为兜底值留了下来。
+ */
 :root,
-[data-theme="travel-classic"] {
+[data-theme="base"] {
   --tj-bg: #F7F2E8;
   --tj-surface: #FFFCF6;
   --tj-surface-soft: #F1E7D7;
@@ -43,14 +52,14 @@
 
 /* 自定义主题上传了封面图时，theme.js 会写入 --tj-hero-image 覆盖掉默认图；
    没上传（含系统预设本身）就用这张京都默认图。 */
-[data-theme="travel-classic"] .home-hero-photo {
+[data-theme="base"] .home-hero-photo {
   background-image: var(--tj-hero-image, url('/img/home-hero-kyoto.webp'));
 }
 
 /* 手机上没必要下 1920 那张：这是旅行站，蜂窝网络访问占比高，
    960 宽的版本只有 105KB，视觉上看不出差别。 */
 @media (max-width: 768px) {
-  [data-theme="travel-classic"] .home-hero-photo {
+  [data-theme="base"] .home-hero-photo {
     background-image: var(--tj-hero-image, url('/img/home-hero-kyoto-960.webp'));
   }
 }

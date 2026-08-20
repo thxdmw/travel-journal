@@ -30,7 +30,7 @@ class AdminProfileServiceTest {
         user = new AdminUser();
         user.setId(1L);
         user.setUsername("admin");
-        user.setThemeKey("travel-classic");
+        user.setThemeKey("preset-spring");
         when(mapper.selectOne(any())).thenReturn(user);
     }
 
@@ -38,9 +38,9 @@ class AdminProfileServiceTest {
     void shouldUpdateSupportedTheme() {
         user.setThemeKey("something-else");
 
-        AdminUser updated = service.updateTheme("admin", "travel-classic", null);
+        AdminUser updated = service.updateTheme("admin", "preset-spring", null);
 
-        assertThat(updated.getThemeKey()).isEqualTo("travel-classic");
+        assertThat(updated.getThemeKey()).isEqualTo("preset-spring");
         // 手动挑了一套就该锁住，之后季节更替不再改动它
         assertThat(updated.getThemeMode()).isEqualTo("FIXED");
         verify(mapper).updateById(user);
@@ -56,13 +56,13 @@ class AdminProfileServiceTest {
     /** 切回跟随季节时不该要求也不该校验 themeKey——那时用哪套由日期决定。 */
     @Test
     void shouldSwitchToSeasonalModeWithoutThemeKey() {
-        user.setThemeKey("travel-classic");
+        user.setThemeKey("preset-spring");
 
         AdminUser updated = service.updateTheme("admin", null, "AUTO");
 
         assertThat(updated.getThemeMode()).isEqualTo("AUTO");
         // 上次挑的那套留着，之后切回固定模式还用得上
-        assertThat(updated.getThemeKey()).isEqualTo("travel-classic");
+        assertThat(updated.getThemeKey()).isEqualTo("preset-spring");
         verify(mapper).updateById(user);
     }
 

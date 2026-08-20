@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const PHOTO = '/img/theme-travel-classic-preview.png';
+const PHOTO = '/img/home-hero-kyoto-960.webp';
 
 /*
  * 主题贴纸曾经用真实 <img> 插入日记正文，导致灯箱的收图逻辑把贴纸也当成照片。
@@ -28,7 +28,7 @@ test.describe('主题贴纸与日记照片灯箱隔离', () => {
           },
           media: [], route: [], previousSlug: null, nextSlug: null,
           theme: {
-            themeKey: 'e2e-sticker-theme', baseThemeKey: 'travel-classic',
+            themeKey: 'e2e-sticker-theme', baseThemeKey: 'base',
             definitionJson: {
               stickers: { density: 'medium', items: [{ asset: 'classic-compass', area: 'image-corner' }] },
               interactions: { stickerClick: 'pop' },

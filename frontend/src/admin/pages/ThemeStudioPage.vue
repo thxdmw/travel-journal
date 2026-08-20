@@ -4,6 +4,7 @@ import { authApi } from '@/api/auth'
 import { themeApi, type SiteThemeState, type ThemeRequest } from '@/api/theme'
 import { createThemeCardPreviewMessage } from '@/admin/theme-card-preview-message'
 import { apply } from '@/theme/theme'
+import { DEFAULT_BASE } from '@/theme/tokens'
 import type { AdminInfo } from '@/types/auth'
 import type { JsonObject, JsonValue } from '@/types/common'
 import type { ThemeView } from '@/types/theme'
@@ -58,7 +59,7 @@ let originalSnapshot = ''
 let pendingHighlight: string | null = null
 let previewObserver: ResizeObserver | null = null
 
-const form = reactive<ThemeForm>({ name: '', description: '', baseThemeKey: 'travel-classic', previewImageUrl: '', enabled: true, definitionJson: deep(defaultDefinition) })
+const form = reactive<ThemeForm>({ name: '', description: '', baseThemeKey: DEFAULT_BASE, previewImageUrl: '', enabled: true, definitionJson: deep(defaultDefinition) })
 const previewViewports = { desktop: { width: 1280, height: null }, mobile: { width: 390, height: 844 } } as const
 const previewBox = reactive<PreviewBox>({ scale: 1, frameWidth: 1280, frameHeight: 800, stageWidth: 1280, stageHeight: 800 })
 const previewSrc = computed(() => `/?theme-preview=1&scene=${previewScene.value}#/theme-preview-scene`)
@@ -164,7 +165,7 @@ function snapshot() { return JSON.stringify({ name: form.name, description: form
 function assignSnapshot(value: string | Snapshot) {
   restoring = true
   const data = typeof value === 'string' ? JSON.parse(value) as Snapshot : value
-  Object.assign(form, { name: data.name, description: data.description || '', baseThemeKey: data.baseThemeKey || 'travel-classic', previewImageUrl: data.previewImageUrl || '', enabled: data.enabled !== false, definitionJson: completeDefinition(data.definitionJson) })
+  Object.assign(form, { name: data.name, description: data.description || '', baseThemeKey: data.baseThemeKey || DEFAULT_BASE, previewImageUrl: data.previewImageUrl || '', enabled: data.enabled !== false, definitionJson: completeDefinition(data.definitionJson) })
   void nextTick(() => { restoring = false; postPreview() })
 }
 function seedHistory() { originalSnapshot = snapshot(); history.value = [originalSnapshot]; historyIndex.value = 0 }
@@ -190,7 +191,7 @@ function changedPaths() {
 function openEditor(item?: ThemeView | null, forceNew = false) {
   const source = item || themes.value.find(theme => theme.themeKey === activeThemeKey.value) || themes.value[0]
   editing.value = forceNew ? null : source?.id || null; editingBuiltin.value = !forceNew && Boolean(source?.builtin); editingSource.value = forceNew ? null : source || null
-  assignSnapshot({ name: forceNew ? '我的旅行主题' : source?.name || '我的旅行主题', description: source?.description || '', baseThemeKey: source?.baseThemeKey || 'travel-classic', previewImageUrl: source?.previewImageUrl || '', enabled: true, definitionJson: completeDefinition(source?.definitionJson) })
+  assignSnapshot({ name: forceNew ? '我的旅行主题' : source?.name || '我的旅行主题', description: source?.description || '', baseThemeKey: source?.baseThemeKey || DEFAULT_BASE, previewImageUrl: source?.previewImageUrl || '', enabled: true, definitionJson: completeDefinition(source?.definitionJson) })
   editor.value = true; void nextTick(() => { seedHistory(); postPreview() })
 }
 async function saveTheme() {
@@ -264,7 +265,7 @@ async function imported(event: Event) {
   try {
     const value = JSON.parse(await file.text()) as Partial<Snapshot>
     if (!value.definitionJson) throw new Error('文件中缺少 definitionJson')
-    assignSnapshot({ name: `${value.name || '导入的主题'} · 导入`, description: value.description || '', baseThemeKey: value.baseThemeKey || 'travel-classic', previewImageUrl: value.previewImageUrl || '', enabled: true, definitionJson: completeDefinition(value.definitionJson) })
+    assignSnapshot({ name: `${value.name || '导入的主题'} · 导入`, description: value.description || '', baseThemeKey: value.baseThemeKey || DEFAULT_BASE, previewImageUrl: value.previewImageUrl || '', enabled: true, definitionJson: completeDefinition(value.definitionJson) })
     editing.value = null; editingBuiltin.value = false; editor.value = true; void nextTick(() => { seedHistory(); postPreview() })
   } catch (error) { props.fail(new Error(`导入失败：${error instanceof Error ? error.message : '文件格式错误'}`)) }
 }

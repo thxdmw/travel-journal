@@ -4,7 +4,7 @@ const detail = {
   journal: { id: 1, title: '京都的第三个清晨', slug: 'e2e-journal', excerpt: '清晨散步', occurredOn: '2026-04-03', tripTitle: '关西春日', tripSlug: 'kansai', cityName: '京都', coverUrl: null },
   contentJson: { schemaVersion: 1, blocks: [
     { id: 'paragraph', type: 'paragraph', version: 1, title: '', data: { text: '沿着鸭川慢慢走。' }, settings: {} },
-    { id: 'image', type: 'image', version: 1, title: '', data: { previewUrl: '/img/theme-travel-classic-preview.png', caption: '鸭川清晨' }, settings: {} },
+    { id: 'image', type: 'image', version: 1, title: '', data: { previewUrl: '/img/home-hero-kyoto-960.webp', caption: '鸭川清晨' }, settings: {} },
   ] },
   media: [], previousSlug: 'previous', nextSlug: 'next', theme: null,
   route: [{ order: 1, time: '07:30', title: '鸭川', note: '散步', latitude: 35.02, longitude: 135.77, coordinateSystem: 'WGS84', photos: [], source: 'moment' }],

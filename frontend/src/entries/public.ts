@@ -6,7 +6,7 @@
  * 后台仍然照常使用，那是 admin.ts 的事。
  */
 import 'leaflet/dist/leaflet.css'
-import '@/styles/themes/travel-classic.css'
+import '@/styles/themes/base.css'
 import '@/styles/public.css'
 import '@/styles/travel-map.css'
 import '@/styles/theme-tokens.css'
@@ -18,6 +18,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { destroy as destroyMap, create as createMap } from '@/map'
 import { apply, mapTokens, stored } from '@/theme/theme'
+import { DEFAULT_BASE } from '@/theme/tokens'
 import MapProviderSwitch from '@/public/components/MapProviderSwitch.vue'
 import JournalCard from '@/public/components/JournalCard.vue'
 import JournalsPage from '@/public/pages/JournalsPage.vue'
@@ -40,7 +41,8 @@ const appRoot = document.querySelector<HTMLElement>('#app')
 if (!appRoot) throw new Error('公开站缺少 #app 根节点')
 
 const isThemePreview = new URLSearchParams(location.search).has('theme-preview')
-let siteTheme: ThemeInput = isThemePreview ? 'travel-classic' : stored()
+// 主题预览页从裸底座起步，预览的主题随后由父窗口用 postMessage 送进来
+let siteTheme: ThemeInput = isThemePreview ? DEFAULT_BASE : stored()
 let scopedTheme: ThemeInput = null
 
 function setSiteTheme(theme: ThemeInput) {

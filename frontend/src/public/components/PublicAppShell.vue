@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { publicApi } from '@/api/public'
 import type { PublicProfile } from '@/types/auth'
+import { DEFAULT_BASE } from '@/theme/tokens'
 import type { ThemeView } from '@/types/theme'
 
 export interface PublicAppShellDeps {
@@ -13,7 +14,7 @@ export interface PublicAppShellDeps {
 
 const props = defineProps<PublicAppShellDeps>()
 const menu = ref(false)
-const profile = ref<PublicProfile>({ displayName: '旅行者', avatarUrl: null, themeKey: 'travel-classic', theme: null })
+const profile = ref<PublicProfile>({ displayName: '旅行者', avatarUrl: null, themeKey: DEFAULT_BASE, theme: null })
 
 watch(() => props.currentPath(), () => { menu.value = false })
 

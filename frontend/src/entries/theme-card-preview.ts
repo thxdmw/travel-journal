@@ -1,4 +1,4 @@
-import '@/styles/themes/travel-classic.css'
+import '@/styles/themes/base.css'
 import '@/styles/theme-tokens.css'
 import '@/styles/public.css'
 import '@/styles/journal-blocks.css'
@@ -6,6 +6,7 @@ import '@/styles/theme-pack.css'
 import '@/styles/theme-card-preview.css'
 import { render } from '@/journal/render'
 import { apply, current } from '@/theme/theme'
+import { DEFAULT_BASE } from '@/theme/tokens'
 import { install as installThemeEffects, sync as syncThemeEffects } from '@/effects/runtime'
 import type { ThemeInput } from '@/types/theme'
 
@@ -31,7 +32,7 @@ function applyPreview(theme: ThemeInput): void {
   syncThemeEffects()
 }
 
-applyPreview('travel-classic')
+applyPreview(DEFAULT_BASE)
 installThemeEffects({ currentDefinition: () => current()?.definitionJson })
 
 window.addEventListener('message', event => {
