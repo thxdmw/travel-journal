@@ -1,0 +1,32 @@
+/*
+ * 地图覆盖物的样式：标记、信息窗、信息窗里的照片。
+ *
+ * 这些 DOM 不是模板写出来的，是 map/ 和 route/ 在运行时创建的，所以凡是会建图的入口都得
+ * 带上这个文件——它以前只在 public.css 里，而后台不引 public.css，于是随手记的「回放这一天」
+ * 里信息窗完全没样式：照片按原始像素铺开，直接把整张地图盖住，标记也退回成默认方块。
+ *
+ * 后台不需要的是公开端那套失败提示和 Provider 切换 UI（.map-load-message、
+ * .map-provider-switch 等），那些仍留在 public.css。
+ */
+
+/* Leaflet 会给 divIcon 套一层带底色和边框的壳，这里把它清掉，只留我们自己画的圆点 */
+.travel-map-marker { background:transparent!important; border:0!important; }
+.city-marker { display:block; width:20px; height:20px; border:4px solid #fff; border-radius:50%; background:var(--tj-accent); box-shadow:0 2px 9px rgba(70,43,31,.42); }
+.route-marker { display:grid; width:28px; height:28px; place-items:center; border:3px solid #fff; border-radius:50%; color:#fff; background:var(--tj-accent); box-shadow:0 2px 9px rgba(70,43,31,.42); font:700 12px var(--tj-sans); }
+/* 回放走到哪一站，哪一站放大并亮一圈 */
+.travel-map-marker .route-marker { transition:transform .25s ease, box-shadow .25s ease; }
+.travel-map-marker.is-active .route-marker,.route-marker.is-active { transform:scale(1.35); box-shadow:0 0 0 6px color-mix(in srgb,var(--tj-accent) 30%,transparent); }
+
+.travel-map-popup { min-width:170px; color:var(--tj-text); font-family:var(--tj-sans); }
+.travel-map-popup strong { display:block; margin-bottom:5px; color:var(--tj-primary); font-size:14px; }
+.travel-map-popup p { margin:5px 0; color:var(--tj-muted); font-size:12px; line-height:1.5; }
+.travel-map-popup small { display:block; margin:5px 0; color:var(--tj-muted); }
+.travel-map-popup a { display:block; margin-top:6px; color:var(--tj-accent); }
+/*
+ * 信息窗里的照片是缩略图，必须显式定死尺寸。
+ *
+ * 少了这两行，img 就按 thumbnailUrl 的原始像素撑开，一张就能盖住整张地图——位置点和路线
+ * 全看不见了。宽高写死加 object-fit:cover，几张并排也只占一行。
+ */
+.day-route-popup .day-route-shots { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.day-route-popup .day-route-shots img { width:52px; height:52px; object-fit:cover; border-radius:6px; }

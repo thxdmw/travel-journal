@@ -247,6 +247,14 @@ async function toggleRoute(group: MomentGroup) {
   if (!routePoints.value.length) { routeDay.value = ''; props.info('这一天的随手记还没有位置信息，记的时候点一下「位置」就有了'); return }
   await nextTick(); const map = await simpleMap(routeEl.value)
   if (token !== routeToken) { map?.destroy(); return }
+  /*
+   * 建不出地图要说一声。
+   *
+   * simpleMap 的失败路径全是静默的 return null（依赖没接上、容器没拿到、地图库加载失败
+   * 都算），本意是「后台失败就是没有地图，不打扰站主」。可这样一来「点了没反应」和
+   * 「这天没有位置」在界面上长得一模一样，入口注入漏接了两轮都没人发现。
+   */
+  if (!map) { routeDay.value = ''; props.warning('地图没能加载出来，检查网络后再试'); return }
   routeMap = map
   routeControl = render(routeMap, routePoints.value, { source: routePoints.value[0]?.source || undefined, onState: state => { replaying.value = state.playing; replayIndex.value = state.index } })
 }

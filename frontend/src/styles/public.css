@@ -72,9 +72,6 @@ button, input, textarea { font: inherit; }
 /* 地图 Provider 加载失败时的提示：不静默换成另一个，让用户自己决定要不要试试看 */
 .map-retry-btn { padding:7px 16px; border:1px solid var(--tj-primary); border-radius:99px; color:var(--tj-primary); background:transparent; cursor:pointer; }
 .map-retry-btn:hover { color:#fff; background:var(--tj-primary); }
-.travel-map-marker { background:transparent!important; border:0!important; }
-.city-marker { display:block; width:20px; height:20px; border:4px solid #fff; border-radius:50%; background:var(--tj-accent); box-shadow:0 2px 9px rgba(70,43,31,.42); }
-.route-marker { display:grid; width:28px; height:28px; place-items:center; border:3px solid #fff; border-radius:50%; color:#fff; background:var(--tj-accent); box-shadow:0 2px 9px rgba(70,43,31,.42); font:700 12px var(--tj-sans); }
 /* 主题 Studio 的内容只负责展示，不允许卡片或伪导航跳进真实业务路由。 */
 .theme-preview-scene a,.theme-preview-header span { cursor:default; }
 .theme-preview-scene .journal-card { pointer-events:none; }
@@ -91,11 +88,6 @@ button, input, textarea { font: inherit; }
 .map-provider-switch button { padding:4px 12px; border:1px solid var(--tj-border); border-radius:99px; color:var(--tj-muted); background:var(--tj-surface); font-size:12px; cursor:pointer; }
 .map-provider-switch button.active { color:#fff; border-color:var(--tj-primary); background:var(--tj-primary); }
 .map-provider-switch button:disabled { opacity:.42; cursor:not-allowed; }
-.travel-map-popup { min-width:170px; color:var(--tj-text); font-family:var(--tj-sans); }
-.travel-map-popup strong { display:block; margin-bottom:5px; color:var(--tj-primary); font-size:14px; }
-.travel-map-popup p { margin:5px 0; color:var(--tj-muted); font-size:12px; line-height:1.5; }
-.travel-map-popup small { display:block; margin:5px 0; color:var(--tj-muted); }
-.travel-map-popup a { display:block; margin-top:6px; color:var(--tj-accent); }
 .map-filter-bar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px; padding:14px; border:1px solid var(--tj-border); border-radius:var(--tj-radius-small); background:var(--tj-surface); }
 .map-filter-bar select { min-width:140px; height:38px; padding:0 34px 0 12px; border:1px solid var(--tj-border); border-radius:8px; color:var(--tj-text); background:var(--tj-surface); }
 .map-filter-bar label { display:flex; align-items:center; gap:7px; color:var(--tj-muted); font-size:13px; }
@@ -307,10 +299,6 @@ button, input, textarea { font: inherit; }
 .day-route-play.playing { color:#fff; background:var(--tj-accent); }
 .day-route-map { height:min(58vh,420px); border:1px solid var(--tj-border); border-radius:var(--tj-radius); overflow:hidden; }
 /* 回放时当前那个点放大并亮起来，视线跟着走 */
-.travel-map-marker .route-marker { transition:transform .25s ease, box-shadow .25s ease; }
-.travel-map-marker.is-active .route-marker,.route-marker.is-active { transform:scale(1.35); box-shadow:0 0 0 6px color-mix(in srgb,var(--tj-accent) 30%,transparent); }
-.day-route-popup .day-route-shots { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
-.day-route-popup .day-route-shots img { width:52px; height:52px; object-fit:cover; border-radius:6px; }
 .day-route-list { margin:16px 0 0; padding:0; list-style:none; display:grid; gap:2px; counter-reset:route; }
 .day-route-list li { display:grid; grid-template-columns:56px auto 1fr; align-items:baseline; gap:10px;
   padding:8px 10px; border-radius:8px; transition:background .2s ease; }

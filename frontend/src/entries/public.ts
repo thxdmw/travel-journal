@@ -8,6 +8,7 @@
 import 'leaflet/dist/leaflet.css'
 import '@/styles/themes/travel-classic.css'
 import '@/styles/public.css'
+import '@/styles/travel-map.css'
 import '@/styles/theme-tokens.css'
 import '@/styles/theme-pack.css'
 import '@/styles/journal-media.css'

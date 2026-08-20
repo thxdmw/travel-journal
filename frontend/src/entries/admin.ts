@@ -11,6 +11,8 @@ import '@/styles/journal-editor-mobile.css'
 import '@/styles/journal-media.css'
 import '@/styles/journal-blocks.css'
 import '@/styles/moments.css'
+/* 后台也会建图（随手记回放、旅行工作台的地点），标记和信息窗的样式跟着走 */
+import '@/styles/travel-map.css'
 import '@/styles/custom-cursor.css'
 import { createApp, reactive } from 'vue'
 import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
@@ -31,7 +33,9 @@ import { createTemplateManagerPage } from '@/admin/factories/template-manager'
 import { createThemeStudioPage } from '@/admin/factories/theme-studio'
 import { createTripsPage } from '@/admin/factories/trips'
 import { createTripWorkspacePage } from '@/admin/factories/trip-workspace'
-import { apply, stored } from '@/theme/theme'
+import { create as createMap } from '@/map'
+import { setSimpleMapDeps } from '@/route/simple-map'
+import { apply, mapTokens, stored } from '@/theme/theme'
 import type { AdminInfo } from '@/types/auth'
 import { installCustomCursor } from '@/enhancements/custom-cursor'
 import { installPwa } from '@/enhancements/pwa'
@@ -66,6 +70,15 @@ async function loadSession(){
 function updateUser(user:AdminInfo){session.user=user}
 apply(stored())
 installThemeEffects({currentDefinition:()=>current()?.definitionJson})
+/*
+ * 后台简易地图的依赖注入。
+ *
+ * route/simple-map 不直接 import 地图模块，是为了避免两个入口各自打包出两份实例——那样
+ * 同一个容器的串行保护会失效。代价是必须有人在入口把依赖接上，而这一步以前漏了：
+ * simpleMap 第一行 `if (!element || !deps) return null` 直接返回，调用方那层 catch 又是
+ * 「后台失败就是没有地图，不弹提示」，于是随手记点「看路线」什么都不发生，控制台也干净。
+ */
+setSimpleMapDeps({create:(element,options)=>createMap(element,options),mapStyle:()=>mapTokens().style})
 
 const pages={
   Login:createLoginPage({completeSession:user=>{session.user=user;session.checked=true;session.offline=false},rememberSession,applyTheme:apply,fail}),

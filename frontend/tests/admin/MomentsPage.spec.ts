@@ -82,6 +82,28 @@ describe('MomentsPage', () => {
     expect((container as HTMLElement).className).toContain('moment-route-map')
   })
 
+  it('建不出地图要说一声，别和「这天没有位置」长得一样', async () => {
+    /*
+     * simpleMap 的失败路径全是静默的 return null：依赖没接上、容器没拿到、地图库加载失败
+     * 都算。界面上「点了没反应」和「这天没有位置信息」看起来完全一致，入口漏接了两轮都没
+     * 人发现——所以这里必须留下痕迹。
+     */
+    mocks.route.mockResolvedValue([
+      { latitude: 30.05, longitude: 101.96, occurredAt: '2026-10-02T08:30:00+08:00', source: 'GPS' },
+    ])
+    mocks.simpleMap.mockResolvedValue(null)
+    const { wrapper, warning } = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.moment-day header button')[0]?.trigger('click')
+    await flushPromises()
+
+    expect(warning).toHaveBeenCalled()
+    // 路线区收回去，按钮回到「看路线」，不要留一块空白占着
+    expect(wrapper.find('.moment-route').exists()).toBe(false)
+    expect(mocks.renderRoute).not.toHaveBeenCalled()
+  })
+
   it('这一天没有位置信息时不建图，只给一句说明', async () => {
     mocks.route.mockResolvedValue([])
     const { wrapper, info } = mountPage()
