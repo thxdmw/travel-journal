@@ -41,7 +41,7 @@ interface EditorData {
 interface EditorSettings {
   [key: string]: unknown
   style: string; align: string; layout: string; size: string; columns: number; ratio: string
-  frame: string; radius: string; tone: string; effect: string; captionPos: string; dataBinding: DataBinding
+  frame: string; radius: string; effect: string; captionPos: string; dataBinding: DataBinding
 }
 interface EditorBlock extends Omit<JournalBlock, 'data' | 'settings'> { data: EditorData; settings: EditorSettings }
 interface EditorDocument extends Omit<JournalDocument, 'blocks'> { blocks: EditorBlock[] }
@@ -84,19 +84,21 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
    * 后台其他几个页面（旅行、工作台、日记元信息）早就是这么做的，这里补齐。
    */
   const allowTextInput=!window.matchMedia?.('(pointer: coarse)').matches;
-  const IMAGE_SIZE_OPTIONS=[['','跟随主题'],['small','小图 42%'],['medium','中等 68%'],['large','大图 90%'],
-    ['full','正文宽度'],['bleed','通栏出血']] as const;
+  /*
+   * 一个「跟随主题」都没有：打开设置时空值直接补成具体值并选中（见 fillMissingImageSettings）。
+   * 作者看到的就是这张图实际长什么样，不用再在脑子里把「跟随主题」翻译成一个宽度。
+   * 主题外观里那些图片默认版式已经整组撤掉了，这里也就没有可跟随的东西。
+   */
+  const IMAGE_SIZE_OPTIONS=[['small','小图 42%'],['medium','中等 68%'],['large','大图 90%'],
+    ['full','正文宽度 100%']] as const;
   const IMAGE_ALIGN_OPTIONS=[['left','靠左'],['center','居中'],['right','靠右']] as const;
-  const GALLERY_LAYOUT_OPTIONS=[['','跟随主题'],['grid','规则网格'],['row','横向并排'],['masonry','瀑布流'],
-    ['mosaic','主图拼贴'],['magazine','杂志版'],['story','故事流'],['staggered','错落画廊'],['carousel','轮播'],
-    ['filmstrip','胶片条'],['compare','前后对比']] as const;
+  const GALLERY_LAYOUT_OPTIONS=[['grid','规则网格'],['row','横向并排'],
+    ['mosaic','主图拼贴'],['carousel','轮播'],['filmstrip','胶片条'],['compare','前后对比']] as const;
   const COLUMN_OPTIONS=[[1,'1 列'],[2,'2 列'],[3,'3 列'],[4,'4 列'],[5,'5 列'],[6,'6 列']] as const;
-  const IMAGE_FRAME_OPTIONS=[['','跟随主题'],['none','无边框'],['line','细线描边'],['paper','相纸白边'],
-    ['float','浮起阴影'],['polaroid','宝丽来'],['tape','手账胶带'],['film','胶片边框'],['postcard','明信片边框']] as const;
-  const IMAGE_RADIUS_OPTIONS=[['','跟随主题'],['none','直角'],['soft','小圆角'],['round','大圆角']] as const;
-  const IMAGE_TONE_OPTIONS=[['','保留原图'],['warm','暖色'],['vintage','复古'],['mono','黑白']] as const;
+  const IMAGE_FRAME_OPTIONS=[['none','无边框'],['tape','手账胶带'],['film','胶片边框']] as const;
+  const IMAGE_RADIUS_OPTIONS=[['none','直角'],['soft','小圆角'],['round','大圆角']] as const;
   const IMAGE_EFFECT_OPTIONS=[['','无'],['lift','轻轻浮起'],['zoom','轻微放大'],['tilt','手账倾斜']] as const;
-  const CAPTION_POS_OPTIONS=[['','下方居中'],['left','下方靠左'],['overlay','覆盖底部'],['side','图片右侧'],
+  const CAPTION_POS_OPTIONS=[['','下方居中'],['left','下方靠左'],['side','图片右侧'],
     ['none','隐藏图注']] as const;
   /** 比例那一组的第一项在单图和图片组下说法不同，其余相同。 */
   const ratioOptions=computed(()=>[
@@ -166,10 +168,10 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         if(compactLayout.value&&!effectOpen.value)return '';
         return JB.renderDocument(effectDocument.value,props.media,{sizes:ARTICLE_PREVIEW_SIZES});
       });
-      const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&['grid','masonry'].includes(draft.value.settings?.layout));
+      const layoutUsesColumns=computed(()=>draft.value?.type==='gallery'&&draft.value.settings?.layout==='grid');
       const layoutUsesRatio=computed(()=>draft.value!==null&&draft.value.type!=='postcard'&&(
-        draft.value.type==='image'||['grid','row','mosaic','magazine','carousel','filmstrip','compare'].includes(draft.value.settings.layout)));
-      const alignAvailable=computed(()=>draft.value===null||!['full','bleed'].includes(draft.value.settings.size));
+        draft.value.type==='image'||['grid','row','mosaic','carousel','filmstrip','compare'].includes(draft.value.settings.layout)));
+      const alignAvailable=computed(()=>draft.value===null||draft.value.settings.size!=='full');
       const isLinkableBlock=computed(()=>draft.value!==null&&LINKABLE_BLOCKS.includes(draft.value.type));
       const hasTravelContext=computed(()=>props.travelContext?.trip?.id!=null);
       const emptyBinding:DataBinding={enabled:false,fields:[],source:'stops',selectedIds:[],recordId:null};
@@ -188,7 +190,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       const imageModeHint=computed(()=>{
         if(draft.value?.type==='postcard')return '明信片使用固定的“照片 + 手写寄语”结构，只需填写内容。';
         const layout=draft.value?.settings?.layout;
-        const hints:Record<string,string>={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',masonry:'瀑布流：保留照片原始比例，只使用列数。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',magazine:'杂志：根据图片数量自动安排大小，列数不参与计算。',story:'故事流：照片上下交错并保留原始比例。',staggered:'错落画廊：自动改变宽度和左右位置。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
+        const hints:Record<string,string>={grid:'规则网格：列数和裁切比例会生效。',row:'横向并排：照片等高排列，列数不参与计算。',mosaic:'拼贴：第一张作为主图，显示比例会影响其余照片。',carousel:'轮播：每次展示一张，使用显示比例。',filmstrip:'胶片条：横向滚动，使用显示比例。',compare:'前后对比：只使用前两张图片。'};
         return draft.value?.type==='gallery'?(hints[layout||'']||'选择一种图片组排版。'):'单张图片会按照正文栏宽度计算大小。';
       });
       let syncing=false,inlineTimer:number|null=null,ensureTimer:number|null=null,caretTimer:number|null=null,viewportFrame:number|null=null,lastViewportMetrics='';
@@ -507,6 +509,25 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
       }
       function setHeadingLevel(block:EditorBlock,level:number){block.data.level=level;flushInline();}
       function setCalloutTone(block:EditorBlock,tone:string){block.data.tone=tone;flushInline();}
+      /**
+       * 把宽度、相框、圆角和图片组排版补成具体值。
+       *
+       * 这四项不再提供「跟随主题」的空值，所以打开设置之前得先把空值填掉，否则一进来就是
+       * 「一个按钮都没选中」，而预览里的图明明有宽度、有圆角。
+       *
+       * 主题外观里的「图片默认版式」和「多图布局」两组已经整个撤掉，图片长什么样只由逐张
+       * 配置决定。默认值就是下面这四个常量，改默认只改这一处。
+       *
+       * 排版只补图片组：单图没有这个概念，明信片的 layout 固定是 postcard，都不能被顶掉。
+       */
+      const IMAGE_DEFAULTS={size:'medium',frame:'none',radius:'soft'} as const,GALLERY_DEFAULT_LAYOUT='grid';
+      function fillMissingImageSettings(block:EditorBlock){
+        if(block.type!=='image'&&block.type!=='gallery')return;
+        for(const [key,value] of Object.entries(IMAGE_DEFAULTS)){
+          if(!block.settings[key])block.settings[key]=value;
+        }
+        if(block.type==='gallery'&&!block.settings.layout)block.settings.layout=GALLERY_DEFAULT_LAYOUT;
+      }
       function openCatalog(index?:number){
         insertAt.value=index==null?document.value.blocks.length:index;
         query.value='';activeCategory.value='全部';catalogMode.value='quick';catalogOpen.value=true;
@@ -521,6 +542,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
           commit();focusInline(block.id,'start');return;
         }
         ensureBinding();
+        fillMissingImageSettings(draft.value);
         imageTab.value='content';
         nextTick(()=>editorOpen.value=true);
       }
@@ -528,7 +550,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         const block=document.value.blocks[index];if(!block)return;
         pinPageScroll();
         draft.value=JSON.parse(JSON.stringify(block)) as EditorBlock;
-        editIndex.value=index;ensureBinding();imageTab.value='content';
+        editIndex.value=index;ensureBinding();fillMissingImageSettings(draft.value);imageTab.value='content';
         /*
          * 弹窗不再 destroy-on-close，DOM 会复用——每次打开都重建整棵内容树（四个 Tab、
          * 表单、图片选择器、预览纸张）正是打开时那一下闪的来源。代价是上一次的状态会留下，
@@ -879,7 +901,7 @@ function objectItems(value:Array<EditorItem|string>):EditorItem[]{return value.f
         insertAt.value=document.value.blocks.length;
         const type=preferredType||((values.length>1)?'gallery':'image');
         draft.value=JB.createBlock(type,type==='gallery'?{mediaIds:values}:{mediaId:values[0]}) as EditorBlock;
-        editIndex.value=-1;imageTab.value='content';editorOpen.value=true;
+        editIndex.value=-1;fillMissingImageSettings(draft.value);imageTab.value='content';editorOpen.value=true;
       }
       onMounted(()=>{viewport();window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);
         compactQuery?.addEventListener('change',onCompactChange);
@@ -1102,21 +1124,20 @@ class="block-inline-input block-inline-input--paragraph" rows="1"
                 <el-tabs v-model="imageTab" class="image-setting-tabs">
                   <el-tab-pane label="内容" name="content"><div class="image-setting-section"><header><strong>选择要放进正文的图片</strong><small>{{draft.type==='gallery'?'可多选，再到“版式”选择组合方式':'单击图片进行选择'}}</small></header>
                     <div class="block-image-picker"><button v-for="item in media" :key="item.id" type="button" :class="{selected:selectedMedia(item)}" @click="toggleDraftMedia(item)"><img :src="item.thumbnailUrl||item.displayUrl" loading="lazy" decoding="async" :alt="item.caption||item.filename"><span>{{item.caption||item.filename}}</span></button><p v-if="!media.length">图片库为空，请先在图片管理中上传。</p></div>
+                    <!-- 图注只在「图注」Tab 里填。两处各放一个输入框绑同一个字段，看起来像两个设置，改哪个都行反而让人犹豫。 -->
                     <template v-if="draft.type==='postcard'"><p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2"><label>地点<el-input v-model="draft.data.location"/></label><label>日期<el-date-picker v-model="draft.data.date" type="date" :editable="allowTextInput" value-format="YYYY-MM-DD"/></label></div><label>明信片正文<el-input v-model="draft.data.message" type="textarea" :rows="5" placeholder="写下想和这张照片一起留下的话"/></label><label>署名<el-input v-model="draft.data.signature"/></label></template>
-                    <label v-else>图注（可选）<el-input v-model="draft.data.caption" placeholder="会跟随图片显示，也可以在“图注”中调整位置"/></label>
                   </div></el-tab-pane>
                   <el-tab-pane v-if="draft.type!=='postcard'" label="版式" name="layout"><div class="image-setting-section"><header><strong>图片在正文里占多大、怎样排列</strong><small>预览中的灰色短线代表文章文字</small></header>
                     <p class="setting-explain">{{imageModeHint}}</p><div class="form-grid form-grid-2">
-                      <label>占用宽度<OptionChips v-model="draft.settings.size" label="占用宽度" :options="IMAGE_SIZE_OPTIONS"/><small class="field-help">未单独选择时使用主题设计器的图片默认宽度；“通栏出血”会向文字栏两侧延伸。</small></label>
-                      <label v-if="alignAvailable">在文字栏中的位置<OptionChips v-model="draft.settings.align" label="在文字栏中的位置" :options="IMAGE_ALIGN_OPTIONS"/></label><p v-else class="setting-inline-note">当前宽度已经占满或超出文字栏，因此无需设置左右位置。</p>
+                      <label>占用宽度<OptionChips v-model="draft.settings.size" label="占用宽度" :options="IMAGE_SIZE_OPTIONS"/><small class="field-help">百分比是相对文字栏算的：前三档都会在两侧留白，只有“正文宽度”和文字左右对齐——大图和它差着这一圈留白。没单独选过时用中等，改这里只影响这一块。</small></label>
+                      <label v-if="alignAvailable">在文字栏中的位置<OptionChips v-model="draft.settings.align" label="在文字栏中的位置" :options="IMAGE_ALIGN_OPTIONS"/></label><p v-else class="setting-inline-note">当前宽度已经占满文字栏，因此无需设置左右位置。</p>
                       <label v-if="draft.type==='gallery'">图片组排版<OptionChips v-model="draft.settings.layout" label="图片组排版" :options="GALLERY_LAYOUT_OPTIONS"/><small class="field-help">{{imageModeHint}}</small></label>
-                      <label v-if="layoutUsesColumns">每行列数<OptionChips v-model="draft.settings.columns" label="每行列数" :options="COLUMN_OPTIONS"/><small class="field-help">只在规则网格和瀑布流中生效。</small></label>
+                      <label v-if="layoutUsesColumns">每行列数<OptionChips v-model="draft.settings.columns" label="每行列数" :options="COLUMN_OPTIONS"/><small class="field-help">只在规则网格中生效。</small></label>
                       <label v-if="layoutUsesRatio">照片显示比例<OptionChips v-model="draft.settings.ratio" label="照片显示比例" :options="ratioOptions"/><small class="field-help">指定比例会裁切照片，但不会拉伸变形；图片组留空时由所选排版决定。</small></label><p v-else class="setting-inline-note">当前排版会保留每张照片的原始比例，因此无需设置裁切比例。</p>
                     </div></div></el-tab-pane>
                   <el-tab-pane v-if="draft.type!=='postcard'" label="外观" name="appearance"><div class="image-setting-section"><header><strong>装饰照片</strong><small>这些效果不会改变原图文件</small></header><div class="form-grid form-grid-2">
                     <label>相框样式<OptionChips v-model="draft.settings.frame" label="相框样式" :options="IMAGE_FRAME_OPTIONS"/></label>
                     <label>圆角<OptionChips v-model="draft.settings.radius" label="圆角" :options="IMAGE_RADIUS_OPTIONS"/></label>
-                    <label>色调<OptionChips v-model="draft.settings.tone" label="色调" :options="IMAGE_TONE_OPTIONS"/></label>
                     <label>电脑悬停效果<OptionChips v-model="draft.settings.effect" label="电脑悬停效果" :options="IMAGE_EFFECT_OPTIONS"/><small class="field-help">只在鼠标悬停时生效，手机浏览不会触发。</small></label>
                   </div></div></el-tab-pane>
                   <el-tab-pane v-if="draft.type!=='postcard'" label="图注" name="caption"><div class="image-setting-section"><header><strong>照片说明</strong><small>图注为空时不会显示</small></header><label>图注文字<el-input v-model="draft.data.caption" placeholder="例如 青城山下山时的薄雾"/></label><label>显示位置<OptionChips v-model="draft.settings.captionPos" label="图注显示位置" :options="CAPTION_POS_OPTIONS"/><small class="field-help">“右侧”更适合中等或大图；手机上会自动移到图片下方。</small></label></div></el-tab-pane>

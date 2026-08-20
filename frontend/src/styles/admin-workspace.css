@@ -116,7 +116,6 @@
 /* 预览是缩样，正文那套排版按比例收一点，免得示例照片占满整块 */
 .template-preview-body { padding:16px 18px; font-size:14px; background:var(--tj-surface); }
 .template-preview-body .journal-figure,.template-preview-body .journal-gallery { --figure-width:100%; margin:16px 0; }
-.template-preview-body .journal-figure--bleed { margin-left:0; transform:none; }
 .template-preview-body img { max-height:200px; }
 .template-preview-note { margin:0 0 12px; color:var(--tj-muted); font-size:13px; line-height:1.6; }
 .template-preview-dialog .template-preview-body { max-height:62vh; overflow:auto; border:1px solid var(--tj-border); border-radius:10px; }

@@ -129,7 +129,6 @@ public class ThemePresetService {
 
             // —— 形状 ——
             Token.number("shape", "cardRadius", 0, 32, 12),
-            Token.number("shape", "imageRadius", 0, 32, 8),
             Token.number("shape", "buttonRadius", 0, 32, 8),
             Token.number("shape", "borderWidth", 0, 4, 1),
 
@@ -152,19 +151,8 @@ public class ThemePresetService {
             Token.number("background", "intensity", 0, 1, 0.4),
             Token.media("background", "mediaId"),
 
-            // —— 图片默认版式。日记里逐张选过的会覆盖这里，没选过的跟主题走 ——
-            Token.option("image", "style", "natural", "natural", "rounded", "paper"),
-            Token.option("image", "shadow", "soft", "none", "soft", "floating"),
-            Token.option("image", "defaultRatio", "16:9", "natural", "16:9", "4:3", "1:1", "3:4"),
-            Token.option("image", "frame", "none", "none", "line", "paper", "float", "polaroid", "tape", "film", "postcard"),
-            Token.option("image", "tone", "none", "none", "warm", "vintage", "mono"),
-            Token.option("image", "width", "medium", "small", "medium", "large", "full"),
-            Token.number("image", "maxHeight", 30, 100, 75),
-
-            // —— 多图布局 ——
-            Token.option("gallery", "layout", "grid", "row", "grid", "masonry", "mosaic", "magazine", "carousel", "filmstrip"),
-            Token.number("gallery", "columns", 2, 4, 3),
-            Token.number("gallery", "gap", 0, 32, 10),
+            // 图片长什么样全部由日记里逐张配置决定，主题不再给默认值：
+            // 两套设置一旦并存，作者改了一处看不出变化的场合就永远解释不清。见 V30 迁移。
 
             // —— 动效 ——
             Token.option("motion", "level", "subtle", "none", "subtle", "standard", "strong"),
@@ -228,7 +216,6 @@ public class ThemePresetService {
              * 每个值对应前端预先写好的一个行为，见 frontend/src/styles/theme-pack.css 和 frontend/src/effects/。
              */
             Token.option("interactions", "stickerClick", "none", "none", "pop", "wiggle", "drift", "heart-pop"),
-            Token.option("interactions", "imageHover", "none", "none", "tilt", "zoom", "lift", "stamp"),
             Token.option("interactions", "heroEntrance", "none", "none", "float", "fade", "drift"),
 
             // —— 首页封面图 ——

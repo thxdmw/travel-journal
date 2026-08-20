@@ -105,7 +105,9 @@ Service Worker 的缓存策略按用途分，不是一刀切：
 单篇日记主题 > 所属旅行主题 > 全站 FIXED > 全站 AUTO（当季）
 ~~~
 
-主题配置不只是配色。除了 colors、typography、shape、layout、card、background、image、gallery、motion、effects、map、hero 这些视觉参数，还有决定「页面有没有性格」的六个区块：
+主题配置不只是配色。除了 colors、typography、shape、layout、card、background、motion、effects、map、hero 这些视觉参数，还有决定「页面有没有性格」的六个区块：
+
+图片长什么样**不在**这份清单里：宽度、相框、圆角、比例、图片组排版全部归日记的图片设置弹窗管，主题不给默认值。两套并存时作者在主题里改一下看不出变化，那种场合解释不清。
 
 | 区块 | 内容 |
 | --- | --- |

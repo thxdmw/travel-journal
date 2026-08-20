@@ -125,7 +125,6 @@ html::-webkit-scrollbar,body::-webkit-scrollbar,#admin-app::-webkit-scrollbar,
 .block-editor-card--media .block-editor-preview::after{content:'图片块缩略显示 · 点击编辑查看完整效果';position:absolute;right:12px;bottom:8px;padding:3px 8px;border-radius:999px;color:var(--tj-muted);background:color-mix(in srgb,var(--tj-surface) 92%,transparent);box-shadow:0 1px 6px rgba(0,0,0,.07);font:11px/1.5 var(--tj-sans)}
 .block-editor-card--media .journal-document{--figure-max-h:230px;gap:8px}
 .block-editor-card--media .journal-figure,.block-editor-card--media .journal-gallery,.block-editor-card--media .journal-postcard{margin:.25em auto}
-.block-editor-card--media .journal-gallery--story,.block-editor-card--media .journal-gallery--staggered{gap:12px}
 /*
  * 胶片条 / 轮播 / 前后对比的缩略展示。
  *

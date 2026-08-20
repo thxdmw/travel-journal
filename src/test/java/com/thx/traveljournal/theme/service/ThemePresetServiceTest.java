@@ -78,8 +78,8 @@ class ThemePresetServiceTest {
     @Test
     void createDropsScriptFromInteractions() throws Exception {
         var definition = objectMapper.readTree("""
-                {"interactions":{"stickerClick":"pop","imageHover":"javascript:alert(1)",
-                                 "onclick":"steal()","heroEntrance":"float"}}
+                {"interactions":{"stickerClick":"pop","heroEntrance":"javascript:alert(1)",
+                                 "onclick":"steal()"}}
                 """);
 
         var result = service.create("互动主题", null, "travel-classic", null, definition, true);
@@ -87,7 +87,7 @@ class ThemePresetServiceTest {
         var interactions = result.definitionJson().path("interactions");
         assertEquals("pop", interactions.path("stickerClick").asText());
         // 不认识的枚举值退回默认，而不是原样存下来
-        assertEquals("none", interactions.path("imageHover").asText());
+        assertEquals("none", interactions.path("heroEntrance").asText());
         assertFalse(interactions.has("onclick"));
     }
 
@@ -162,7 +162,7 @@ class ThemePresetServiceTest {
         JsonNode submitted = objectMapper.readTree("""
                 {"colors":{"accent":"#EE873F","background":"#F7F2E8"},
                  "layout":{"articleWidth":760,"contentWidth":1200},
-                 "gallery":{"layout":"grid","columns":3}}
+                 "card":{"style":"border","opacity":1}}
                 """);
 
         var result = service.update(5L, "盛夏出逃", null, "travel-classic", null,
@@ -171,7 +171,7 @@ class ThemePresetServiceTest {
         assertEquals("#EE873F", result.overrideJson().path("colors").path("accent").asText());
         assertFalse(result.overrideJson().path("colors").has("background"));
         assertFalse(result.overrideJson().has("layout"));
-        assertFalse(result.overrideJson().has("gallery"));
+        assertFalse(result.overrideJson().has("card"));
         assertEquals(1, result.customizedCount());
     }
 

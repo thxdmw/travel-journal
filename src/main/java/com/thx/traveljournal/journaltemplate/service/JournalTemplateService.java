@@ -37,10 +37,9 @@ public class JournalTemplateService {
     private static final Set<String> TYPES = Set.of("trip-info","text","textarea","quote","rating",
             "checklist","route","itinerary","expense-summary","image","gallery","divider");
     private static final Set<String> AUTO = Set.of("route","itinerary","expense-summary");
-    private static final Set<String> SIZES = Set.of("small","medium","large","full","bleed");
+    private static final Set<String> SIZES = Set.of("small","medium","large","full");
     private static final Set<String> ALIGNS = Set.of("left","center","right");
-    private static final Set<String> LAYOUTS = Set.of("row","grid","masonry","mosaic","magazine",
-            "story","staggered","carousel","filmstrip","compare");
+    private static final Set<String> LAYOUTS = Set.of("row","grid","mosaic","carousel","filmstrip","compare");
 
     private final JournalTemplateMapper mapper;
     private final TripMapper tripMapper;

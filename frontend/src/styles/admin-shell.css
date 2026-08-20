@@ -179,7 +179,7 @@ body.sidebar-collapsed .admin-shell { grid-template-columns:1fr; }
 /*
  * 排成等宽的两列，而不是按文字长短挤在一起。
  *
- * 「跟随主题」四个字和「宝丽来」三个字排一行时，两个胶囊一长一短、下一行又错开另一个位置，
+ * 「跟随主题」四个字和「直角」两个字排一行时，两个胶囊一长一短、下一行又错开另一个位置，
  * 十来个选项堆下来就是一片参差。等宽之后每行两个、左右对齐，扫一眼就能比较。
  */
 .option-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:7px}

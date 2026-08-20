@@ -196,14 +196,6 @@ button, input, textarea { font: inherit; }
 [data-density="relaxed"] .card-grid { gap:28px; }
 [data-home-layout="editorial"] .home-page .card-grid .journal-card:first-child { grid-column:span 2; }
 [data-home-layout="editorial"] .home-page .card-grid .journal-card:first-child .card-photo { aspect-ratio:2/1; }
-[data-image-ratio="natural"] .card-photo { aspect-ratio:auto; min-height:180px; }
-[data-image-ratio="4:3"] .card-photo { aspect-ratio:4/3; }
-[data-image-ratio="1:1"] .card-photo { aspect-ratio:1/1; }
-/* 正文图片的主题联动在 journal-media.css，这里只管列表卡片封面。 */
-[data-image-style="paper"] .card-photo { padding:7px; border:1px solid var(--tj-border); background:var(--tj-surface); }
-[data-image-style="rounded"] .card-photo { border-radius:calc(var(--tj-image-radius,8px) + 5px); }
-[data-image-shadow="none"] .card-photo { box-shadow:none; }
-[data-image-shadow="floating"] .card-photo { box-shadow:var(--tj-shadow); }
 [data-motion="none"] *,[data-motion="none"] *::before,[data-motion="none"] *::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }

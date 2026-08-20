@@ -98,9 +98,9 @@ describe('apply：颜色与派生值', () => {
 
 describe('apply：通用 token 映射', () => {
   it('登记过单位的数值铺成带单位的 CSS 变量', () => {
-    apply(withDefinition({ gallery: { gap: 12, columns: 3 } }))
-    expect(root().style.getPropertyValue('--tj-gallery-gap')).toBe('12px')
-    expect(root().style.getPropertyValue('--tj-gallery-columns')).toBe('3')
+    apply(withDefinition({ card: { blur: 12, opacity: 0.8 } }))
+    expect(root().style.getPropertyValue('--tj-card-blur')).toBe('12px')
+    expect(root().style.getPropertyValue('--tj-card-opacity')).toBe('0.8')
   })
 
   it('驼峰键名转成短横线变量名', () => {
@@ -135,11 +135,11 @@ describe('apply：通用 token 映射', () => {
 
 describe('apply：切换主题不留残留', () => {
   it('上一套主题的 CSS 变量被清掉', () => {
-    apply(withDefinition({ gallery: { gap: 12 } }))
-    expect(root().style.getPropertyValue('--tj-gallery-gap')).toBe('12px')
+    apply(withDefinition({ card: { blur: 12 } }))
+    expect(root().style.getPropertyValue('--tj-card-blur')).toBe('12px')
 
     apply('travel-classic')
-    expect(root().style.getPropertyValue('--tj-gallery-gap')).toBe('')
+    expect(root().style.getPropertyValue('--tj-card-blur')).toBe('')
   })
 
   it('上一套主题的 data-* 枚举被清掉', () => {

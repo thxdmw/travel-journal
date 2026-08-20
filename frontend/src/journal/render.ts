@@ -137,7 +137,7 @@ function figureClasses(settings: BlockData, extra?: string): string {
   const values: string[] = []
   if (settings.size) values.push('journal-figure--' + str(settings.size))
   if (settings.align) values.push('journal-figure--' + str(settings.align))
-  for (const key of ['ratio', 'focus', 'frame', 'radius', 'tone', 'effect', 'captionPos']) {
+  for (const key of ['ratio', 'focus', 'frame', 'radius', 'effect', 'captionPos']) {
     if (settings[key]) {
       values.push('journal-figure--' + (key === 'captionPos' ? 'caption' : key) + '-' + str(settings[key]))
     }

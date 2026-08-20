@@ -190,17 +190,6 @@
   100% { transform: scale(1); }
 }
 
-/* 图片悬停。只在有鼠标的设备上生效，手机上没有 hover 这一说。 */
-@media (hover: hover) {
-  [data-interactions-image-hover="tilt"]  .journal-figure img:hover { transform: rotate(-1.2deg) scale(1.02); }
-  [data-interactions-image-hover="zoom"]  .journal-figure img:hover { transform: scale(1.04); }
-  [data-interactions-image-hover="lift"]  .journal-figure img:hover { transform: translateY(-6px); box-shadow: var(--tj-shadow); }
-  [data-interactions-image-hover="stamp"] .journal-figure img:hover { transform: scale(.985) rotate(.6deg); filter: contrast(1.06) saturate(.94); }
-  [data-interactions-image-hover]:not([data-interactions-image-hover="none"]) .journal-figure img {
-    transition: transform var(--tj-motion-time, 240ms) ease, box-shadow var(--tj-motion-time, 240ms) ease, filter var(--tj-motion-time, 240ms) ease;
-  }
-}
-
 /* 首页封面入场 */
 [data-interactions-hero-entrance="float"] .hero-photo { animation: tj-hero-float 900ms ease both; }
 [data-interactions-hero-entrance="fade"]  .hero-photo { animation: tj-hero-fade 800ms ease both; }

@@ -8,7 +8,6 @@ export interface StudioDefinition {
   hero: StudioSection
   card: StudioSection
   background: StudioSection
-  gallery: StudioSection
   [section: string]: StudioSection
 }
 
@@ -46,16 +45,15 @@ export const colorFields: [string, string][] = [
 export const defaultDefinition: StudioDefinition = {
   colors: { background: '#F7F2E8', surface: '#FFFCF6', surfaceSoft: '#F1E7D7', primary: '#264A3D', primarySoft: '#42685A', secondary: '#7A8B7F', accent: '#C76D4B', accentHover: '#B65B3B', sand: '#DFC9A8', text: '#2A2D2B', muted: '#77736B', border: '#E6DAC8', danger: '#B7483E', gradientFrom: '#F7F2E8', gradientTo: '#F1E7D7', scheme: 'light' },
   typography: { headingFamily: 'serif', bodyFamily: 'sans', bodySize: 16, lineHeight: 1.8, letterSpacing: 0, headingWeight: 700, paragraphSpacing: 1.2, headingStyle: 'plain' },
-  shape: { cardRadius: 12, imageRadius: 8, buttonRadius: 8, borderWidth: 1 },
+  shape: { cardRadius: 12, buttonRadius: 8, borderWidth: 1 },
   layout: { contentWidth: 1200, articleWidth: 760, sectionGap: 1, density: 'comfortable', homeLayout: 'editorial', journalLayout: 'single' },
   card: { style: 'border', opacity: 1, blur: 0 }, background: { style: 'solid', texture: 'none', intensity: 0.4, mediaId: null },
-  image: { style: 'natural', shadow: 'soft', defaultRatio: '16:9', frame: 'none', tone: 'none', width: 'medium', maxHeight: 75 },
-  gallery: { layout: 'grid', columns: 3, gap: 10 }, motion: { level: 'subtle', hover: 'lift', entrance: true, scrollReveal: false },
+  motion: { level: 'subtle', hover: 'lift', entrance: true, scrollReveal: false },
   effects: { particles: 'none', grain: false, lightLeak: false, vignette: false }, map: { style: 'auto', routeColor: '#C76D4B', routeWidth: 3, markerStyle: 'dot', animateRoute: false },
   decorations: { corner: 'none', pageEdge: 'none', headerOrnament: 'none', opacity: 0.35 }, stickers: { density: 'none', items: [] },
   dividers: { style: 'line', glyph: 'none' }, ambient: { glow: 'none', drift: 'none', intensity: 0.4 },
   blockStyles: { callout: 'plain', quote: 'plain', timeline: 'line', stats: 'plain', locationCard: 'plain', journalMoment: 'classic' },
-  interactions: { stickerClick: 'none', imageHover: 'none', heroEntrance: 'none' }, hero: { mediaId: null, shape: 'none', overlay: 'none' },
+  interactions: { stickerClick: 'none', heroEntrance: 'none' }, hero: { mediaId: null, shape: 'none', overlay: 'none' },
 }
 
 const select = (key: string, label: string, options: [StudioScalar, string][], extra: Partial<SettingField> = {}): SettingField => ({ key, label, type: 'select', options, ...extra })
@@ -69,7 +67,7 @@ export const settingGroups: SettingGroup[] = [
     select('headingStyle', '标题装饰', [['plain', '无装饰'], ['underline', '下划线'], ['bar', '左侧竖条'], ['serif-caps', '小型大写'], ['outline', '描边空心']]),
     number('bodySize', '正文字号', 14, 22, 1), number('lineHeight', '正文行高', 1.4, 2.4, .05), number('letterSpacing', '字间距 (em)', -.02, .24, .01), number('headingWeight', '标题字重', 400, 900, 50), number('paragraphSpacing', '段间距 (em)', .6, 2.4, .05),
   ]},
-  { key: 'shape', label: '圆角与描边', preview: 'home', fields: [number('cardRadius', '卡片圆角', 0, 32, 1), number('imageRadius', '图片圆角', 0, 32, 1), number('buttonRadius', '按钮圆角', 0, 32, 1), number('borderWidth', '描边粗细', 0, 4, 1)] },
+  { key: 'shape', label: '圆角与描边', preview: 'home', fields: [number('cardRadius', '卡片圆角', 0, 32, 1), number('buttonRadius', '按钮圆角', 0, 32, 1), number('borderWidth', '描边粗细', 0, 4, 1)] },
   { key: 'layout', label: '页面布局', preview: 'home', fields: [
     select('homeLayout', '首页布局', [['editorial', '旅行杂志'], ['classic', '整齐卡片'], ['bento', 'Bento 格'], ['magazine', '杂志栅格'], ['timeline', '时间轴'], ['masonry', '瀑布流']], { target: '首页整体版式' }),
     select('journalLayout', '日记布局', [['single', '标准单栏'], ['wide', '宽栏'], ['immersive', '沉浸式'], ['scrapbook', '手账式']], { preview: 'journal', target: '日记正文版式' }),
@@ -78,8 +76,6 @@ export const settingGroups: SettingGroup[] = [
   ]},
   { key: 'card', label: '卡片风格', preview: 'home', fields: [select('style', '卡片外观', [['flat', '无边无影'], ['border', '描边'], ['shadow', '投影'], ['glass', '玻璃拟态'], ['paper', '纸片'], ['polaroid', '拍立得'], ['film', '胶片']]), number('opacity', '卡片不透明度', .4, 1, .02), number('blur', '毛玻璃模糊', 0, 24, 1, { condition: d => d.card.style === 'glass', help: '选择「玻璃拟态」后可调整' })] },
   { key: 'background', label: '页面背景', preview: 'home', fields: [select('style', '背景类型', [['solid', '纯色'], ['gradient', '渐变'], ['image', '图片']]), select('texture', '叠加纹理', [['none', '无'], ['paper', '纸纹'], ['grain', '胶片颗粒'], ['noise', '噪点'], ['dots', '圆点'], ['grid', '网格'], ['topo', '等高线']]), number('intensity', '纹理强度', 0, 1, .05, { condition: d => d.background.texture !== 'none' || d.background.style === 'image' })] },
-  { key: 'image', label: '图片默认版式', preview: 'journal', hint: '日记里逐张选过的版式优先，这里只影响没单独设置过的图片', fields: [select('width', '默认宽度', [['small', '小图 42%'], ['medium', '中图 68%'], ['large', '大图 90%'], ['full', '通栏 100%']]), number('maxHeight', '最大高度 (vh)', 30, 100, 5), select('defaultRatio', '默认比例', [['natural', '原始比例'], ['16:9', '16:9'], ['4:3', '4:3'], ['1:1', '1:1'], ['3:4', '3:4']]), select('frame', '相框风格', [['none', '无'], ['line', '细线'], ['paper', '相纸'], ['float', '悬浮'], ['polaroid', '拍立得'], ['film', '胶片'], ['postcard', '明信片'], ['tape', '胶带']]), select('tone', '滤镜', [['none', '原色'], ['warm', '暖调'], ['vintage', '复古'], ['mono', '黑白']]), select('shadow', '图片阴影', [['none', '无'], ['soft', '轻柔'], ['floating', '悬浮']]), select('style', '图片风格', [['natural', '自然'], ['rounded', '柔和圆角'], ['paper', '相纸']])] },
-  { key: 'gallery', label: '多图布局', preview: 'journal', tier: 'advanced', fields: [select('layout', '默认排布', [['grid', '网格'], ['masonry', '瀑布流'], ['row', '等高一行'], ['mosaic', '马赛克'], ['magazine', '杂志'], ['carousel', '轮播'], ['filmstrip', '胶片条']]), number('columns', '列数', 2, 4, 1, { condition: d => ['grid', 'masonry'].includes(String(d.gallery.layout)) }), number('gap', '图片间距', 0, 32, 2)] },
   { key: 'motion', label: '动效', preview: 'home', tier: 'advanced', fields: [select('level', '动效强度', [['none', '关闭'], ['subtle', '轻微'], ['standard', '标准'], ['strong', '强烈']]), select('hover', '悬停反馈', [['none', '无'], ['lift', '浮起'], ['zoom', '放大'], ['tilt', '倾斜']]), toggle('entrance', '进入动画'), toggle('scrollReveal', '滚动揭示')] },
   { key: 'effects', label: '页面特效', preview: 'home', tier: 'advanced', hint: '系统开启「减少动态效果」时自动失效', fields: [select('particles', '粒子效果', [['none', '关闭'], ['snow', '雪'], ['sakura', '樱花'], ['leaves', '落叶'], ['stars', '星空'], ['dust', '浮尘']]), toggle('grain', '胶片颗粒'), toggle('lightLeak', '漏光'), toggle('vignette', '暗角')] },
   { key: 'map', label: '地图视觉', preview: 'map', tier: 'advanced', fields: [select('style', '地图色调', [['auto', '跟随明暗'], ['light', '明亮'], ['dark', '暗色'], ['vintage', '复古'], ['terrain', '地形增强']]), select('markerStyle', '标记样式', [['dot', '圆点'], ['pin', '水滴'], ['ring', '圆环'], ['photo', '大圆点']]), { key: 'routeColor', label: '路线颜色', type: 'color' }, number('routeWidth', '路线粗细', 1, 8, 1), toggle('animateRoute', '路线绘制动画')] },
@@ -88,7 +84,7 @@ export const settingGroups: SettingGroup[] = [
   { key: 'dividers', label: '章节分隔线', preview: 'journal', tier: 'advanced', fields: [select('style', '线条样式', [['line', '细线'], ['dashed', '虚线'], ['dotted', '点线'], ['ornament', '两端渐隐'], ['wave', '波浪'], ['torn', '撕纸边']]), select('glyph', '中间符号', [['none', '无'], ['sakura', '🌸 樱花'], ['sun', '☀ 太阳'], ['leaf', '🍂 落叶'], ['snow', '❄ 雪花'], ['compass', '✧ 指南针'], ['plane', '✈ 飞机'], ['stamp', '❖ 邮戳'], ['wave', '〜 波浪'], ['star', '✦ 星星']])] },
   { key: 'ambient', label: '环境氛围', preview: 'home', tier: 'advanced', fields: [select('glow', '光晕', [['none', '无'], ['sun', '阳光'], ['moon', '月光'], ['lantern', '灯光'], ['dawn', '晨曦']]), select('drift', '缓慢移动层', [['none', '无'], ['clouds', '云'], ['mist', '薄雾'], ['fireflies', '萤火']]), number('intensity', '氛围强度', 0, 1, .05)] },
   { key: 'blockStyles', label: '内容块皮肤', preview: 'journal', tier: 'advanced', fields: [select('callout', '提示卡片', [['plain', '默认'], ['paper', '纸片'], ['tape', '胶带'], ['ticket', '票根'], ['frame', '双线框']]), select('quote', '引用', [['plain', '默认'], ['mark', '大引号'], ['card', '卡片'], ['handwritten', '手写感']]), select('timeline', '时间线', [['line', '竖线'], ['dots', '圆点'], ['stamps', '邮戳时间'], ['tickets', '车票时间']]), select('stats', '数字亮点', [['plain', '默认'], ['badge', '药丸'], ['ticket', '票根']]), select('locationCard', '地点卡片', [['plain', '默认'], ['postcard', '明信片'], ['label', '标签条'], ['passport', '护照页']]), select('journalMoment', '开场/章节/小结', [['classic', '经典'], ['spring', '春日花枝'], ['summer', '夏日阳光'], ['autumn', '秋日车票'], ['winter', '冬日霜花'], ['retro', '复古邮戳']])] },
-  { key: 'interactions', label: '互动', preview: 'journal', tier: 'advanced', fields: [select('stickerClick', '点击贴纸', [['none', '无反应'], ['pop', '弹一下'], ['wiggle', '摇一摇'], ['drift', '飘走'], ['heart-pop', '心跳']]), select('imageHover', '鼠标经过照片', [['none', '无'], ['tilt', '轻微倾斜'], ['zoom', '轻微放大'], ['lift', '浮起'], ['stamp', '按下去']]), select('heroEntrance', '封面入场', [['none', '无'], ['float', '上浮'], ['fade', '淡入'], ['drift', '横向滑入']], { preview: 'home' })] },
+  { key: 'interactions', label: '互动', preview: 'journal', tier: 'advanced', fields: [select('stickerClick', '点击贴纸', [['none', '无反应'], ['pop', '弹一下'], ['wiggle', '摇一摇'], ['drift', '飘走'], ['heart-pop', '心跳']]), select('heroEntrance', '封面入场', [['none', '无'], ['float', '上浮'], ['fade', '淡入'], ['drift', '横向滑入']], { preview: 'home' })] },
   { key: 'hero', label: '首页封面', preview: 'home', fields: [select('shape', '底边形状', [['none', '平直'], ['wave', '波浪'], ['arch', '拱形'], ['torn', '撕纸'], ['tape', '胶带']]), select('overlay', '叠加光', [['none', '无'], ['sun', '阳光'], ['frost', '霜白'], ['paper', '纸感'], ['dusk', '暮色']])] },
 ]
 

@@ -4,7 +4,7 @@
    后端 ThemePresetService.SCHEMA 是可调项的唯一真相来源，theme.js 按统一约定
    把它铺成 CSS 变量和 <html> 上的 data-* 属性：
 
-     数值  ->  --tj-{section}-{key}   例：--tj-card-opacity、--tj-gallery-gap
+     数值  ->  --tj-{section}-{key}   例：--tj-card-opacity、--tj-background-intensity
      枚举  ->  data-{section}-{key}   例：data-card-style="glass"
      布尔  ->  data-{section}-{key}="on|off"
 
@@ -22,9 +22,6 @@
   --tj-typography-heading-weight: 700;
   --tj-typography-letter-spacing: 0em;
   --tj-typography-paragraph-spacing: 1.2em;
-  --tj-image-max-height: 75vh;
-  --tj-gallery-gap: 10px;
-  --tj-gallery-columns: 3;
   --tj-map-route-width: 3px;
   /* 卡片底色：把不透明度并进颜色，玻璃/胶片风格才能透出背景 */
   --tj-card-bg: color-mix(in srgb, var(--tj-surface) calc(var(--tj-card-opacity) * 100%), transparent);
@@ -241,7 +238,7 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 
 [data-layout-home-layout="masonry"] .card-grid {
   display: block;
-  columns: var(--tj-gallery-columns, 3);
+  columns: 3;
   column-gap: 22px;
 }
 [data-layout-home-layout="masonry"] .card-grid > * {
@@ -286,84 +283,6 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 [data-layout-journal-layout="scrapbook"] .journal-document { font-family: var(--tj-serif); }
 [data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(odd) { transform: rotate(-1.1deg); }
 [data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(even) { transform: rotate(.9deg); }
-
-/* ======================================================== 图片：主题级默认值 */
-/* 关键约定：只在 figure 自己没写对应修饰类时才生效。
-   逐张选过的版式永远优先，主题只负责「没选过的那些」。
-   这也是「图片过大导致排版失控」的正解——给一个合理的全局默认高度上限。 */
-.journal-document { --figure-max-h: min(var(--tj-image-max-height, 75vh), 100%); }
-
-[data-image-width="small"]  .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 42%; }
-[data-image-width="medium"] .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 68%; }
-[data-image-width="large"]  .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 90%; }
-[data-image-width="full"]   .journal-figure:not([class*="--small"]):not([class*="--medium"]):not([class*="--large"]):not([class*="--full"]):not([class*="--bleed"]) { --figure-width: 100%; }
-
-[data-image-frame="line"] .journal-figure:not([class*="--frame-"]) img {
-  padding: 0; border: 1px solid var(--tj-border); background: none; box-shadow: none;
-}
-[data-image-frame="paper"] .journal-figure:not([class*="--frame-"]) img {
-  padding: 8px; border: 1px solid var(--tj-border); background: var(--tj-surface); box-shadow: var(--tj-shadow-soft);
-}
-[data-image-frame="float"] .journal-figure:not([class*="--frame-"]) img {
-  padding: 0; border: 0; box-shadow: var(--tj-shadow);
-}
-[data-image-frame="polaroid"] .journal-figure:not([class*="--frame-"]) img {
-  padding: 11px 11px 38px; border: 0; border-radius: 3px;
-  background: #fffdf7; box-shadow: 0 10px 26px rgba(28,40,34,.18);
-}
-[data-image-frame="polaroid"] .journal-figure:not([class*="--frame-"]) figcaption {
-  margin-top: -32px; margin-bottom: 14px; color: #7b7367; font-family: var(--tj-serif);
-}
-[data-image-frame="film"] .journal-figure:not([class*="--frame-"]) img {
-  padding: 10px 8px; border: 0; border-radius: 2px;
-  background: #17181a
-    repeating-linear-gradient(90deg, #2a2b2d 0 5px, transparent 5px 12px) top/12px 7px repeat-x,
-    #17181a;
-  box-shadow: 0 8px 22px rgba(10,10,12,.4);
-}
-[data-image-frame="postcard"] .journal-figure:not([class*="--frame-"]) img {
-  padding: 6px; border: 1px solid color-mix(in srgb, var(--tj-primary) 25%, transparent);
-  border-radius: 2px; background: var(--tj-surface);
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--tj-primary) 14%, transparent);
-}
-
-[data-image-tone="warm"] .journal-figure:not([class*="--tone-"]) img,
-[data-image-tone="warm"] .journal-gallery:not([class*="--tone-"]) img { filter: saturate(1.06) sepia(.12) hue-rotate(-6deg); }
-[data-image-tone="vintage"] .journal-figure:not([class*="--tone-"]) img,
-[data-image-tone="vintage"] .journal-gallery:not([class*="--tone-"]) img { filter: sepia(.28) saturate(.88) contrast(.94) brightness(1.03); }
-[data-image-tone="mono"] .journal-figure:not([class*="--tone-"]) img,
-[data-image-tone="mono"] .journal-gallery:not([class*="--tone-"]) img { filter: grayscale(1) contrast(1.04); }
-
-/* ============================================================ 多图默认布局 */
-.journal-gallery { --figure-gap: var(--tj-gallery-gap, 10px); }
-.journal-gallery:not([class*="--cols-"]) { --gallery-cols: var(--tj-gallery-columns, 3); }
-
-[data-gallery-layout="grid"] .journal-gallery:not([class*="journal-gallery--"]) {
-  display: grid; grid-template-columns: repeat(var(--gallery-cols, 3), 1fr); gap: var(--figure-gap);
-}
-[data-gallery-layout="grid"] .journal-gallery:not([class*="journal-gallery--"]) img { aspect-ratio: var(--gallery-ratio, 1); object-fit: cover; }
-[data-gallery-layout="masonry"] .journal-gallery:not([class*="journal-gallery--"]) {
-  columns: var(--gallery-cols, 3); column-gap: var(--figure-gap);
-}
-[data-gallery-layout="masonry"] .journal-gallery:not([class*="journal-gallery--"]) img { margin-bottom: var(--figure-gap); break-inside: avoid; }
-[data-gallery-layout="row"] .journal-gallery:not([class*="journal-gallery--"]) {
-  display: flex; flex-wrap: wrap; gap: var(--figure-gap);
-}
-[data-gallery-layout="row"] .journal-gallery:not([class*="journal-gallery--"]) img { flex: 1 1 0; min-width: 0; aspect-ratio: var(--gallery-ratio, 1); object-fit: cover; }
-[data-gallery-layout="mosaic"] .journal-gallery:not([class*="journal-gallery--"]) { display:grid; grid-template-columns:2fr 1fr; gap:var(--figure-gap); }
-[data-gallery-layout="mosaic"] .journal-gallery:not([class*="journal-gallery--"]) img { width:100%; aspect-ratio:var(--gallery-ratio,1); object-fit:cover; }
-[data-gallery-layout="mosaic"] .journal-gallery:not([class*="journal-gallery--"]) img:first-of-type { grid-row:span 2; height:100%; aspect-ratio:auto; }
-[data-gallery-layout="mosaic"] .journal-gallery:not([class*="journal-gallery--"]) figcaption { grid-column:1/-1; }
-[data-gallery-layout="magazine"] .journal-gallery:not([class*="journal-gallery--"]) { display:grid; grid-template-columns:repeat(12,1fr); gap:var(--figure-gap); }
-[data-gallery-layout="magazine"] .journal-gallery:not([class*="journal-gallery--"]) img { grid-column:span 4; width:100%; aspect-ratio:var(--gallery-ratio,4/3); object-fit:cover; }
-[data-gallery-layout="magazine"] .journal-gallery:not([class*="journal-gallery--"]) img:first-of-type { grid-column:span 8; grid-row:span 2; height:100%; aspect-ratio:auto; }
-[data-gallery-layout="magazine"] .journal-gallery:not([class*="journal-gallery--"]) figcaption { grid-column:1/-1; }
-[data-gallery-layout="carousel"] .journal-gallery:not([class*="journal-gallery--"]),
-[data-gallery-layout="filmstrip"] .journal-gallery:not([class*="journal-gallery--"]) { display:flex; gap:var(--figure-gap); overflow-x:auto; scroll-snap-type:x mandatory; }
-[data-gallery-layout="carousel"] .journal-gallery:not([class*="journal-gallery--"]) img { flex:0 0 88%; scroll-snap-align:center; aspect-ratio:var(--gallery-ratio,3/2); object-fit:cover; }
-[data-gallery-layout="filmstrip"] .journal-gallery:not([class*="journal-gallery--"]) img { flex:0 0 34%; min-width:150px; scroll-snap-align:start; aspect-ratio:var(--gallery-ratio,4/3); object-fit:cover; }
-[data-gallery-layout="carousel"] .journal-gallery:not([class*="journal-gallery--"]) figcaption,
-[data-gallery-layout="filmstrip"] .journal-gallery:not([class*="journal-gallery--"]) figcaption { flex:0 0 100%; }
 
 /* ================================================================ 动效系统 */
 :root { --tj-motion-scale: 1; --tj-motion-time: 220ms; }

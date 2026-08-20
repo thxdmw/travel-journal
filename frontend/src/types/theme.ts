@@ -78,7 +78,6 @@ export interface ThemeDefinition {
   shape?: {
     cardRadius?: number
     buttonRadius?: number
-    imageRadius?: number
     [key: string]: unknown
   }
   layout?: {
@@ -86,12 +85,6 @@ export interface ThemeDefinition {
     articleWidth?: number
     density?: string
     homeLayout?: string
-    [key: string]: unknown
-  }
-  image?: {
-    style?: string
-    shadow?: string
-    defaultRatio?: string
     [key: string]: unknown
   }
   motion?: { level?: string; [key: string]: unknown }

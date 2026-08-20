@@ -12,6 +12,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,19 +35,33 @@ public class JournalDocumentService {
             "stats", "companions", "location-card", "food", "stay", "transport", "weather",
             // 一天的开头、中间和结尾。三个都能从旅行数据自动填出来，作者不用重复录入
             "day-opener", "chapter", "day-summary");
-    private static final Set<String> IMAGE_SIZES = Set.of("small", "medium", "large", "full", "bleed");
+    private static final Set<String> IMAGE_SIZES = Set.of("small", "medium", "large", "full");
     private static final Set<String> IMAGE_ALIGNS = Set.of("left", "center", "right");
     private static final Set<String> GALLERY_LAYOUTS = Set.of(
-            "row", "grid", "masonry", "mosaic", "magazine", "story", "staggered",
-            "carousel", "filmstrip", "compare");
+            "row", "grid", "mosaic", "carousel", "filmstrip", "compare");
     private static final Set<String> IMAGE_RATIOS = Set.of("16x9", "4x3", "1x1", "3x4");
-    private static final Set<String> IMAGE_FRAMES = Set.of(
-            "none", "line", "paper", "float", "polaroid", "tape", "film", "postcard");
+    private static final Set<String> IMAGE_FRAMES = Set.of("none", "tape", "film");
     private static final Set<String> IMAGE_RADII = Set.of("none", "soft", "round");
-    private static final Set<String> IMAGE_TONES = Set.of("warm", "vintage", "mono");
     private static final Set<String> IMAGE_EFFECTS = Set.of("lift", "zoom", "tilt");
-    private static final Set<String> CAPTION_POSITIONS = Set.of("left", "overlay", "side", "none");
+    private static final Set<String> CAPTION_POSITIONS = Set.of("left", "side", "none");
     private static final Set<String> PARAGRAPH_STYLES = Set.of("normal", "lead", "note");
+
+    /**
+     * 已经下线的图片设置值 → 保留集合里的替代值。
+     *
+     * <p>通栏出血、瀑布流那一批版式、除胶带和胶片以外的相框、以及整个色调设置在这一版撤掉了。
+     * 库里的老正文由 Flyway 迁移搬过一次，但作者浏览器 IndexedDB 里的本机草稿快照迁移够不着，
+     * 那份快照回来时带的仍是旧值。直接 400 会让自动保存一路失败，所以在这里静默搬运。
+     * 这张表和前端 frontend/src/journal/document.ts 的那份一一对应，两边必须同时改。</p>
+     */
+    private static final Map<String, Map<String, String>> RETIRED_SETTING_VALUES = Map.of(
+            "size", Map.of("bleed", "full"),
+            "layout", Map.of("masonry", "grid", "story", "grid", "staggered", "grid", "magazine", "mosaic"),
+            "frame", Map.of("line", "none", "paper", "none", "float", "none",
+                    "polaroid", "none", "postcard", "none"),
+            "captionPos", Map.of("overlay", ""));
+    /** 整项下线的设置，直接删掉。 */
+    private static final Set<String> RETIRED_SETTING_KEYS = Set.of("tone");
 
     private final ObjectMapper objectMapper;
 
@@ -65,7 +80,9 @@ public class JournalDocumentService {
         if (!source.path("blocks").isArray()) throw BusinessException.badRequest("日记正文缺少区块列表");
         ensureDocumentSize(source);
 
-        ArrayNode blocks = (ArrayNode) source.path("blocks");
+        // 先深拷贝再搬运下线设置，校验跑在搬运之后的结果上——否则老快照会被自己已经不合法的旧值挡下来
+        JsonNode normalized = source.deepCopy();
+        ArrayNode blocks = (ArrayNode) normalized.path("blocks");
         if (blocks.size() > MAX_BLOCKS) throw BusinessException.badRequest("一篇日记最多包含 " + MAX_BLOCKS + " 个区块");
         if (publishing && blocks.isEmpty()) throw BusinessException.badRequest("发布前请至少添加一个内容区块");
 
@@ -84,11 +101,21 @@ public class JournalDocumentService {
                 throw BusinessException.badRequest("区块外观设置必须是对象：" + type);
             if (block.path("title").asText("").length() > 100) throw BusinessException.badRequest("区块标题不能超过 100 个字符");
             validateNodeText(block.path("data"));
+            migrateRetiredSettings(block.path("settings"));
             validateSettings(type, block.path("settings"));
             meaningful |= isMeaningful(type, block.path("data"));
         }
         if (publishing && !meaningful) throw BusinessException.badRequest("发布前请填写日记正文");
-        return source.deepCopy();
+        return normalized;
+    }
+
+    private void migrateRetiredSettings(JsonNode settings) {
+        if (!(settings instanceof ObjectNode object)) return;
+        RETIRED_SETTING_KEYS.forEach(object::remove);
+        RETIRED_SETTING_VALUES.forEach((key, mapping) -> {
+            String replacement = mapping.get(object.path(key).asText(""));
+            if (replacement != null) object.put(key, replacement);
+        });
     }
 
     /** 提取文档引用的媒体 id，JournalService 用它校验图片归属。 */
@@ -129,7 +156,6 @@ public class JournalDocumentService {
         validateAllowedSetting(settings, "ratio", IMAGE_RATIOS);
         validateAllowedSetting(settings, "frame", IMAGE_FRAMES);
         validateAllowedSetting(settings, "radius", IMAGE_RADII);
-        validateAllowedSetting(settings, "tone", IMAGE_TONES);
         validateAllowedSetting(settings, "effect", IMAGE_EFFECTS);
         validateAllowedSetting(settings, "captionPos", CAPTION_POSITIONS);
         validateAllowedSetting(settings, "style", PARAGRAPH_STYLES);

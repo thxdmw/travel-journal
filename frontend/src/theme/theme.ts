@@ -162,10 +162,6 @@ function applyNamedTokens(root: HTMLElement, definition: ThemeDefinition): void 
     root.style.setProperty('--tj-button-radius', shape.buttonRadius + 'px')
     root.style.setProperty('--el-border-radius-base', shape.buttonRadius + 'px')
   }
-  if (shape.imageRadius != null) {
-    root.style.setProperty('--tj-image-radius', shape.imageRadius + 'px')
-  }
-
   const layout = definition.layout ?? {}
   if (layout.contentWidth) root.style.setProperty('--tj-content-width', layout.contentWidth + 'px')
   if (layout.articleWidth) root.style.setProperty('--tj-article-width', layout.articleWidth + 'px')
@@ -173,10 +169,6 @@ function applyNamedTokens(root: HTMLElement, definition: ThemeDefinition): void 
   root.dataset.density = layout.density || 'comfortable'
   root.dataset.homeLayout = layout.homeLayout || 'editorial'
 
-  const image = definition.image ?? {}
-  root.dataset.imageStyle = image.style || 'natural'
-  root.dataset.imageShadow = image.shadow || 'soft'
-  root.dataset.imageRatio = image.defaultRatio || '16:9'
   root.dataset.motion = definition.motion?.level || 'subtle'
 }
 
