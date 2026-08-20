@@ -346,71 +346,7 @@ console.log(await page.evaluate(() => document.querySelector('#x').getBoundingCl
 
 如果新区块要的数据旅行工作台里已经有（城市、行程、账目、图片），把它加进 `LINKABLE_BLOCKS` 并在 `bindingDefaults` / `applyBinding` 里补上映射，而不是让作者再录一遍。`day-opener` 和 `day-summary` 更进一步——它们默认就开着关联，因为那些字段作者手填毫无意义。
 
-## 前端文件分工
+## 相关文档
 
-~~~text
-css/admin-shell.css            登录、侧边栏、顶栏、通用面板与表单控件
-css/journal-editor.css         编辑器外壳、日记信息、图片管理（桌面端）
-css/admin-workspace.css        旅行工作台、模板、标签、主题 DIY、贴纸列表
-css/journal-block-editor.css   区块卡片、inline 编辑、上传占位、内容目录与配置弹窗
-css/journal-editor-mobile.css  编辑器的手机端布局（对上面几个文件的覆盖）
-css/moments.css                随手记：输入框、时间线与当天路线
-
-js/admin/shared.js             各页面共用的工具、常量与会话（window.AdminShared）
-js/admin/trip-workspace.js     登录、首页、旅行列表与工作台
-js/admin/journal-editor.js     日记编辑器
-js/admin/moments.js            随手记与整理成日记
-js/admin/studio.js             模板、主题、个人资料、标签
-js/admin-app.js                路由表、侧边栏与挂载
-~~~
-
-CSS 的引入顺序就是层叠顺序，`admin/index.html` 里不能随意调换：`journal-editor.css` 必须排在 `admin-workspace.css` 之前（模板预览靠 `.template-preview-body` 覆盖 `.preview`），`journal-editor-mobile.css` 必须排在最后。
-
-JS 之间不走模块系统，`shared.js` 最先加载建立 `window.AdminShared`，各页面把组件注册到 `window.AdminPages`，`admin-app.js` 最后加载取用。这样仍然不需要 npm 构建。
-
-## 本地验证
-
-要完整走一遍 CI 跑的东西，用仓库根目录的 `verify-ci.sh`，它对应 `.drone.yml` 的四步，顺序和内容一致：
-
-~~~bash
-./verify-ci.sh            # 全套：frontend / backend / smoke / media
-./verify-ci.sh backend    # 只跑其中一步
-~~~
-
-前置是依赖容器（PostgreSQL 5433、MinIO 59000）已经起着，而这台机器的 Docker 在 WSL 里：
-
-~~~bash
-wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/IdeaProjects/travel-journal && docker compose -f docker-compose.dev.yml up -d"
-~~~
-
-冒烟那步默认用 `iphone-13`，跑的是 WebKit，本机没装会整批报 `Executable doesn't exist`——`npx playwright install webkit` 装上，或者临时 `SMOKE_PROJECT=pixel-7` 换成 Chromium 内核的手机视口。
-
-> 下面这一节（以及上面的「前端文件分工」）还在描述早已废弃的无构建 JS 架构，与现在的 Vue + Vite + TypeScript 对不上，有独立任务在跟进重写。
-
-Windows PowerShell 使用项目指定的 JDK 21：
-
-~~~powershell
-$env:JAVA_HOME = "D:\java\environment\jdk21"
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-mvn clean test
-mvn clean package
-~~~
-
-前端不需要构建，但提交前应对每个 JS 执行语法检查：
-
-~~~powershell
-Get-ChildItem -Recurse src/main/resources/static/js -Filter *.js | ForEach-Object { node --check $_.FullName }
-~~~
-
-移动端布局改动建议再跑一次端到端测试。它是可选的开发依赖，不参与 Maven 打包和 Docker 构建，需要一个已经跑起来的应用实例：
-
-~~~powershell
-npm install
-npx playwright install chromium
-$env:E2E_BASE_URL = "http://localhost:8080"
-$env:E2E_ADMIN_USER = "admin"
-$env:E2E_ADMIN_PASS = "你的密码"
-npx playwright test
-~~~
-
-覆盖 iPhone 13、Pixel 7 和桌面 Chrome 三种尺寸，用例在 `e2e/journal-mobile.spec.ts`：新建即草稿、连续写三段不弹窗、退格合并、刷新恢复、空标题被拦、发布、退出不误删草稿，以及手机端的单一滚动、底栏可见、Bottom Sheet 开合。
+- 代码定位、领域边界、易错点：[../PROJECT.md](../PROJECT.md)
+- 验证入口与 CI 复现：[ci-verification.md](ci-verification.md)
