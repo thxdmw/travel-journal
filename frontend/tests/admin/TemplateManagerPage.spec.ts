@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TemplateManagerPage from '@/admin/pages/TemplateManagerPage.vue'
+import { CATALOG } from '@/journal/catalog'
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), update: vi.fn(), duplicate: vi.fn(), remove: vi.fn() }))
 vi.mock('@/api/template', () => ({ templateApi: mocks }))
@@ -37,6 +38,7 @@ describe('TemplateManagerPage', () => {
     vi.clearAllMocks()
     mocks.list.mockResolvedValue([template])
     mocks.create.mockResolvedValue(template)
+    mocks.update.mockResolvedValue(template)
     mocks.duplicate.mockResolvedValue({ ...template, id: 2, name: '慢游模板 副本' })
     mocks.remove.mockResolvedValue(undefined)
   })
@@ -53,14 +55,39 @@ describe('TemplateManagerPage', () => {
     const { wrapper, warning, message } = mountPage()
     await flushPromises()
     await wrapper.get('.page-head button').trigger('click')
-    await wrapper.get('.dialog footer button:last-child').trigger('click')
+    await wrapper.get('.template-editor-actions button:last-child').trigger('click')
     expect(warning).toHaveBeenCalledWith('请至少添加一个区块')
-    await wrapper.findAll('.block-library button')[1]!.trigger('click')
+    // 区块库直接就是「添加区块」目录，第一个是正文
+    await wrapper.findAll('.block-library button')[0]!.trigger('click')
     await wrapper.get('input[placeholder="例如：海边慢游的一天"]').setValue('我的模板')
-    await wrapper.get('.dialog footer button:last-child').trigger('click')
+    await wrapper.get('.template-editor-actions button:last-child').trigger('click')
     await flushPromises()
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ name: '我的模板', definitionJson: expect.objectContaining({ blocks: expect.arrayContaining([expect.objectContaining({ type: 'text' })]) }) }))
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ name: '我的模板', definitionJson: expect.objectContaining({ blocks: expect.arrayContaining([expect.objectContaining({ type: 'paragraph' })]) }) }))
     expect(message).toHaveBeenCalledWith('模板已保存')
+  })
+
+  it('区块库覆盖「添加区块」的全部类型，并按来路给出角标', async () => {
+    const { wrapper } = mountPage()
+    await flushPromises()
+    await wrapper.get('.page-head button').trigger('click')
+    expect(wrapper.findAll('.block-library button')).toHaveLength(CATALOG.length)
+    // 三档来路各自有代表：花费自动取数、正文套用时填、天气记录生成后再填
+    const labels = wrapper.findAll('.block-library button').map(item => item.text())
+    expect(labels).toContain('＋ 花费自动')
+    expect(labels).toContain('＋ 正文填写')
+    expect(labels).toContain('＋ 天气记录待填')
+  })
+
+  it('老模板里的 text 读进编辑器时搬成正文', async () => {
+    const { wrapper } = mountPage()
+    await flushPromises()
+    // 卡片上的「编辑」是第三个按钮（预览、复制、编辑、删除）
+    await wrapper.findAll('.template-card footer button')[2]!.trigger('click')
+    await wrapper.get('.template-editor-actions button:last-child').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({
+      definitionJson: expect.objectContaining({ blocks: [expect.objectContaining({ type: 'paragraph' })] }),
+    }))
   })
 
   it('复制和确认删除后刷新列表', async () => {

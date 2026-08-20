@@ -106,20 +106,74 @@
 .template-block-tags { min-height:58px; display:flex; align-content:flex-start; flex-wrap:wrap; gap:6px; }
 .template-block-tags i { padding:4px 7px; border:1px solid var(--tj-border); border-radius:5px; color:var(--tj-muted); font-size:11px; font-style:normal; }
 .template-card footer { justify-content:flex-end; margin-top:14px; }
-/* 左边搭区块、右边看成稿，改一处右边立刻跟着变 */
-.template-workbench { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,.85fr); gap:16px; align-items:start; }
-.template-builder { max-height:46vh; overflow:auto; padding-right:4px; }
-.template-live-preview { position:relative; max-height:46vh; display:flex; flex-direction:column; border:1px solid var(--tj-border); border-radius:10px; overflow:hidden; background:var(--tj-surface-soft); }
-.template-live-head { flex:0 0 38px; display:flex; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--tj-border); color:var(--tj-primary); font-weight:700; font-size:13px; }
+/*
+ * 模板编辑铺满整屏：左边整篇预览，右边配置。
+ *
+ * 和图片区块的配置弹窗（journal-block-editor.css 里的 .block-config-dialog--full）是同一个
+ * 道理，也刻意用同一套结构：预览那一栏必须容得下真实的正文宽度 --tj-article-width，被压窄
+ * 之后图片每一档宽度都跟着算小，同一份模板在这里和发布之后就是两个排版。所以配置栏定宽，
+ * 浮动的宽度全留给预览。
+ */
+.el-overlay-dialog:has(>.template-editor-dialog--full) { padding:0; }
+.template-editor-dialog--full { width:100vw!important; max-width:100vw; height:100vh; max-height:100vh; margin:0!important; display:flex; flex-direction:column; border-radius:0!important; }
+.template-editor-dialog--full .el-dialog__header { flex:0 0 auto; }
+.template-editor-dialog--full .el-dialog__body { flex:1; min-height:0; padding:0; overflow:hidden; }
+/* 按钮自带的 footer 不用了：它横跨整个弹窗，而左边那一大片是预览，底下没有要操作的东西 */
+.template-editor-dialog--full .el-dialog__footer { display:none; }
+.template-workbench { height:100%; display:grid; grid-template-rows:minmax(0,1fr) auto; }
+/* 两列两行：左边预览跨满两行，右边上面是配置、下面是按钮 */
+.template-workbench.has-preview { grid-template-columns:minmax(0,1fr) clamp(380px,32vw,520px); }
+.template-live-preview { position:relative; grid-row:1/-1; min-width:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--tj-border); background:#e6dfd2; }
+.template-live-head { flex:0 0 40px; display:flex; align-items:center; gap:8px; padding:0 20px; border-bottom:1px solid var(--tj-border); color:var(--tj-primary); font-weight:700; font-size:13px; }
 .template-live-head small { margin-left:auto; color:var(--tj-muted); font-weight:400; }
-.template-live-empty { position:absolute; inset:38px 0 0; display:grid; place-items:center; padding:20px; color:var(--tj-muted); text-align:center; font-size:13px; }
-/* 预览是缩样，正文那套排版按比例收一点，免得示例照片占满整块 */
-.template-preview-body { padding:16px 18px; font-size:14px; background:var(--tj-surface); }
-.template-preview-body .journal-figure,.template-preview-body .journal-gallery { --figure-width:100%; margin:16px 0; }
-.template-preview-body img { max-height:200px; }
+.template-live-empty { position:absolute; inset:40px 0 0; display:grid; place-items:center; padding:20px; color:var(--tj-muted); text-align:center; font-size:13px; }
+/* 滚动的是整篇文章，和「预览全文」是同一套排版 */
+.template-preview-paper { flex:1; min-height:0; overflow:auto; padding:14px 0; }
+/*
+ * 两个滚动区的滚动条隐形，但那条槽位一直占着。
+ *
+ * 不能照抄本文件里 .template-choices 那种 `scrollbar-width:none` + `::-webkit-scrollbar
+ * {display:none}` 的写法：它把滚动条的宽度也一并抹掉，于是 scrollbar-gutter 没有东西可以
+ * 稳定，内容从不够长变成够长的那一刻整栏仍会窄一截——预览栏窄一截，正文宽度就跟着变，
+ * 同一份模板在预览里和发布之后又成了两个排版。所以这里反过来：宽度照留，只把颜色调透明。
+ *
+ * scrollbar-gutter 让槽位无条件常驻，不必等到真的溢出才留。手机上是 overlay 滚动条、本来
+ * 就不占位，gutter 算出来是 0，因此这条规则对窄屏没有副作用，不用再套一层断点。
+ */
+.template-preview-paper,.template-config { scrollbar-gutter:stable; scrollbar-color:transparent transparent; }
+.template-preview-paper::-webkit-scrollbar,.template-config::-webkit-scrollbar { width:8px; }
+.template-preview-paper::-webkit-scrollbar-track,.template-config::-webkit-scrollbar-track,
+.template-preview-paper::-webkit-scrollbar-thumb,.template-config::-webkit-scrollbar-thumb { background:transparent; }
+/*
+ * 配置栏是这一侧唯一的滚动区。
+ *
+ * 区块库、模板信息和区块列表各自再套一层 overflow 的话，手指往下划滚的是哪一层全看落点，
+ * 所以里面的东西一律按内容自然铺开。
+ */
+.template-config { grid-column:2; grid-row:1; min-height:0; padding:14px 20px 0; overflow-y:auto; overscroll-behavior:contain; }
+.template-config .block-effect-entry { margin-bottom:14px; }
+.template-editor-actions { grid-column:2; grid-row:2; display:flex; align-items:center; gap:10px; padding:12px 20px calc(12px + env(safe-area-inset-bottom)); border-top:1px solid var(--tj-border); background:var(--tj-surface); }
+.template-editor-actions > span { flex:1; }
+/* 区块库：分类切换 + 目录按钮，和「添加区块」面板同一批组件 */
+.block-library-panel { margin:4px 0 16px; padding:12px 14px; border-radius:9px; background:var(--tj-surface-soft); }
+.block-library-panel > header { display:flex; align-items:baseline; gap:8px; margin-bottom:10px; color:var(--tj-primary); font-weight:700; }
+.block-library-panel > header small { color:var(--tj-muted); font-weight:400; font-size:12px; }
+.block-library-panel .block-categories { padding:0 0 10px; }
+.block-library-panel .block-library { margin:0; padding:0; background:none; }
+/*
+ * 角标的颜色就是「这一块的内容从哪来」：自动取数、套用时填、生成后到编辑器里填。
+ * 三档一眼能分开，作者搭模板时才知道保存之后哪些还要自己动手。
+ */
+.block-library button.mode-auto { border-color:color-mix(in srgb,var(--tj-accent) 45%,transparent); }
+.block-library button.mode-auto i { background:var(--tj-accent); }
+.block-library button.mode-prompt i { background:var(--tj-primary-soft,var(--tj-primary)); }
+.block-library button.mode-skeleton i { color:var(--tj-muted); background:var(--tj-border); }
+.template-builder { padding-bottom:16px; }
 .template-preview-note { margin:0 0 12px; color:var(--tj-muted); font-size:13px; line-height:1.6; }
-.template-preview-dialog .template-preview-body { max-height:62vh; overflow:auto; border:1px solid var(--tj-border); border-radius:10px; }
 .template-block-editor { display:grid; grid-template-columns:44px 1fr auto; gap:12px; margin-bottom:10px; padding:12px; border:1px solid var(--tj-border); border-radius:9px; background:var(--tj-surface); }
+/* 标题和分隔线没有区块标题输入框，用一行类型名占住那个位置 */
+.block-type-name { color:var(--tj-primary); font-size:14px; }
+.block-mode-tag { padding:2px 7px; border-radius:999px; color:var(--tj-muted); background:var(--tj-surface-soft); font-size:11px; font-style:normal; white-space:nowrap; }
 /* 「跟随季节」不是主题卡片里的一张，而是主题之上的一个开关，所以横跨整行放在最前面 */
 .theme-season-card { display:flex; align-items:center; gap:20px; flex-wrap:wrap; margin-bottom:20px; padding:20px 22px; transition:.2s; }
 .theme-season-card.selected { border-color:var(--tj-accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--tj-accent) 22%,transparent),var(--tj-shadow-soft); }
@@ -323,26 +377,22 @@
   .map-picker-tip-desktop { display:none; }
   .map-picker-tip-mobile { display:block; }
   .template-state { min-height:32px; }
-  /*
-   * 手机上把弹窗做成「上面预览、下面分段设置」的固定两段：
-   * 预览常驻不跟着滚，设置区自己在下半部分滚。
-   * 之前是整块一起滚，改到底部的图注要再滑回顶部才看得见效果，
-   * 而且内容一长就和底部按钮叠在一起。
-   */
-/* 窄屏放不下正文宽度，预览台退回可用宽度；比例关系失真但仍能看清版式 */
-/* 设置区独立滚动，预览留在上面不动 */
 .template-writing { min-height:0; grid-template-columns:1fr; }
   .template-choices { display:flex; max-height:none; overflow-x:auto; padding-bottom:5px; scrollbar-width:none; }
   .template-choices::-webkit-scrollbar { display:none; }
   .template-choices button { flex:0 0 210px; margin:0 8px 0 0; }
   .template-fields { max-height:52vh; }
   .template-card-grid { grid-template-columns:1fr; }
-  /* 窄屏放不下并排，预览挪到区块列表下面 */
-.template-workbench { grid-template-columns:1fr; }
-  .template-builder { max-height:38vh; }
-  .template-live-preview { max-height:34vh; }
-  .template-editor-dialog,.template-writing-dialog { width:100%!important; max-height:100dvh; margin:0!important; border-radius:0!important; }
-  .template-editor-dialog .el-dialog__body,.template-writing-dialog .el-dialog__body { max-height:calc(100dvh - 130px); overflow:auto; padding:12px; }
+  /*
+   * 窄屏放不下并排预览，组件里就不渲染那一栏了（同一个 780px 断点的 matchMedia），
+   * 配置栏因此占满整行；预览改由「预览这份模板」按钮开整屏。
+   */
+.template-config { grid-column:1; padding:12px 14px 0; }
+  .template-editor-actions { grid-column:1; padding-left:14px; padding-right:14px; }
+  .template-editor-actions .el-button { flex:1; min-height:44px; }
+  .template-writing-dialog { width:100%!important; max-height:100dvh; margin:0!important; border-radius:0!important; }
+  .template-writing-dialog .el-dialog__body { max-height:calc(100dvh - 130px); overflow:auto; padding:12px; }
+  .template-editor-dialog--full { height:100dvh; max-height:100dvh; }
   .template-block-editor { grid-template-columns:36px 1fr; }
   .workspace-tabs,.workspace-tabs .el-tab-pane { min-width:0; }
   .workspace-tabs .el-tabs__content { overflow:hidden; padding:12px 9px; }

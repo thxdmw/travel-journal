@@ -28,7 +28,15 @@ public class JournalDocumentService {
     public static final int MAX_BLOCKS = 200;
     private static final int MAX_DOCUMENT_BYTES = 1_000_000;
     private static final int MAX_TEXT_LENGTH = 50_000;
-    private static final Set<String> BLOCK_TYPES = Set.of(
+    /**
+     * 正文支持的全部区块类型，也是「添加区块」面板和日记模板共用的那一份清单。
+     *
+     * <p>public 是为了让 {@link com.thx.traveljournal.journaltemplate.service.JournalTemplateService}
+     * 直接复用：模板能选的区块必须和编辑器能加的区块严格一致，各留一份白名单迟早会分叉——
+     * 上一版就是这么长出 text/textarea 这种编辑器里根本不存在的类型的。
+     * 前端对应的是 frontend/src/journal/catalog.ts 的 CATALOG。</p>
+     */
+    public static final Set<String> BLOCK_TYPES = Set.of(
             "heading", "paragraph", "quote", "rating", "checklist", "trip-info",
             "route", "itinerary", "timeline", "expense-summary", "image", "gallery",
             "postcard", "divider", "callout", "facts", "pros-cons", "table", "link-card",

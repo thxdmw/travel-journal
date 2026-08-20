@@ -359,8 +359,8 @@ console.log(await page.evaluate(() => document.querySelector('#x').getBoundingCl
 1. `journal-blocks.js`：目录信息、默认数据、统一渲染和示例数据。
 2. `journal-block-editor.js`：结构化填写表单；如果新区块属于「连续写作」类，还要加进 `INLINE_BLOCKS` 并补上行内轻控件。
 3. `journal-block-editor.css`：编辑态样式；`journal-blocks.css`：后台与公开端共用的展示样式。
-4. `JournalDocumentService.java`：类型白名单、设置白名单、正文有效性和媒体引用提取。
-5. 模板服务：如果新区块需要被日记模板生成，再增加模板输入与生成规则。
+4. `JournalDocumentService.java`：类型白名单（`BLOCK_TYPES`）、设置白名单、正文有效性和媒体引用提取。
+5. 模板：**类型不用再登记一遍**（见下一节），但要决定它属于哪一档来路。
 6. 自动化测试：覆盖合法文档、非法设置、发布时有效内容和媒体归属。
 
 不要只在前端添加类型。后端校验与公开渲染缺失会造成保存失败或公开页面丢失内容。
@@ -368,6 +368,26 @@ console.log(await page.evaluate(() => document.querySelector('#x').getBoundingCl
 在加新区块之前先想清楚：29 种已经能覆盖绝大多数旅行场景，多一种就多一份决策成本。真正影响体验的通常不是少了哪种排版，而是输入摩擦、离线可靠性和从拍照到记录的路径长度。
 
 如果新区块要的数据旅行工作台里已经有（城市、行程、账目、图片），把它加进 `LINKABLE_BLOCKS` 并在 `bindingDefaults` / `applyBinding` 里补上映射，而不是让作者再录一遍。`day-opener` 和 `day-summary` 更进一步——它们默认就开着关联，因为那些字段作者手填毫无意义。
+
+## 日记模板与「添加区块」共用同一份目录
+
+**模板能选的区块 = 编辑器能加的区块，没有第二份清单。** 后端 `JournalTemplateService.TYPES` 直接引用 `JournalDocumentService.BLOCK_TYPES`，前端模板页的区块库直接遍历 `CATALOG`。
+
+以前不是这样：模板自带一份 12 种的白名单，里面还有 `text` / `textarea` 这两个正文里根本不存在的类型（生成时都会变成 `paragraph`，区别只是模板编辑器给的输入框高度），而且「照片墙」在编辑器里叫「图片组」。作者每换一个界面就要重新认一遍组件。`V31__template_blocks_use_catalog_types.sql` 把库里存量的旧类型搬成 `paragraph`，前后端各留一处 `canonicalTemplateType` 兜住导入的老 JSON。
+
+区块在模板里分三档来路，定义在 `frontend/src/journal/catalog.ts` 的 `templateBlockMode()`，后端 `AUTO` / `PROMPTED` 两个集合与之一一对应，**两边必须同时改**：
+
+| 来路 | 区块 | 生成时的行为 |
+| --- | --- | --- |
+| `auto` 自动 | `route`、`itinerary`、`expense-summary` | 从所属旅行取数；对应范围内没有记录时整块跳过，并把标题报回给作者 |
+| `prompt` 填写 | `trip-info`、`paragraph`、`heading`、`quote`、`rating`、`checklist`、`image`、`gallery`、`postcard` | 套用模板时由作者当场填，`required` 只对这一档生效 |
+| `skeleton` 待填 | 其余全部 | 生成一块空的，作者到编辑器里点开填写 |
+
+`skeleton` 这一档的后端只吐 `data: {}`。**不要在后端补一份默认值表**——前端 `normalize()` 已经按 `BLOCK_DEFAULTS` 给每个类型建好骨架再盖上已有 data，而模板生成的结果正好走这一步。两份默认值并存迟早会对不上，届时「模板生成的块」和「手动加的块」字段就不一样了。
+
+模板负责的是「这篇日记由哪些块按什么顺序组成」，不是把 29 种区块的编辑表单在模板里再实现一遍，`skeleton` 存在的理由就是这个。
+
+模板的编辑与预览界面都是整屏，不用弹窗：预览那一栏必须容得下真实的 `--tj-article-width`，被压进对话框之后图片每一档宽度都跟着算小，同一份模板在预览里和发布之后就是两个排版。宽屏左预览右配置（`.template-editor-dialog--full`，结构和图片区块的 `.block-config-dialog--full` 刻意保持一致），窄屏容不下正文宽度，组件按同一个 780px 断点的 `matchMedia` 干脆不渲染预览栏，改成一个按钮开整屏预览。
 
 ## 相关文档
 

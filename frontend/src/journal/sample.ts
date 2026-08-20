@@ -1,3 +1,4 @@
+import { canonicalTemplateType } from './catalog'
 import { createBlock } from './document'
 import type { BlockData, JournalDocument, SampleDefinition } from '@/types/journal-block'
 
@@ -17,8 +18,8 @@ const SAMPLE_IMAGE =
 function samples(definition: SampleDefinition): Record<string, BlockData> {
   return {
     'trip-info': { date: '2026-08-09', city: '成都', tripTitle: '青城山一日游', weather: '晴', mood: '松弛' },
-    text: { text: '从这里开始今天的故事。' },
-    textarea: { text: '路上的风、偶遇的人和当时的心情，都会在这里成为一段完整记录。' },
+    paragraph: { text: '路上的风、偶遇的人和当时的心情，都会在这里成为一段完整记录。' },
+    heading: { text: '下山之后', level: 2 },
     quote: { text: '有些风景，只有慢下来才看得见。', source: '旅途手记' },
     rating: { score: 4, max: definition.config?.max || 5, comment: '值得再来' },
     callout: { tone: 'memory', icon: '✦', text: '今天最想记住的，是下山时吹来的那阵风。' },
@@ -93,17 +94,37 @@ function samples(definition: SampleDefinition): Record<string, BlockData> {
       message: '愿下一次出发时，我们依然对世界好奇。',
       signature: '远行手记',
     },
+    'day-opener': {
+      city: '成都',
+      dayLabel: 'Day 2',
+      date: '2026-08-09',
+      weather: '晴',
+      route: ['犀浦', '青城山', '街子古镇'],
+      metrics: [
+        { value: '18,642', label: '步' },
+        { value: '268', label: '元' },
+      ],
+    },
+    chapter: { time: '08:30', title: '清晨', note: '山门口只有几个人' },
+    'day-summary': {
+      items: [
+        { icon: '🌟', label: '今天最喜欢', value: '下山时的那阵风' },
+        { icon: '🍜', label: '今天最好吃', value: '青城老腊肉' },
+      ],
+    },
+    divider: {},
   }
 }
 
 /** 按模板定义生成一份示例正文，供模板管理页预览排版。 */
 export function sampleDocument(definitions?: readonly SampleDefinition[] | null): JournalDocument {
   const blocks = (definitions ?? []).map(definition => {
-    // 模板里的 text / textarea 都是正文段落，Block 类型只有 paragraph 一种
-    const type = definition.type === 'text' || definition.type === 'textarea' ? 'paragraph' : definition.type
+    // 导入的老模板可能仍带着已下线的 text / textarea，先搬成正文里的真实类型
+    const type = canonicalTemplateType(definition.type)
     return createBlock(type, {
-      title: definition.title,
-      data: samples(definition)[definition.type] ?? {},
+      // 标题自己就是一行字，再挂一个区块标题会连着出现两行；分隔线同理没有标题
+      title: type === 'heading' || type === 'divider' ? '' : definition.title,
+      data: samples(definition)[type] ?? {},
     })
   })
   return { schemaVersion: 1, blocks }

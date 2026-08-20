@@ -34,9 +34,35 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class JournalTemplateService {
-    private static final Set<String> TYPES = Set.of("trip-info","text","textarea","quote","rating",
-            "checklist","route","itinerary","expense-summary","image","gallery","divider");
+    /**
+     * 模板能选的区块 = 编辑器能加的区块。
+     *
+     * <p>直接复用正文那份白名单，不再自己维护第二份：以前这里只有 12 种，还有 text/textarea
+     * 这两个编辑器里压根不存在的类型，于是「模板里加的区块」和「日记里加的区块」是两套名字、
+     * 两套范围，作者每次都要重新对一遍。</p>
+     */
+    private static final Set<String> TYPES = JournalDocumentService.BLOCK_TYPES;
+    /**
+     * 已下线的模板专用类型 → 正文里对应的真实类型。
+     *
+     * <p>text（单行）和 textarea（多行）在正文里都是 paragraph，区别只是模板编辑器给的输入框
+     * 高度不同——那是控件差异，不该变成一种区块类型。库里的老模板由 V31 迁移搬过一次，
+     * 这里再兜一道：导入的模板 JSON 和旧客户端提交的定义都可能仍带着旧名字。</p>
+     */
+    private static final Map<String,String> LEGACY_TYPES = Map.of("text","paragraph","textarea","paragraph");
+    /**
+     * 从旅行工作台自动取数的区块。生成时对应数据为空就整块跳过，并在结果里报给作者。
+     *
+     * <p>trip-info 不在其中：它的日期和城市自动带出，天气和心情仍要作者填，
+     * 没有「数据为空所以跳过」这回事。</p>
+     */
     private static final Set<String> AUTO = Set.of("route","itinerary","expense-summary");
+    /**
+     * 生成日记时需要作者当场填内容的区块。其余类型一律生成空骨架，作者到编辑器里再填——
+     * 模板负责的是「这篇日记由哪些块按什么顺序组成」，不必把 29 种区块的表单再实现一遍。
+     */
+    private static final Set<String> PROMPTED = Set.of("paragraph","heading","quote","rating",
+            "checklist","image","gallery","postcard");
     private static final Set<String> SIZES = Set.of("small","medium","large","full");
     private static final Set<String> ALIGNS = Set.of("left","center","right");
     private static final Set<String> LAYOUTS = Set.of("row","grid","mosaic","carousel","filmstrip","compare");
@@ -114,8 +140,8 @@ public class JournalTemplateService {
             ObjectNode block=generateBlock(definition,values,trip,stop,stops,itinerary,day,all,
                     categories,media,input.occurredOn());
             if(block!=null) output.add(block);
-            else if(AUTO.contains(definition.path("type").asText()))
-                skipped.add(definition.path("title").asText(definition.path("type").asText()));
+            else if(AUTO.contains(canonicalType(definition)))
+                skipped.add(definition.path("title").asText(canonicalType(definition)));
         }
         ObjectNode document=documentService.emptyDocument(); document.set("blocks",output);
         return new GenerateResult(documentService.validate(document,false),template.getId(),template.getVersion(),skipped);
@@ -135,7 +161,7 @@ public class JournalTemplateService {
     private ObjectNode generateBlock(JsonNode def,ObjectNode values,Trip trip,TripStop stop,
             List<TripStop> stops,List<ItineraryItem> itinerary,List<Expense> day,List<Expense> all,
             Map<Long,String> categories,Set<Long> media,LocalDate date){
-        String type=def.path("type").asText(),title=def.path("title").asText("");
+        String type=canonicalType(def),title=def.path("title").asText("");
         JsonNode config=def.path("config"),raw=values.path(def.path("id").asText()),value=blockValue(raw);
         return switch(type){
             case "trip-info"->tripInfo(title,trip,stop,raw,date);
@@ -143,14 +169,38 @@ public class JournalTemplateService {
             case "itinerary"->itinerary(title,itinerary);
             case "expense-summary"->expense(title,"trip".equals(config.path("source").asText())?all:day,
                     categories,trip.getDefaultCurrency());
-            case "text","textarea"->text("paragraph",title,value.asText(""));
+            case "paragraph"->text("paragraph",title,value.asText(""));
             case "quote"->text("quote",title,value.asText(""));
+            case "heading"->heading(value,config);
+            // 分隔线没有内容也没有标题，是纯粹的排版符号
+            case "divider"->block("divider","");
             case "rating"->rating(title,value,config.path("max").asInt(5));
             case "checklist"->checklist(title,value);
-            case "image","gallery"->image(type,title,raw,config,media);
-            case "divider"->block("divider","");
-            default->null;
+            case "image","gallery","postcard"->image(type,title,raw,config,media);
+            /*
+             * 其余类型生成一个空骨架。
+             *
+             * data 留空是有意的：前端 normalize()（frontend/src/journal/document.ts）会按
+             * BLOCK_DEFAULTS 给每个类型建一份带默认字段的骨架再把已有 data 盖上去，所以这里
+             * 吐 {} 出去，作者拿到的就是一块结构完整、内容待填的区块。后端因此不必再维护
+             * 一份和 BLOCK_DEFAULTS 平行的默认值表——两份默认值迟早会对不上。
+             */
+            default->block(type,title);
         };
+    }
+    /** 区块类型，顺带把 text / textarea 这类下线名字搬成正文里的真实类型。 */
+    private String canonicalType(JsonNode def){
+        String type=def.path("type").asText("");
+        return LEGACY_TYPES.getOrDefault(type,type);
+    }
+    private ObjectNode heading(JsonNode value,JsonNode config){
+        String text=value.asText("");
+        if(!StringUtils.hasText(text))return null;
+        ObjectNode b=block("heading",""),d=(ObjectNode)b.path("data");
+        d.put("text",text.trim());
+        // 标题自己就是文字，再挂一个区块标题会连着出现两行；层级缺省用二级
+        d.put("level",Math.max(2,Math.min(4,config.path("level").asInt(2))));
+        return b;
     }
     private ObjectNode tripInfo(String title,Trip trip,TripStop stop,JsonNode raw,LocalDate date){
         ObjectNode b=block("trip-info",title),d=(ObjectNode)b.path("data");
@@ -218,17 +268,21 @@ public class JournalTemplateService {
             }
         }
         else if(source.canConvertToLong())ids.add(source.asLong());
-        if("image".equals(type)&&ids.size()>1)ids.subList(1,ids.size()).clear();
+        // 单张图片和明信片都只放一张，多选时取第一张
+        boolean single=!"gallery".equals(type);
+        if(single&&ids.size()>1)ids.subList(1,ids.size()).clear();
         if(ids.isEmpty())return null;
         if(!available.containsAll(ids))throw BusinessException.badRequest("模板选择的图片不属于当前日记");
         ObjectNode b=block(type,title),d=(ObjectNode)b.path("data"),s=(ObjectNode)b.path("settings");
-        if("image".equals(type))d.put("mediaId",ids.get(0));
+        if(single)d.put("mediaId",ids.get(0));
         else{
             ArrayNode mediaIds=d.putArray("mediaIds");
             for(Long id:ids)mediaIds.add(id);
         }
         s.put("size",allowed(config.path("imageSize").asText(),SIZES,"medium"));
         s.put("align",allowed(config.path("align").asText(),ALIGNS,"center"));
+        // 明信片的版式是它自己那一种，不走图片组那套排布
+        if("postcard".equals(type))s.put("layout","postcard");
         if("gallery".equals(type)){
             s.put("layout",allowed(config.path("layout").asText(),LAYOUTS,"grid"));
             s.put("columns",Math.max(1,Math.min(6,config.path("columns").asInt(3))));
@@ -259,23 +313,28 @@ public class JournalTemplateService {
         ArrayNode blocks=(ArrayNode)definition.path("blocks");
         if(blocks.isEmpty()||blocks.size()>30)throw BusinessException.badRequest("模板需要 1 到 30 个区块");
         Set<String> ids=new HashSet<>();
-        for(JsonNode block:blocks){
-            String id=block.path("id").asText(""),type=block.path("type").asText("");
+        JsonNode result=definition.deepCopy();
+        for(JsonNode block:result.path("blocks")){
+            String id=block.path("id").asText(""),type=canonicalType(block);
             if(!id.matches("[A-Za-z][A-Za-z0-9_-]{0,39}")||!ids.add(id))
                 throw BusinessException.badRequest("区块标识必须唯一，且只能包含字母、数字、下划线和短横线");
             if(!TYPES.contains(type))throw BusinessException.badRequest("不支持的区块类型："+type);
             if(block.path("title").asText("").length()>100)throw BusinessException.badRequest("区块标题不能超过 100 个字符");
             if(block.has("config")&&!block.path("config").isObject())throw BusinessException.badRequest("区块配置必须是对象");
-        } return definition.deepCopy();
+            // 存进库的一律是正文里的真实类型，旧名字到此为止，不再往下游传
+            ((ObjectNode)block).put("type",type);
+        } return result;
     }
     private JsonNode blockValue(JsonNode raw){return raw.isObject()&&raw.has("value")?raw.path("value"):raw;}
     private void validateRequired(JsonNode def,ObjectNode values){
         if(!def.path("required").asBoolean())return;
-        String type=def.path("type").asText();
-        if(Set.of("trip-info","route","itinerary","expense-summary","divider").contains(type))return;
+        String type=canonicalType(def);
+        // 只有「生成时填写」的区块才谈得上必填：自动取数的块没数据就跳过，
+        // 空骨架的块本来就是留到编辑器里填的，在这里拦下来只会让人无从下手
+        if(!PROMPTED.contains(type))return;
         JsonNode raw=values.path(def.path("id").asText()),value=blockValue(raw);
         boolean filled;
-        if(Set.of("image","gallery").contains(type)){
+        if(Set.of("image","gallery","postcard").contains(type)){
             JsonNode ids=raw.isObject()?raw.path("mediaIds"):raw;
             filled=(ids.isArray()&&!ids.isEmpty())||ids.canConvertToLong();
         }else if("rating".equals(type))filled=value.asInt(value.path("value").asInt())>0;

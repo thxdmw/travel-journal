@@ -69,3 +69,51 @@ export const BLOCK_DEFAULTS: Record<string, BlockData> = {
 
 /** 有图片的三种 Block 共用一组表现设置。 */
 export const MEDIA_BLOCK_TYPES = ['image', 'gallery', 'postcard'] as const
+
+/**
+ * 日记模板里，一个区块在「生成日记」那一刻的行为。
+ *
+ * 模板能选的区块和上面的 CATALOG 完全一致，但生成时它们的来路不同：
+ *
+ * - `auto`     从旅行工作台取数自动填。对应范围内没有记录时整块跳过，并在结果里报给作者。
+ * - `prompt`   生成前由作者在「用模板开始写作」里当场填。
+ * - `skeleton` 生成一块结构完整、内容待填的空区块，作者到编辑器里点开就写。
+ *
+ * 之所以有 `skeleton` 这一档：模板负责的是「这篇日记由哪些块按什么顺序组成」，
+ * 不该把 29 种区块的编辑表单在模板里再实现一遍。没列进下面两张表的类型都归 `skeleton`。
+ *
+ * 后端 JournalTemplateService 的 AUTO / PROMPTED 两个集合和这里一一对应，两边必须同时改。
+ */
+export type TemplateBlockMode = 'auto' | 'prompt' | 'skeleton'
+
+/** 从旅行数据自动带出的区块。trip-info 的日期和城市自动填，天气心情仍要作者写，所以不在其中。 */
+const TEMPLATE_AUTO_TYPES = ['route', 'itinerary', 'expense-summary']
+/** 生成日记时需要作者当场填内容的区块。 */
+const TEMPLATE_PROMPT_TYPES = [
+  'trip-info', 'paragraph', 'heading', 'quote', 'rating', 'checklist', 'image', 'gallery', 'postcard',
+]
+
+export function templateBlockMode(type: string): TemplateBlockMode {
+  if (TEMPLATE_AUTO_TYPES.includes(type)) return 'auto'
+  if (TEMPLATE_PROMPT_TYPES.includes(type)) return 'prompt'
+  return 'skeleton'
+}
+
+/** 模板区块库里每一档的角标与说明。 */
+export const TEMPLATE_MODE_HINTS: Record<TemplateBlockMode, { badge: string, hint: string }> = {
+  auto: { badge: '自动', hint: '从所属旅行的数据自动整理；对应范围内没有记录时会跳过这一块。' },
+  prompt: { badge: '填写', hint: '套用模板时会让你当场填这一块的内容。' },
+  skeleton: { badge: '待填', hint: '生成一块空的，套用之后在日记编辑器里点开填写。' },
+}
+
+/**
+ * 模板里已下线的区块类型 → 正文里对应的真实类型。
+ *
+ * text（单行）和 textarea（多行）在正文里都是 paragraph，区别只是输入框高度，
+ * 那是控件差异不该变成区块类型。库里的老模板由 V31 迁移搬过一次，这里兜住导入的旧 JSON。
+ */
+const LEGACY_TEMPLATE_TYPES: Record<string, string> = { text: 'paragraph', textarea: 'paragraph' }
+
+export function canonicalTemplateType(type: string): string {
+  return LEGACY_TEMPLATE_TYPES[type] ?? type
+}
