@@ -20,6 +20,33 @@
 
 后两步在本机默认都跑不起来（要真实 PostgreSQL 和 MinIO），这正是「本地绿、CI 红」的主要来源。
 
+## 两个 shell 别搞混
+
+这台机器上工具链是分开装的，`verify-ci.sh` 跑在哪个 shell 里决定它能不能找到东西：
+
+| | Git Bash（`D:\Program Files\Git\bin\bash.exe`） | WSL（`C:\Windows\System32\bash.exe`） |
+| --- | --- | --- |
+| node / npm / mvn / java | 有 | 没有 |
+| docker | 没有 | 有 |
+
+`verify-ci.sh` 要用 **Git Bash**，起容器的命令要进 **WSL**。坑在于 PowerShell 里敲 `bash` 拿到的是 WSL 那个，脚本进去以后一路 `command not found`；而 WSL 访问 `/mnt/d` 时路径看着和 Windows 侧一模一样，报错也不会提示你走错了门。脚本开头会检测并直接拦下来。
+
+从 PowerShell 起要指名道姓（`./verify-ci.sh` 在 PowerShell 里则直接是语法错误）：
+
+```powershell
+& "D:\Program Files\Git\bin\bash.exe" verify-ci.sh
+```
+
+## JDK
+
+项目是 Java 21，本机装了 8/17/19/21/22/25，`JAVA_HOME` 默认指向 **8**。用 8 编译会在 record 和 text block 处报一屏「需要 class, interface 或 enum」，而且位置全飘到无关文件上，看着像代码坏了——实际只是 JDK 不对。
+
+`verify-ci.sh` 会自己找 21（依次看 `JAVA21_HOME`、`JAVA_HOME`、`/d/java/environment/jdk21` 等常见位置），找不到才报错。手工跑 `mvn` 时得自己带上：
+
+```bash
+JAVA_HOME=/d/java/environment/jdk21 mvn -o -ntp test
+```
+
 ## 依赖容器
 
 `docker-compose.dev.yml` 只起 PostgreSQL 和 MinIO，应用本身仍旧用 IDE 或 `mvn` 起在宿主机上。这台机器的 Docker 装在 WSL 里，Windows 侧没有 `docker` 命令，所以带 docker 的命令都要进 WSL；容器端口经 WSL 的 localhost 转发，Windows 这边的 Java 和 Playwright 直接连 `127.0.0.1` 就行，不需要知道 WSL 的 IP。
@@ -88,3 +115,9 @@ npx playwright test --project=desktop-chrome --grep @media
 | 图片权限缓存（`@media`） | `media-cache-lifecycle.spec.ts` |
 
 `@smoke` 那批（10 条）由 `verify-mobile-smoke` 跑；`@media` 单独一步，因为它需要 MinIO，而且要 Chromium 才能测 Cache Storage 和 SW。两步串行而不是并行——它们共用同一个 PostgreSQL，同时跑会互相看见对方的数据。
+
+**没打标记的用例，`verify-ci.sh` 一条都不会跑到。** 每个 spec 里通常只有一条挂着 `@smoke`，剩下的要自己点名。改过主题设计器就手动跑一遍它那一整个文件（应用要先起着，见上面 E2E 那节）：
+
+```bash
+E2E_BASE_URL=http://127.0.0.1:8080 E2E_ADMIN_USER=admin E2E_ADMIN_PASS=dev-only-password-2026 npx playwright test theme-designer-preview --project=desktop-chrome
+```

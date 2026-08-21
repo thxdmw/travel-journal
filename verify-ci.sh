@@ -9,12 +9,21 @@
 #   ./verify-ci.sh            # 全套
 #   ./verify-ci.sh backend    # 只跑某一步：frontend | backend | smoke | media
 #
-# 前置：依赖容器已经起着。这台机器的 Docker 在 WSL 里，Windows 侧没有 docker 命令，
+# 这个脚本要用 Git Bash 跑，不能用 WSL 的 bash。PowerShell 里直接敲 bash 拿到的是
+# C:\Windows\System32\bash.exe，也就是 WSL 那个——而 node / java / mvn 全装在 Windows 侧，
+# 进了 WSL 会一路 command not found。从 PowerShell 起的话要指名道姓：
+#
+#   & "D:\Program Files\Git\bin\bash.exe" verify-ci.sh
+#
+# 前置：依赖容器已经起着。这台机器的 Docker 反过来只在 WSL 里，Windows 侧没有 docker 命令，
 # 所以带 docker 的命令都得进 WSL 执行（仓库在 WSL 里的路径是 /mnt/d/... 这种形式）：
 #
 #   wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/IdeaProjects/travel-journal && docker compose -f docker-compose.dev.yml up -d"
 #
 # 容器端口经 WSL 的 localhost 转发，所以下面这些命令连 127.0.0.1 就行。
+#
+# JDK 由脚本自己找，不用先 export：本机装了 8/17/19/21/22/25，默认那个是 8，
+# 而项目是 Java 21。要指定别的位置就设 JAVA21_HOME。
 #
 # 和 CI 的已知差异，看结果时要心里有数：
 #
@@ -39,6 +48,44 @@ SMOKE_PROJECT="${SMOKE_PROJECT:-iphone-13}"
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31m×  %s\033[0m\n' "$1"; exit 1; }
 
+# Git Bash 会设 MSYSTEM；WSL 的内核版本串里带 microsoft。两个一起看才分得清，
+# 因为从 WSL 访问 /mnt/d 时，仓库路径长得和在 Windows 侧一模一样。
+if [ -z "${MSYSTEM:-}" ] && grep -qi microsoft /proc/version 2>/dev/null; then
+  fail '这个脚本跑在 WSL 里了。node / java / mvn 都装在 Windows 侧，WSL 里只有 Docker。
+   请用 Git Bash：& "D:\Program Files\Git\bin\bash.exe" verify-ci.sh'
+fi
+
+# Windows 侧的 mvn.cmd 读的是 JAVA_HOME 环境变量，认 D:/... 不认 /d/...
+to_native() { command -v cygpath >/dev/null 2>&1 && cygpath -m "$1" || printf '%s' "$1"; }
+
+jdk_major() {
+  local exe="$1/bin/java"
+  [ -x "${exe}" ] || exe="$1/bin/java.exe"
+  [ -x "${exe}" ] || return 1
+  "${exe}" -version 2>&1 | sed -nE '1s/.*version "([0-9]+).*/\1/p'
+}
+
+# 本机默认 JDK 是 8，拿它编译 Java 21 的 record 和 text block 会报一屏
+# 「需要 class, interface 或 enum」，而且位置全飘到无关文件上——看着像代码坏了。
+ensure_jdk21() {
+  [ "${JDK21_READY:-}" = 1 ] && return 0
+  local candidate
+  for candidate in "${JAVA21_HOME:-}" "${JAVA_HOME:-}" \
+      /d/java/environment/jdk21 "${HOME}"/.jdks/*21* \
+      "/c/Program Files/Java"/jdk-21* "/c/Program Files/Eclipse Adoptium"/jdk-21* \
+      "/c/Program Files/Amazon Corretto"/jdk21*; do
+    [ -n "${candidate}" ] && [ -d "${candidate}" ] || continue
+    [ "$(jdk_major "${candidate}" 2>/dev/null)" = 21 ] || continue
+    export JAVA_HOME="$(to_native "${candidate}")"
+    export PATH="${candidate}/bin:${PATH}"
+    export JDK21_READY=1
+    step "使用 JDK 21：${JAVA_HOME}"
+    return 0
+  done
+  fail '找不到 JDK 21。本机默认那个是 8，用它编译会在 record / text block 处报一堆位置乱飘的语法错。
+   装好之后设 JAVA21_HOME 指过去，例如 JAVA21_HOME=/d/java/environment/jdk21'
+}
+
 require_deps() {
   curl --silent --fail --max-time 3 "http://127.0.0.1:${MINIO_PORT_LOCAL}/minio/health/live" >/dev/null \
     || fail "MinIO 连不上（127.0.0.1:${MINIO_PORT_LOCAL}）。依赖容器要在 WSL 里起，见本文件开头的命令。"
@@ -55,6 +102,7 @@ verify_frontend() {
 
 verify_backend() {
   step 'verify-backend：Java 测试与打包（含真实 PostgreSQL 迁移验证）'
+  ensure_jdk21
   require_deps
   # 先删掉上一次的报告：否则这一轮就算压根没跑测试，下面的检查也会读到旧结果说「过了」
   rm -f target/surefire-reports/com.thx.traveljournal.migration.FlywayMigrationTest.txt
@@ -73,6 +121,7 @@ verify_backend() {
 # 应用起在后台，跑完 E2E 收掉。CI 那边也是这么做的。
 app_pid=''
 start_app() {
+  ensure_jdk21
   require_deps
   [ -f target/travel-journal.jar ] || fail '没有 target/travel-journal.jar，先跑 backend 那一步'
   step '启动应用'

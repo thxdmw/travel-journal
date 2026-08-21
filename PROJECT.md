@@ -74,11 +74,16 @@ Docker 装在 WSL 里（Windows 侧没有 `docker` 命令），依赖容器先�
 wsl -d Ubuntu -e bash -lc "cd /mnt/d/java/IdeaProjects/travel-journal && docker compose -f docker-compose.dev.yml up -d"
 ```
 
-Java 需要 21（本机默认是 8）：
+脚本本身要用 **Git Bash** 跑（JDK 21 它自己会找，本机默认那个是 8）：
 
 ```bash
-export JAVA_HOME=/d/java/environment/jdk21 && export PATH="$JAVA_HOME/bin:$PATH"
 ./verify-ci.sh                 # 走完 CI 四步；也可只跑 frontend | backend | smoke | media
+```
+
+从 PowerShell 起就得指名道姓——`bash` 在 PowerShell 里解析到的是 `C:\Windows\System32\bash.exe`，那是 WSL 的 bash，而 node / java / mvn 全装在 Windows 侧：
+
+```powershell
+& "D:\Program Files\Git\bin\bash.exe" verify-ci.sh
 ```
 
 只改前端时，`frontend/` 下这四条够快：`npm run lint`、`npm run typecheck`、`npm run test:unit`、`npm run build`。
