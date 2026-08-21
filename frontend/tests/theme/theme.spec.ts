@@ -98,9 +98,9 @@ describe('apply：颜色与派生值', () => {
 
 describe('apply：通用 token 映射', () => {
   it('登记过单位的数值铺成带单位的 CSS 变量', () => {
-    apply(withDefinition({ card: { blur: 12, opacity: 0.8 } }))
-    expect(root().style.getPropertyValue('--tj-card-blur')).toBe('12px')
-    expect(root().style.getPropertyValue('--tj-card-opacity')).toBe('0.8')
+    apply(withDefinition({ typography: { letterSpacing: 0.04 }, background: { intensity: 0.8 } }))
+    expect(root().style.getPropertyValue('--tj-typography-letter-spacing')).toBe('0.04em')
+    expect(root().style.getPropertyValue('--tj-background-intensity')).toBe('0.8')
   })
 
   it('驼峰键名转成短横线变量名', () => {
@@ -109,10 +109,10 @@ describe('apply：通用 token 映射', () => {
   })
 
   it('未登记单位的数值不写变量，避免和专用逻辑写出两份打架的值', () => {
-    apply(withDefinition({ typography: { bodySize: 16 } }))
-    expect(root().style.getPropertyValue('--tj-typography-body-size')).toBe('')
-    // bodySize 有自己的专用逻辑
-    expect(root().style.getPropertyValue('--tj-body-size')).toBe('16px')
+    apply(withDefinition({ shape: { cardRadius: 18 } }))
+    expect(root().style.getPropertyValue('--tj-shape-card-radius')).toBe('')
+    // cardRadius 有自己的专用逻辑，写的是 --tj-radius
+    expect(root().style.getPropertyValue('--tj-radius')).toBe('18px')
   })
 
   it('枚举值铺成 data-* 属性', () => {
@@ -135,25 +135,25 @@ describe('apply：通用 token 映射', () => {
 
 describe('apply：切换主题不留残留', () => {
   it('上一套主题的 CSS 变量被清掉', () => {
-    apply(withDefinition({ card: { blur: 12 } }))
-    expect(root().style.getPropertyValue('--tj-card-blur')).toBe('12px')
+    apply(withDefinition({ background: { intensity: 0.8 } }))
+    expect(root().style.getPropertyValue('--tj-background-intensity')).toBe('0.8')
 
     apply('base')
-    expect(root().style.getPropertyValue('--tj-card-blur')).toBe('')
+    expect(root().style.getPropertyValue('--tj-background-intensity')).toBe('')
   })
 
   it('上一套主题的 data-* 枚举被清掉', () => {
     /*
-     * 这是原实现注释里点名的坑：内置主题的配置里没有 card / effects 这些区块，
-     * 不清理的话切回内置主题会残留前一套的玻璃卡片、雪花特效。
+     * 这是原实现注释里点名的坑：内置主题的配置里没有 background / effects 这些区块，
+     * 不清理的话切回内置主题会残留前一套的纸纹背景、雪花特效。
      */
-    apply(withDefinition({ effects: { particles: 'snow' }, card: { style: 'glass' } }))
+    apply(withDefinition({ effects: { particles: 'snow' }, background: { texture: 'paper' } }))
     expect(root().dataset.effectsParticles).toBe('snow')
-    expect(root().dataset.cardStyle).toBe('glass')
+    expect(root().dataset.backgroundTexture).toBe('paper')
 
     apply('base')
     expect(root().dataset.effectsParticles).toBeUndefined()
-    expect(root().dataset.cardStyle).toBeUndefined()
+    expect(root().dataset.backgroundTexture).toBeUndefined()
   })
 
   it('清理不会误伤前缀同名但更短的属性', () => {

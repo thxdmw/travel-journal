@@ -150,7 +150,6 @@ function applyNamedTokens(root: HTMLElement, definition: ThemeDefinition): void 
   const typography = definition.typography ?? {}
   root.style.setProperty('--tj-serif', fontStack(typography.headingFamily, 'serif'))
   root.style.setProperty('--tj-sans', fontStack(typography.bodyFamily, 'sans'))
-  if (typography.bodySize) root.style.setProperty('--tj-body-size', typography.bodySize + 'px')
   if (typography.lineHeight) {
     root.style.setProperty('--tj-body-line-height', String(typography.lineHeight))
   }
@@ -162,12 +161,8 @@ function applyNamedTokens(root: HTMLElement, definition: ThemeDefinition): void 
     root.style.setProperty('--tj-button-radius', shape.buttonRadius + 'px')
     root.style.setProperty('--el-border-radius-base', shape.buttonRadius + 'px')
   }
-  const layout = definition.layout ?? {}
-  if (layout.contentWidth) root.style.setProperty('--tj-content-width', layout.contentWidth + 'px')
-  if (layout.articleWidth) root.style.setProperty('--tj-article-width', layout.articleWidth + 'px')
-  // density / homeLayout 沿用历史属性名，老 CSS 还在用；其余走通用映射
-  root.dataset.density = layout.density || 'comfortable'
-  root.dataset.homeLayout = layout.homeLayout || 'editorial'
+  // homeLayout 沿用历史属性名，老 CSS 还在用；其余走通用映射
+  root.dataset.homeLayout = definition.layout?.homeLayout || 'editorial'
 
   root.dataset.motion = definition.motion?.level || 'subtle'
 }

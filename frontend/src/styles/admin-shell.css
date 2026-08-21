@@ -95,8 +95,6 @@ body.sidebar-collapsed .sidebar-user > div:last-child { display:none; }
    所以外层不会被未缩放的宽度撑出滚动条。具体尺寸由 measurePreview 内联下发。 */
 .preview-stage { position:relative; flex:0 0 auto; overflow:hidden; border-radius:8px; background:white; box-shadow:0 8px 30px rgba(0,0,0,.14); }
 .preview-stage iframe { position:absolute; top:0; left:0; border:0; transform-origin:top left; background:white; }
-[data-density="compact"] .admin-content { padding-top:20px; }
-[data-density="relaxed"] .admin-content { padding-top:34px; }
 [data-motion="none"] *,[data-motion="none"] *::before,[data-motion="none"] *::after { animation-duration:.01ms!important; transition-duration:.01ms!important; }
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; }

@@ -36,7 +36,7 @@ class ThemePresetServiceTest {
     void createKeepsOnlyControlledThemeTokens() throws Exception {
         var definition = objectMapper.readTree("""
                 {"colors":{"background":"#f7f2e8","primary":"#264A3D","unknown":"red"},
-                 "typography":{"bodySize":30},"script":"alert(1)"}
+                 "typography":{"lineHeight":9},"script":"alert(1)"}
                 """);
 
         var result = service.create("我的主题", "说明", "base", null, definition, true);
@@ -45,7 +45,7 @@ class ThemePresetServiceTest {
         assertEquals("#F7F2E8", result.definitionJson().path("colors").path("background").asText());
         assertFalse(result.definitionJson().path("colors").has("unknown"));
         assertFalse(result.definitionJson().has("script"));
-        assertEquals(22, result.definitionJson().path("typography").path("bodySize").asInt());
+        assertEquals(2.4, result.definitionJson().path("typography").path("lineHeight").asDouble(), 1e-9);
         verify(mapper).insert(any(ThemePreset.class));
     }
 
@@ -154,15 +154,15 @@ class ThemePresetServiceTest {
     @Test
     void updateBuiltinUsesTouchedPathsInsteadOfSavingFrontendFallbacks() throws Exception {
         JsonNode official = objectMapper.readTree("""
-                {"colors":{"accent":"#2E9BC9"},"layout":{"articleWidth":760}}
+                {"colors":{"accent":"#2E9BC9"},"shape":{"cardRadius":12}}
                 """);
         ThemePreset preset = builtinPreset(5L, official);
         when(mapper.selectById(5L)).thenReturn(preset);
 
         JsonNode submitted = objectMapper.readTree("""
                 {"colors":{"accent":"#EE873F","background":"#F7F2E8"},
-                 "layout":{"articleWidth":760,"contentWidth":1200},
-                 "card":{"style":"border","opacity":1}}
+                 "shape":{"cardRadius":12,"buttonRadius":8},
+                 "layout":{"homeLayout":"editorial"}}
                 """);
 
         var result = service.update(5L, "盛夏出逃", null, "base", null,
@@ -170,8 +170,8 @@ class ThemePresetServiceTest {
 
         assertEquals("#EE873F", result.overrideJson().path("colors").path("accent").asText());
         assertFalse(result.overrideJson().path("colors").has("background"));
+        assertFalse(result.overrideJson().has("shape"));
         assertFalse(result.overrideJson().has("layout"));
-        assertFalse(result.overrideJson().has("card"));
         assertEquals(1, result.customizedCount());
     }
 

@@ -13,14 +13,24 @@
  * 所以透明度都压得很低，数量也少——正文永远比装饰重要。
  */
 
+/*
+ * 变量名必须和 theme.js 铺出来的一字不差：section 是 decorations，key 是 opacity，
+ * 铺出来就是 --tj-decorations-opacity。这里曾经把 decorations 写成了单数，
+ * 于是「装饰浓度」那个滑块拖到哪都没反应——写出去的变量没人读，读的那个没人写。
+ */
 :root {
-  --tj-decoration-opacity: .35;
+  --tj-decorations-opacity: .35;
   --tj-ambient-intensity: .4;
 }
 
 /* ============================================================ 页面装饰 */
-/* 四角线稿。用伪元素画在 body 上，不占文档流，也不会被内容推走。 */
-[data-decorations-corner]:not([data-decorations-corner="none"]) body::after {
+/*
+ * 四角线稿。画在 .public-shell 上，不占文档流，也不会被内容推走。
+ *
+ * 别挪回 body::after：那个伪元素归「页面背景」的叠加纹理用。两组设置抢同一个
+ * 伪元素时，后加载的这个文件会赢，于是同时开了纹理和四角装饰的主题，纹理直接消失。
+ */
+[data-decorations-corner]:not([data-decorations-corner="none"]) .public-shell::before {
   content: "";
   position: fixed;
   z-index: 0;
@@ -29,27 +39,27 @@
   aspect-ratio: 1;
   right: 0;
   bottom: 0;
-  opacity: var(--tj-decoration-opacity);
+  opacity: var(--tj-decorations-opacity);
   background-repeat: no-repeat;
   background-position: bottom right;
   background-size: contain;
 }
-[data-decorations-corner="vine"] body::after {
+[data-decorations-corner="vine"] .public-shell::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%237FA86B' stroke-width='3'%3E%3Cpath d='M200 200C160 190 130 165 115 130'/%3E%3Cpath d='M130 160c-18 4-30-6-32-22 16-4 28 6 32 22z'/%3E%3Cpath d='M120 120c14-10 14-26 4-38-12 10-14 26-4 38z'/%3E%3Cpath d='M160 180c-16 8-30 2-36-12 15-8 30-2 36 12z'/%3E%3C/svg%3E");
 }
-[data-decorations-corner="wave"] body::after {
+[data-decorations-corner="wave"] .public-shell::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%232E9BC9' stroke-width='4' stroke-linecap='round'%3E%3Cpath d='M0 150c20-16 40-16 60 0s40 16 60 0 40-16 60 0'/%3E%3Cpath d='M0 175c20-16 40-16 60 0s40 16 60 0 40-16 60 0'/%3E%3C/svg%3E");
 }
-[data-decorations-corner="leaf"] body::after {
+[data-decorations-corner="leaf"] .public-shell::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cpath d='M190 40C120 40 70 78 70 128c0 22 11 39 28 44 5-50 38-83 82-94-39 22-66 55-71 99 55 0 94-44 94-105 0-14-4-25-13-32z' fill='%23C67A3E'/%3E%3C/svg%3E");
 }
-[data-decorations-corner="frost"] body::after {
+[data-decorations-corner="frost"] .public-shell::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23A9C8DC' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M200 120h-60M170 90v60M200 160h-40M180 140v40M200 60h-90M140 30v60'/%3E%3C/svg%3E");
 }
-[data-decorations-corner="stamp"] body::after {
+[data-decorations-corner="stamp"] .public-shell::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23A8402F' stroke-width='3'%3E%3Ccircle cx='130' cy='130' r='60'/%3E%3Ccircle cx='130' cy='130' r='44' stroke-dasharray='6 6'/%3E%3Cpath d='M86 130h88M90 106h80M90 154h80'/%3E%3C/svg%3E");
 }
-[data-decorations-corner="compass"] body::after {
+[data-decorations-corner="compass"] .public-shell::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200' fill='none' stroke='%23264A3D' stroke-width='3'%3E%3Ccircle cx='130' cy='130' r='58'/%3E%3Cpath d='M158 102l-36 12-12 36 36-12z' fill='%23C76D4B' stroke='none'/%3E%3Cpath d='M130 60v14M130 186v-14M60 130h14M200 130h-14'/%3E%3C/svg%3E");
 }
 
@@ -60,7 +70,7 @@
   width: 46px;
   height: 12px;
   margin-bottom: 10px;
-  opacity: calc(var(--tj-decoration-opacity) + .3);
+  opacity: calc(var(--tj-decorations-opacity) + .3);
   background-repeat: no-repeat;
   background-size: contain;
 }
@@ -94,7 +104,7 @@
   position: absolute;
   width: 26px;
   height: 26px;
-  opacity: var(--tj-decoration-opacity);
+  opacity: var(--tj-decorations-opacity);
   background-repeat: no-repeat;
   background-size: contain;
   pointer-events: none;
@@ -204,7 +214,7 @@
   position: relative;
   border: 0;
   height: 1px;
-  margin: calc(1.6em * var(--tj-layout-section-gap, 1)) 0;
+  margin: 1.6em 0;
   background: var(--tj-border);
 }
 [data-dividers-style="dashed"] .journal-block--divider hr { background: none; border-top: 2px dashed var(--tj-border); }
@@ -250,10 +260,6 @@
 
 /* ============================================================== 氛围层 */
 /* 比粒子更安静的一层：一片很淡的光，或者极慢地飘过去的云。 */
-[data-ambient-glow]:not([data-ambient-glow="none"]) body::after,
-[data-ambient-drift]:not([data-ambient-drift="none"]) .tj-effect-layer::before {
-  pointer-events: none;
-}
 [data-ambient-glow]:not([data-ambient-glow="none"]) .tj-effect-layer {
   background-repeat: no-repeat;
   opacity: calc(var(--tj-ambient-intensity) * .9);
@@ -270,25 +276,31 @@
 [data-ambient-glow="dawn"] .tj-effect-layer {
   background-image: linear-gradient(180deg, color-mix(in srgb, #F4B6C4 42%, transparent), transparent 34%);
 }
-/* 缓慢移动的那一层。周期都在一分钟以上，慢到几乎察觉不到它在动。 */
-[data-ambient-drift]:not([data-ambient-drift="none"]) .tj-effect-layer::before {
-  content: "";
+/*
+ * 缓慢移动的那一层。周期都在一分钟以上，慢到几乎察觉不到它在动。
+ *
+ * 它住在自己的元素里（由 effects/runtime.ts 按开关增删），不跟「胶片颗粒」挤
+ * .tj-effect-layer::before：抢同一个伪元素的结果是后加载的这个文件赢，
+ * 两样同时开就只剩云在飘，颗粒没了。
+ */
+[data-ambient-drift]:not([data-ambient-drift="none"]) .tj-ambient-drift {
   position: absolute;
   inset: -20% -60%;
+  pointer-events: none;
   opacity: calc(var(--tj-ambient-intensity) * .55);
 }
-[data-ambient-drift="clouds"] .tj-effect-layer::before {
+[data-ambient-drift="clouds"] .tj-ambient-drift {
   background:
     radial-gradient(26% 16% at 20% 22%, #fff, transparent 70%),
     radial-gradient(20% 12% at 62% 12%, #fff, transparent 70%),
     radial-gradient(30% 18% at 86% 30%, #fff, transparent 70%);
   animation: tj-cloud-drift 140s linear infinite;
 }
-[data-ambient-drift="mist"] .tj-effect-layer::before {
+[data-ambient-drift="mist"] .tj-ambient-drift {
   background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--tj-surface) 70%, transparent) 50%, transparent 80%);
   animation: tj-cloud-drift 90s linear infinite;
 }
-[data-ambient-drift="fireflies"] .tj-effect-layer::before {
+[data-ambient-drift="fireflies"] .tj-ambient-drift {
   background:
     radial-gradient(2px 2px at 22% 38%, #F7E3A1, transparent),
     radial-gradient(2px 2px at 68% 22%, #F7E3A1, transparent),
@@ -592,6 +604,7 @@
 /* 系统级「减少动态效果」永远优先。装饰可以留，动起来的部分一律停下。 */
 @media (prefers-reduced-motion: reduce) {
   .tj-effect-layer::before,
+  .tj-ambient-drift,
   .tj-sticker,
   .hero-photo { animation: none !important; }
 }

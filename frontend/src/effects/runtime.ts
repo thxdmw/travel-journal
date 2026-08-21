@@ -129,17 +129,51 @@ function syncStickersFromTheme(): void {
   syncStickers(currentDefinition())
 }
 
+/**
+ * 特效层的存亡。
+ *
+ * 胶片颗粒、漏光、光晕、缓慢移动层这四项的 CSS 全部挂在 .tj-effect-layer 上，可这个层
+ * 原先只有粒子和贴纸会去创建——于是单开一个「漏光」或者「阳光光晕」，页面上什么都不会
+ * 发生，主题里那几个开关看着像是坏的。这里按这四项自己的开关来决定层在不在。
+ *
+ * 缓慢移动层单独用一个子元素承载，不能跟胶片颗粒挤同一个 ::before：两者抢同一个伪元素
+ * 时后加载的 theme-pack.css 会赢，同时开启就只剩云在飘，颗粒没了。
+ */
+function syncEffectLayer(): void {
+  const flags = document.documentElement.dataset
+  const drift = Boolean(flags.ambientDrift && flags.ambientDrift !== 'none')
+  const wanted = drift
+    || Boolean(flags.ambientGlow && flags.ambientGlow !== 'none')
+    || flags.effectsGrain === 'on'
+    || flags.effectsLightLeak === 'on'
+  const layer = wanted ? effectLayer() : document.querySelector<HTMLElement>('.tj-effect-layer')
+  if (!layer) return
+
+  const existing = layer.querySelector('.tj-ambient-drift')
+  if (drift && !existing) {
+    const element = document.createElement('div')
+    element.className = 'tj-ambient-drift'
+    element.setAttribute('aria-hidden', 'true')
+    layer.appendChild(element)
+  } else if (!drift && existing) {
+    existing.remove()
+  }
+  // 粒子画布和贴纸也住在这一层里，都散了才收摊
+  if (!wanted && !layer.childElementCount) layer.remove()
+}
+
 export function sync(): void {
   syncParticles()
   syncReveal()
   syncStickersFromTheme()
+  syncEffectLayer()
 }
 
 /** 本运行时自己增删的节点。内容观察器要忽略它们，否则会自己触发自己。 */
 function isManagedNode(node: Node): boolean {
   return (
     node.nodeType === 1 &&
-    (node as Element).matches?.('.tj-effect-layer,.tj-particle-canvas,.tj-sticker') === true
+    (node as Element).matches?.('.tj-effect-layer,.tj-particle-canvas,.tj-sticker,.tj-ambient-drift') === true
   )
 }
 
@@ -164,6 +198,11 @@ export function install(options: InstallOptions): void {
       'data-motion-scroll-reveal',
       'data-stickers-density',
       'data-interactions-sticker-click',
+      // 这四项决定特效层在不在，见 syncEffectLayer
+      'data-effects-grain',
+      'data-effects-light-leak',
+      'data-ambient-glow',
+      'data-ambient-drift',
     ],
   })
 

@@ -28,7 +28,7 @@ async function mockThemeStudio(page: import('@playwright/test').Page) {
 
 /*
  * 主题设计器右侧预览曾经只有首页一个场景，但主题设置里很多 Token 根本不作用于
- * 首页（文章宽度、引用皮肤、路线粗细……），导致用户分不清「设置没生效」还是
+ * 首页（正文行高、引用皮肤、路线粗细……），导致用户分不清「设置没生效」还是
  * 「当前预览没有对应元素」。这套用例验证三场景预览（首页/日记/地图）都能正常
  * 加载各自的固定示例内容，并且修改对应分组的设置后预览会收到主题更新。
  */
@@ -115,13 +115,17 @@ test.describe('主题设计器三场景预览', () => {
     await expect(frame.locator('.journal-gallery')).not.toHaveClass(/journal-gallery--cols-/);
   });
 
+  /*
+   * 挑的这一对必须真的在同一行，否则宽屏那条断言测的就不是「对齐」而是「换行了没有」。
+   * 「圆角」这一组正好只有两个数值项，两列网格下必定并排。
+   */
   test('主题数值输入控件等宽对齐', async ({ page }) => {
     const dialog = page.locator('.theme-designer-dialog');
-    const layout = dialog.locator('details').filter({ hasText: '页面布局' });
-    await layout.locator('summary').click();
-    const articleWidth = layout.locator('.setting-field', { hasText: '文章宽度' }).locator('.el-input-number');
-    const sectionGap = layout.locator('.setting-field', { hasText: '区块间距倍数' }).locator('.el-input-number');
-    const [a, b] = await Promise.all([articleWidth.boundingBox(), sectionGap.boundingBox()]);
+    const shape = dialog.locator('details').filter({ hasText: '圆角' });
+    await shape.locator('summary').click();
+    const cardRadius = shape.locator('.setting-field', { hasText: '卡片圆角' }).locator('.el-input-number');
+    const buttonRadius = shape.locator('.setting-field', { hasText: '按钮圆角' }).locator('.el-input-number');
+    const [a, b] = await Promise.all([cardRadius.boundingBox(), buttonRadius.boundingBox()]);
     expect(a).not.toBeNull(); expect(b).not.toBeNull();
     expect(Math.abs(a!.width - b!.width)).toBeLessThan(1);
     expect(Math.abs(a!.height - b!.height)).toBeLessThan(1);
@@ -130,5 +134,37 @@ test.describe('主题设计器三场景预览', () => {
     } else {
       expect(Math.abs(a!.x - b!.x)).toBeLessThan(1);
     }
+  });
+
+  /*
+   * 加减按钮曾经只有 15px 高，摆在 42px 的输入框里上下各贴一边，中间空出一条缝。
+   * 现在两个按钮各占一半首尾相接，并且整体让开那 1px 边框——压上去就会把输入框
+   * 右侧那段圆角边框盖掉。这里量的就是这两件事。
+   */
+  test('数值输入的加减按钮首尾相接，且不压住输入框边框', async ({ page }) => {
+    const dialog = page.locator('.theme-designer-dialog');
+    const typography = dialog.locator('details').filter({ hasText: '字体与排版' });
+    await typography.locator('summary').click();
+    const field = typography.locator('.setting-field', { hasText: '正文行高' });
+    const [box, increase, decrease] = await Promise.all([
+      field.locator('.el-input__wrapper').boundingBox(),
+      field.locator('.el-input-number__increase').boundingBox(),
+      field.locator('.el-input-number__decrease').boundingBox(),
+    ]);
+    expect(box).not.toBeNull(); expect(increase).not.toBeNull(); expect(decrease).not.toBeNull();
+    // 上按钮的下边缘就是下按钮的上边缘，中间没有缝
+    expect(Math.abs(increase!.y + increase!.height - decrease!.y)).toBeLessThan(1);
+    // 三边都正好让开 1px 边框：压住了会盖掉圆角，留多了又会露出输入框的底色
+    const inset = [
+      increase!.y - box!.y,
+      box!.y + box!.height - (decrease!.y + decrease!.height),
+      box!.x + box!.width - (decrease!.x + decrease!.width),
+    ];
+    for (const gap of inset) {
+      expect(gap).toBeGreaterThanOrEqual(0.5);
+      expect(gap).toBeLessThanOrEqual(2);
+    }
+    // 两个按钮加起来填满边框以内的高度
+    expect(increase!.height + decrease!.height).toBeGreaterThanOrEqual(box!.height - 3);
   });
 });

@@ -46,6 +46,7 @@ Java 21 · Spring Boot 3.5 · MyBatis-Plus · PostgreSQL + Flyway · MinIO · Sp
 - 模型是 `effective = deepMerge(官方 definition, 用户稀疏 override)`。builtin 的 `definition_json` 不得被写回，改动只进 `override_json`；还原默认就是清空 override，不许在代码里重建官方 JSON。
 - 设计器只有首页、日记、地图三个固定 Fixture，预览只挂 Showcase 路由，不混入真实业务数据。
 - 不新增 Theme Token，除非明确要求。
+- **左边配置、右边预览的界面一律整屏**（主题设计器、图片区块编辑器都是），PC 和手机都不用居中弹窗：那圈留白让出去的宽度，正是设置列和预览最缺的。
 - **图片长什么样不归主题管**：宽度、相框、圆角、比例、图片组排版全部只在日记的图片设置弹窗里，主题侧对应的 token 已在 V30 删除。不要再往主题里加图片默认值——两套并存时「改了没反应」永远解释不清。
 
 **地图与坐标**

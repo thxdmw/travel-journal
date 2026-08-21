@@ -127,33 +127,21 @@ public class ThemePresetService {
             // 明暗基调。影响阴影强度、地图瓦片和图片压暗策略，不只是换颜色
             Token.option("colors", "scheme", "light", "light", "dark"),
 
-            // —— 字体与排版 ——
+            // —— 字体与排版。字号、字重、段间距不开放：正文的可读性不该由主题去赌，
+            // 那三项调错一次整站的字就散了，而调对了和默认值几乎看不出区别 ——
             Token.option("typography", "headingFamily", "serif", "serif", "sans", "rounded", "mono"),
             Token.option("typography", "bodyFamily", "sans", "serif", "sans", "rounded", "mono"),
-            Token.number("typography", "bodySize", 14, 22, 16),
             Token.number("typography", "lineHeight", 1.4, 2.4, 1.8),
             Token.number("typography", "letterSpacing", -0.02, 0.24, 0),
-            Token.number("typography", "headingWeight", 400, 900, 700),
-            Token.number("typography", "paragraphSpacing", 0.6, 2.4, 1.2),
             Token.option("typography", "headingStyle", "plain", "plain", "underline", "bar", "serif-caps", "outline"),
 
-            // —— 形状 ——
+            // —— 形状。描边粗细同理：0 和 4px 之间没有一档是好看的 ——
             Token.number("shape", "cardRadius", 0, 32, 12),
             Token.number("shape", "buttonRadius", 0, 32, 8),
-            Token.number("shape", "borderWidth", 0, 4, 1),
 
-            // —— 页面布局 ——
-            Token.number("layout", "contentWidth", 960, 1600, 1200),
-            Token.number("layout", "articleWidth", 600, 1000, 760),
-            Token.number("layout", "sectionGap", 0.6, 2.2, 1),
-            Token.option("layout", "density", "comfortable", "compact", "comfortable", "relaxed"),
-            Token.option("layout", "homeLayout", "editorial", "classic", "editorial", "bento", "magazine", "timeline", "masonry"),
-            Token.option("layout", "journalLayout", "single", "single", "wide", "immersive", "scrapbook"),
-
-            // —— 卡片风格 ——
-            Token.option("card", "style", "border", "flat", "border", "shadow", "glass", "paper", "polaroid", "film"),
-            Token.number("card", "opacity", 0.4, 1, 1),
-            Token.number("card", "blur", 0, 24, 0),
+            // —— 页面布局。只留「版式」这一个选择，宽度和疏密交给响应式排版自己算 ——
+            Token.option("layout", "homeLayout", "editorial", "classic", "editorial"),
+            Token.option("layout", "journalLayout", "single", "single", "wide"),
 
             // —— 页面背景 ——
             Token.option("background", "style", "solid", "solid", "gradient", "image"),

@@ -71,7 +71,6 @@ export interface ThemeDefinition {
   typography?: {
     headingFamily?: FontFamilyName
     bodyFamily?: FontFamilyName
-    bodySize?: number
     lineHeight?: number
     [key: string]: unknown
   }
@@ -81,9 +80,6 @@ export interface ThemeDefinition {
     [key: string]: unknown
   }
   layout?: {
-    contentWidth?: number
-    articleWidth?: number
-    density?: string
     homeLayout?: string
     [key: string]: unknown
   }

@@ -208,12 +208,22 @@
 .sticker-row { width:100%; display:grid; grid-template-columns:32px minmax(0,1fr) minmax(0,1fr) 28px; align-items:center; gap:8px; }
 .sticker-row img { width:32px; height:32px; object-fit:contain; }
 .sticker-row .danger { border:0; background:none; color:var(--tj-danger); font-size:18px; cursor:pointer; }
-.theme-designer-dialog { max-height:94vh; margin:3vh auto!important; display:flex; flex-direction:column; }
+/*
+ * 主题设计器：整屏。
+ *
+ * 用的是 el-dialog 的 fullscreen，所以宽高由它自己写在行内样式上，这里只负责
+ * 把内部改成「头 + 可伸缩主体 + 底」的三段式，并让主体自己不滚——真正滚的是
+ * 左边那一列设置，预览要一直待在视野里。
+ */
+/* is-fullscreen 自带 overflow:auto，这里改回 hidden：真正该滚的是左边那列设置，
+   整个弹窗一起滚会把预览也带走 */
+.theme-designer-dialog { display:flex; flex-direction:column; overflow:hidden; margin:0!important; border-radius:0!important; }
 .theme-designer-dialog .el-dialog__header,.theme-designer-dialog .el-dialog__footer { flex:0 0 auto; }
 .theme-designer-dialog .el-dialog__body { flex:1; min-height:0; padding-top:8px; overflow:hidden; }
 .theme-designer-dialog .el-dialog__body { scrollbar-width:none; }
 .theme-designer-dialog .el-dialog__body::-webkit-scrollbar { display:none; }
-.theme-designer { height:min(72vh,760px); min-height:560px; display:grid; grid-template-columns:minmax(360px,430px) 1fr; gap:18px; }
+.theme-designer-dialog .el-dialog__footer { padding-bottom:calc(var(--el-dialog-padding-primary,20px) + env(safe-area-inset-bottom)); }
+.theme-designer { height:100%; min-height:0; display:grid; grid-template-columns:minmax(360px,460px) 1fr; gap:18px; }
 .theme-controls { min-height:0; overflow:auto; padding:2px 8px 18px 2px; scrollbar-width:thin; }
 .theme-history { position:sticky; top:0; z-index:2; padding:5px 0 10px; background:var(--tj-surface); }
 /*
@@ -266,7 +276,26 @@
 .setting-field > .el-select,.setting-field > .el-input-number { grid-row:3; align-self:end; height:42px; }
 .setting-field > .el-select .el-select__wrapper,.setting-field > .el-input-number .el-input__wrapper { width:100%; min-height:42px; height:42px; box-sizing:border-box; }
 .setting-field > .el-input-number .el-input__inner { height:40px; line-height:40px; padding-top:0; padding-bottom:0; text-align:center; }
-.setting-field > .el-input-number .el-input-number__increase,.setting-field > .el-input-number .el-input-number__decrease { width:38px; }
+/*
+ * 加减按钮：贴着输入框右边，圆角和输入框严丝合缝，中间不留缝。
+ *
+ * 三件事要同时成立，缺一样都会看出来：
+ *
+ * 1. 高度各占一半。Element 默认给的是 15px 加 top:1px / bottom:1px，42px 高的输入框
+ *    里两个按钮中间就空出 10px。改成各 20px 首尾相接，正好填满边框以内那 40px。
+ * 2. 让开那 1px 边框。按钮 right/top 都从 1px 起，压上去就会把那一段圆角边框盖掉,
+ *    看着就是「按钮覆盖了输入框的圆角」。
+ * 3. 圆角比输入框小 1px。按钮嵌在边框内侧，它要贴合的是内圆角而不是外圆角，
+ *    直接照抄 --el-border-radius-base 会大出一圈，从边框弧线里探出来。
+ *
+ * 外层再加一道 overflow 裁剪兜底：圆角开到胶囊那么大时，按钮自己的圆角会被浏览器
+ * 按高度缩放（半径超过盒子高度时的固有行为），剩下的那点误差由裁剪吃掉。
+ */
+.setting-field > .el-input-number { overflow:hidden; border-radius:var(--el-border-radius-base); }
+.setting-field > .el-input-number .el-input-number__increase,
+.setting-field > .el-input-number .el-input-number__decrease { width:38px; right:1px; height:20px; line-height:20px; bottom:auto; }
+.setting-field > .el-input-number .el-input-number__increase { top:1px; border-radius:0 calc(var(--el-border-radius-base) - 1px) 0 0; }
+.setting-field > .el-input-number .el-input-number__decrease { top:21px; border-radius:0 0 calc(var(--el-border-radius-base) - 1px) 0; }
 .setting-field > .el-switch,.setting-field > .el-color-picker { grid-row:3; align-self:center; justify-self:start; }
 /* 每个设置项标出「作用在哪」和「为什么现在改不了」，不让用户瞎猜 */
 .setting-field-head { grid-row:1; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:8px; min-height:44px; font-weight:700; }
@@ -289,7 +318,6 @@
 .theme-live-scenes button { padding:5px 12px; border:1px solid var(--tj-border); border-radius:99px; color:var(--tj-muted); background:transparent; font-size:13px; }
 .theme-live-scenes button.active { color:white; border-color:var(--tj-primary); background:var(--tj-primary); }
 .theme-frame-wrap { flex:1; min-height:0; display:flex; justify-content:center; overflow:hidden; padding:12px; }
-[data-density="compact"] .panel-pad { padding:17px; }
 .profile-grid { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(340px,1.2fr); gap:20px; max-width:960px; }
 /*
  * 同一行的两张卡片要一样高。
@@ -344,7 +372,6 @@
   .page-head { align-items:stretch; flex-direction:column; }
   .theme-page-actions { width:100%; }
   .theme-page-actions .el-button { flex:1; margin:0; }
-  .theme-designer-dialog { width:100%!important; height:100dvh; max-height:none; margin:0!important; border-radius:0!important; }
   .theme-designer-dialog .el-dialog__body { padding:6px 12px; overflow:auto; }
   .theme-designer { height:auto; min-height:0; display:flex; flex-direction:column; }
   .theme-controls { order:2; max-height:none; overflow:visible; }

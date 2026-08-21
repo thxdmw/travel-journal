@@ -4,8 +4,8 @@
    后端 ThemePresetService.SCHEMA 是可调项的唯一真相来源，theme.js 按统一约定
    把它铺成 CSS 变量和 <html> 上的 data-* 属性：
 
-     数值  ->  --tj-{section}-{key}   例：--tj-card-opacity、--tj-background-intensity
-     枚举  ->  data-{section}-{key}   例：data-card-style="glass"
+     数值  ->  --tj-{section}-{key}   例：--tj-background-intensity
+     枚举  ->  data-{section}-{key}   例：data-background-texture="paper"
      布尔  ->  data-{section}-{key}="on|off"
 
    本文件只负责「属性 -> 样式」这一层，不含任何硬编码的主题配色。
@@ -14,17 +14,9 @@
 
 /* ---------------------------------------------------------------- 派生变量 */
 :root {
-  --tj-card-opacity: 1;
-  --tj-card-blur: 0px;
-  --tj-shape-border-width: 1px;
-  --tj-layout-section-gap: 1;
   --tj-background-intensity: .4;
-  --tj-typography-heading-weight: 700;
   --tj-typography-letter-spacing: 0em;
-  --tj-typography-paragraph-spacing: 1.2em;
   --tj-map-route-width: 3px;
-  /* 卡片底色：把不透明度并进颜色，玻璃/胶片风格才能透出背景 */
-  --tj-card-bg: color-mix(in srgb, var(--tj-surface) calc(var(--tj-card-opacity) * 100%), transparent);
 }
 
 /* ================================================================ 明暗基调 */
@@ -50,19 +42,22 @@
     var(--tj-gradient-to, var(--tj-surface-soft)));
   background-attachment: fixed;
 }
+/*
+ * 背景图。图上直接放正文会读不清，所以还要垫一层跟随主题的半透明底。
+ *
+ * 那层底色直接叠在同一个 background 里，不另开伪元素：body::before 已经被
+ * 「页面特效 · 暗角」占着了，两边抢同一个伪元素的结果是同时开启时只剩一个——
+ * 而恰好是遮罩输掉，于是背景图上的正文变得没法读。
+ */
 [data-background-style="image"] body {
-  background-image: var(--tj-bg-image);
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--tj-bg) calc((1 - var(--tj-background-intensity)) * 100%), transparent),
+      color-mix(in srgb, var(--tj-bg) calc((1 - var(--tj-background-intensity)) * 100%), transparent)),
+    var(--tj-bg-image);
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
-}
-/* 背景图上直接放正文会读不清，垫一层跟随主题的半透明底 */
-[data-background-style="image"] body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: color-mix(in srgb, var(--tj-bg) calc((1 - var(--tj-background-intensity)) * 100%), transparent);
 }
 
 /* 纹理层。统一用一个伪元素承载，强度由 --tj-background-intensity 控制 */
@@ -107,12 +102,17 @@
  */
 [data-background-texture]:not([data-background-texture="none"]) .public-shell { position: relative; z-index: 1; }
 
-/* ================================================================ 卡片风格 */
-/* 站内所有「面板类」元素共用一组变量，切换风格时一起变 */
+/* ================================================================ 面板底色 */
 /*
+ * 站内所有「面板类」元素统一用内容背景色。
+ *
+ * 这里曾经是一整组「卡片风格」（玻璃、拍立得、胶片……），随描边粗细、内容密度那批
+ * 一起下线了：七种外观里有六种只在某几个配色下站得住，换一套颜色就变形，
+ * 而它们又都不是主题真正的性格所在。
+ *
  * 注意：.trip-banner 不在这一组里。
- * 它是深色的 hero 区块，文字是白的（见 public.css）；一旦套上浅色的
- * --tj-card-bg，就变成浅底白字——标题整个隐形，页面顶部看起来像空了一大块。
+ * 它是深色的 hero 区块，文字是白的（见 public.css）；一旦套上浅色的内容背景，
+ * 就变成浅底白字——标题整个隐形，页面顶部看起来像空了一大块。
  * banner 的配色由 public.css 单独负责。
  */
 .journal-card,
@@ -120,80 +120,10 @@
 .stats-panel,
 .map-filter-bar,
 .chip,
-.stat {
-  border-width: var(--tj-shape-border-width);
-  background: var(--tj-card-bg);
-}
-/* 圆角、边框这些形状 token 仍然要跟随主题，只是不改背景 */
-.trip-banner { border-width: var(--tj-shape-border-width); }
-
-[data-card-style="flat"] .journal-card,
-[data-card-style="flat"] .map-panel,
-[data-card-style="flat"] .stats-panel,
-[data-card-style="flat"] .stat { border-color: transparent; box-shadow: none; }
-
-[data-card-style="shadow"] .journal-card,
-[data-card-style="shadow"] .map-panel,
-[data-card-style="shadow"] .stats-panel,
-[data-card-style="shadow"] .stat { border-color: transparent; box-shadow: var(--tj-shadow); }
-
-[data-card-style="glass"] .journal-card,
-[data-card-style="glass"] .map-panel,
-[data-card-style="glass"] .stats-panel,
-[data-card-style="glass"] .stat {
-  border-color: color-mix(in srgb, var(--tj-surface) 60%, transparent);
-  background: color-mix(in srgb, var(--tj-surface) calc(var(--tj-card-opacity) * 100%), transparent);
-  backdrop-filter: blur(max(var(--tj-card-blur), 10px)) saturate(1.3);
-  box-shadow: var(--tj-shadow-soft);
-}
-
-[data-card-style="paper"] .journal-card,
-[data-card-style="paper"] .map-panel,
-[data-card-style="paper"] .stats-panel {
-  border-color: var(--tj-border);
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--tj-primary) 12%, transparent);
-}
-
-[data-card-style="polaroid"] .journal-card {
-  padding: 10px 10px 0;
-  border-color: transparent;
-  background: color-mix(in srgb, white 88%, var(--tj-surface));
-  box-shadow: 0 10px 26px color-mix(in srgb, var(--tj-primary) 22%, transparent);
-}
-[data-card-style="polaroid"] .journal-card .card-photo { border-radius: 2px; }
-[data-card-style="polaroid"] .journal-card .card-body { padding: 16px 10px 22px; }
-
-[data-card-style="film"] .journal-card {
-  border-color: transparent;
-  background: #17181a;
-  box-shadow: var(--tj-shadow);
-}
-[data-card-style="film"] .journal-card .card-body h3 { color: #f3efe6; }
-[data-card-style="film"] .journal-card .card-body p,
-[data-card-style="film"] .journal-card .card-meta { color: #a9a49a; }
-/* 胶片卡片上下留出齿孔 */
-[data-card-style="film"] .journal-card .card-photo {
-  border-radius: 0;
-  border-top: 9px solid transparent;
-  border-bottom: 9px solid transparent;
-  background-image:
-    repeating-linear-gradient(90deg, #2a2b2d 0 5px, transparent 5px 12px);
-  background-position: top, bottom;
-  background-repeat: repeat-x;
-  background-size: 12px 7px;
-  background-origin: border-box;
-  background-clip: border-box;
-}
+.stat { background: var(--tj-surface); }
 
 /* ============================================================ 字体与排版 */
 body { letter-spacing: var(--tj-typography-letter-spacing); }
-.section-title,
-.card-body h3,
-.page-title h1,
-.hero h1,
-.journal-document h2,
-.journal-document h3 { font-weight: var(--tj-typography-heading-weight); }
-.journal-document p { margin-bottom: var(--tj-typography-paragraph-spacing); }
 
 [data-typography-heading-style="underline"] .section-title,
 [data-typography-heading-style="underline"] .journal-document h2 {
@@ -220,69 +150,18 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 [data-typography-heading-style="plain"] .section-title::before { display: none; }
 
 /* ================================================================ 页面布局 */
-.section { margin-top: calc(58px * var(--tj-layout-section-gap)); }
+/*
+ * 首页两种版式（整齐卡片 / 旅行杂志），日记两种（标准单栏 / 宽栏），没有别的。
+ *
+ * Bento、杂志栅格、时间轴、瀑布流、沉浸式、手账式都下线了：一个人的旅行日记
+ * 首页最多十来张卡片，这些版式要么在这个数量下看不出区别，要么只有恰好凑够
+ * 卡片数时才成立。「整齐卡片」是这里的默认，不需要额外规则；「旅行杂志」
+ * 只是让第一篇占两列，那条规则在 public.css 里。
+ */
+.section { margin-top: 58px; }
 
-/* 首页文章区的排布方式 */
-[data-layout-home-layout="bento"] .card-grid {
-  grid-template-columns: repeat(4, 1fr);
-  grid-auto-rows: minmax(150px, auto);
-}
-[data-layout-home-layout="bento"] .card-grid > :nth-child(1) { grid-column: span 2; grid-row: span 2; }
-[data-layout-home-layout="bento"] .card-grid > :nth-child(4) { grid-column: span 2; }
-[data-layout-home-layout="bento"] .card-grid > :nth-child(1) .card-photo { aspect-ratio: 4/3; height: auto; }
-
-[data-layout-home-layout="magazine"] .card-grid { grid-template-columns: repeat(6, 1fr); }
-[data-layout-home-layout="magazine"] .card-grid > * { grid-column: span 2; }
-[data-layout-home-layout="magazine"] .card-grid > :nth-child(1) { grid-column: span 4; }
-[data-layout-home-layout="magazine"] .card-grid > :nth-child(2) { grid-column: span 2; }
-
-[data-layout-home-layout="masonry"] .card-grid {
-  display: block;
-  columns: 3;
-  column-gap: 22px;
-}
-[data-layout-home-layout="masonry"] .card-grid > * {
-  margin-bottom: 22px;
-  break-inside: avoid;
-}
-
-/* 时间轴：左侧一条竖线，卡片挂在上面 */
-[data-layout-home-layout="timeline"] .card-grid {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 26px;
-  padding-left: 34px;
-}
-[data-layout-home-layout="timeline"] .card-grid::before {
-  content: "";
-  position: absolute;
-  left: 9px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  background: color-mix(in srgb, var(--tj-accent) 45%, transparent);
-}
-[data-layout-home-layout="timeline"] .card-grid > * { position: relative; }
-[data-layout-home-layout="timeline"] .card-grid > *::before {
-  content: "";
-  position: absolute;
-  left: -30px;
-  top: 26px;
-  width: 12px;
-  height: 12px;
-  border: 3px solid var(--tj-surface);
-  border-radius: 50%;
-  background: var(--tj-accent);
-}
-
-/* 日记正文的宽度策略 */
+/* 日记正文的宽度策略。单栏是默认，只有宽栏需要一条规则 */
 [data-layout-journal-layout="wide"] .article { width: min(var(--tj-content-width, 1200px), calc(100% - 40px)); }
-[data-layout-journal-layout="immersive"] .article-head { min-height: 62vh; display: flex; flex-direction: column; justify-content: flex-end; }
-[data-layout-journal-layout="immersive"] .journal-document { width:min(var(--tj-article-width,760px),100%); margin:0 auto; }
-[data-layout-journal-layout="scrapbook"] .journal-document { font-family: var(--tj-serif); }
-[data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(odd) { transform: rotate(-1.1deg); }
-[data-layout-journal-layout="scrapbook"] .journal-figure:nth-of-type(even) { transform: rotate(.9deg); }
 
 /* ================================================================ 动效系统 */
 :root { --tj-motion-scale: 1; --tj-motion-time: 220ms; }
@@ -411,20 +290,7 @@ body { letter-spacing: var(--tj-typography-letter-spacing); }
 [data-map-marker-style="photo"] .route-marker { width:34px; height:34px; border-width:4px; font-size:13px; }
 
 /* ================================================================ 响应式 */
-@media (max-width: 900px) {
-  [data-layout-home-layout="bento"] .card-grid,
-  [data-layout-home-layout="magazine"] .card-grid { grid-template-columns: repeat(2, 1fr); }
-  [data-layout-home-layout="bento"] .card-grid > :nth-child(1),
-  [data-layout-home-layout="bento"] .card-grid > :nth-child(4),
-  [data-layout-home-layout="magazine"] .card-grid > * { grid-column: span 2; grid-row: auto; }
-  [data-layout-home-layout="masonry"] .card-grid { columns: 2; }
-}
 @media (max-width: 700px) {
+  /* 手机上「宽栏」和单栏本来就一样宽，让它回到满宽，别再留 40px 的边 */
   [data-layout-journal-layout="wide"] .article { width:100%; }
-  [data-layout-home-layout="bento"] .card-grid,
-  [data-layout-home-layout="magazine"] .card-grid { grid-template-columns: 1fr; }
-  [data-layout-home-layout="bento"] .card-grid > *,
-  [data-layout-home-layout="magazine"] .card-grid > * { grid-column: span 1; }
-  [data-layout-home-layout="masonry"] .card-grid { columns: 1; }
-  [data-layout-home-layout="timeline"] .card-grid { padding-left: 26px; }
 }

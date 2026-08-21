@@ -7,9 +7,14 @@ img { display: block; max-width: 100%; }
 button, input, textarea { font: inherit; }
 [v-cloak] { display: none; }
 
-.public-shell { min-height: 100vh; background:
-  radial-gradient(circle at 4% 4%, var(--tj-bg-glow), transparent 25rem),
-  var(--tj-bg); }
+/*
+ * 页面底色归 body 管，这里只铺左上角那团光晕。
+ *
+ * 这一层曾经在光晕后面还垫了一句 var(--tj-bg)。它铺满整屏又完全不透明，于是主题里
+ * 「页面背景」整组设置——渐变、背景图、叠加纹理——全都画在 body 上却被它盖得一干二净，
+ * 调了看不出任何变化。底色只该有一层，别在这里再垫一层。
+ */
+.public-shell { min-height: 100vh; background: radial-gradient(circle at 4% 4%, var(--tj-bg-glow), transparent 25rem); }
 .public-header { position: sticky; top: 0; z-index: 1200; border-bottom: 1px solid rgba(230,218,200,.85);
   background: color-mix(in srgb,var(--tj-bg) 92%,transparent); backdrop-filter: blur(14px); }
 .header-inner { position:relative; width: min(var(--tj-content-width,1200px), calc(100% - 40px)); height: 76px; margin: auto; display: flex; align-items: center; gap: 44px; }
@@ -190,10 +195,6 @@ button, input, textarea { font: inherit; }
 .loading { min-height:300px; display:grid; place-items:center; color:var(--tj-muted); }
 .public-footer { padding:34px 20px; border-top:1px solid var(--tj-border); color:var(--tj-muted); text-align:center; font-size:13px; }
 
-[data-density="compact"] .section { margin-top:42px; }
-[data-density="compact"] .card-body { padding:15px; }
-[data-density="relaxed"] .section { margin-top:72px; }
-[data-density="relaxed"] .card-grid { gap:28px; }
 [data-home-layout="editorial"] .home-page .card-grid .journal-card:first-child { grid-column:span 2; }
 [data-home-layout="editorial"] .home-page .card-grid .journal-card:first-child .card-photo { aspect-ratio:2/1; }
 [data-motion="none"] *,[data-motion="none"] *::before,[data-motion="none"] *::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }

@@ -42,12 +42,6 @@ export const COLOR_VARIABLES: Record<keyof Omit<ThemeColors, 'scheme'>, string> 
  */
 export const NUMERIC_UNITS: Record<string, string> = {
   'typography-letterSpacing': 'em',
-  'typography-headingWeight': '',
-  'typography-paragraphSpacing': 'em',
-  'shape-borderWidth': 'px',
-  'layout-sectionGap': '',
-  'card-opacity': '',
-  'card-blur': 'px',
   'background-intensity': '',
   'map-routeWidth': 'px',
   'decorations-opacity': '',
@@ -68,10 +62,7 @@ export const MANAGED_VARIABLES: string[] = [
   '--tj-button-radius',
   '--tj-serif',
   '--tj-sans',
-  '--tj-body-size',
   '--tj-body-line-height',
-  '--tj-content-width',
-  '--tj-article-width',
   '--el-color-primary',
   '--el-color-primary-dark-2',
   '--el-border-color',
@@ -104,7 +95,6 @@ export function fontStack(name: unknown, fallback: FontFamilyName): string {
  * 后面五个是 Theme Pack V2 新增的：装饰、分隔线、氛围、Block 皮肤和互动。
  */
 export const GENERIC_SECTIONS = [
-  'card',
   'background',
   'motion',
   'effects',
